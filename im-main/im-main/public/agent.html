@@ -1,0 +1,689 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>客服控制台</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="theme-dark">
+  <div class="container">
+    <div class="sidebar">
+      <div class="sidebar-top">
+        <input id="searchPhone" class="sidebar-search" placeholder="搜索手机号或姓名" />
+        <button id="loadBtn" class="sidebar-btn">搜索</button>
+      </div>
+      <div id="conversationList" class="conversation-list"></div>
+    </div>
+    <div class="main">
+      <div class="header">
+        <div class="user">
+          <img id="avatar" class="avatar" />
+          <div>
+            <div id="name" class="name"></div>
+            <div id="phone" class="phone"></div>
+          </div>
+        </div>
+        <div class="meta">
+          <span id="onlineBadge" class="badge"></span>
+          <span id="readBadge" class="badge"></span>
+        </div>
+      </div>
+      <div id="messages" class="messages"></div>
+      <div class="composer">
+        <button id="plusBtn" class="icon-btn">+</button>
+        <textarea id="messageInput" placeholder="输入回复" rows="1"></textarea>
+        <button id="emojiBtn" class="icon-btn">🙂</button>
+        <button id="sendBtn">发送</button>
+        <div id="plusMenu" class="popup-menu hidden">
+          <label class="popup-item">
+            <input id="photoInput" type="file" accept="image/*" class="hidden" />
+            上传照片
+          </label>
+        </div>
+        <div id="emojiMenu" class="popup-menu hidden">
+          <div class="emoji-item">😀</div>
+          <div class="emoji-item">👍</div>
+          <div class="emoji-item">❤️</div>
+          <div class="emoji-item">🎉</div>
+          <div class="emoji-item">🤔</div>
+        </div>
+      </div>
+    </div>
+    <div id="rightbar" class="rightbar hidden">
+      <div class="rightbar-title">备注</div>
+      <div class="note-editor">
+        <textarea id="noteInput" placeholder="输入备注内容" rows="3"></textarea>
+        <button id="saveNoteBtn" type="button">保存备注</button>
+      </div>
+      <div class="note-list">
+        <div class="note-card" id="noteInfo">
+          <div class="note-card-head">客户信息</div>
+          <div class="note-card-body">
+            <div>在线：<span id="rbOnline">-</span></div>
+            <div>已读：<span id="rbRead">-</span></div>
+            <div>手机号：<span id="rbPhone">-</span></div>
+            <div>昵称：<span id="rbName">-</span></div>
+            <div>国家：<span id="rbCountry">-</span></div>
+          </div>
+        </div>
+        <div id="noteCards"></div>
+      </div>
+    </div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const qs = new URLSearchParams(location.search)
+    const qsToken = qs.get('token') || ''
+    const lsToken = (typeof localStorage !== 'undefined' ? (localStorage.getItem('im:token') || '') : '')
+    const token = qsToken || lsToken
+    const apiBase = qs.get('api') || ''
+    const wsBase = qs.get('ws') || ''
+    const wsPath = qs.get('wspath') || ''
+    const socket = wsBase ? io(wsBase, { auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }) : io({ auth: { token }, query: { token }, path: (wsPath || '/socket.io/') })
+    const originalFetch = window.fetch.bind(window)
+    window.fetch = (input, init = {}) => {
+      try {
+        let url = typeof input === 'string' ? input : (input && input.url ? input.url : '')
+        if (url && url.startsWith('/api')) {
+          const headers = { ...(init.headers || {}), ...(token ? { 'x-im-token': token } : {}) }
+          if (token) {
+            const hasQuery = url.includes('?')
+            const hasTokenParam = /[?&](token|x-im-token)=/.test(url)
+            if (!hasTokenParam) url = url + (hasQuery ? '&' : '?') + 'token=' + encodeURIComponent(token)
+          }
+          if (apiBase) {
+            const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase
+            url = base + url
+          }
+          const req = (typeof input === 'string') ? url : new Request(url, input)
+          return originalFetch(req, { ...init, headers })
+        }
+      } catch {}
+      return originalFetch(input, init)
+    }
+    function showTokenBar() {
+      const exist = document.getElementById('tokenBar')
+      if (exist) { exist.style.display = 'flex'; return }
+      const bar = document.createElement('div')
+      bar.id = 'tokenBar'
+      bar.style.position = 'fixed'
+      bar.style.top = '8px'
+      bar.style.right = '8px'
+      bar.style.zIndex = '2000'
+      bar.style.display = 'flex'
+      bar.style.gap = '8px'
+      const input = document.createElement('input')
+      input.placeholder = '输入IM令牌'
+      input.style.width = '220px'
+      input.style.padding = '6px 8px'
+      input.style.borderRadius = '6px'
+      const btn = document.createElement('button')
+      btn.textContent = '设置令牌'
+      btn.onclick = () => { const v = input.value.trim(); if (!v) return; try { localStorage.setItem('im:token', v) } catch {}; location.reload() }
+      bar.appendChild(input)
+      bar.appendChild(btn)
+      document.body.appendChild(bar)
+    }
+    if (!token) { showTokenBar() }
+    const messagesEl = document.getElementById('messages')
+    const sendBtn = document.getElementById('sendBtn')
+    const messageInput = document.getElementById('messageInput')
+    const composerEl = document.querySelector('.composer')
+    const searchPhone = document.getElementById('searchPhone')
+    const loadBtn = document.getElementById('loadBtn')
+    const phoneEl = document.getElementById('phone')
+    const nameEl = document.getElementById('name')
+    const avatarEl = document.getElementById('avatar')
+    const listEl = document.getElementById('conversationList')
+    const onlineBadge = document.getElementById('onlineBadge')
+    const readBadge = document.getElementById('readBadge')
+    const noteInput = document.getElementById('noteInput')
+    const saveNoteBtn = document.getElementById('saveNoteBtn')
+    const rightbar = document.getElementById('rightbar')
+    const rbOnline = document.getElementById('rbOnline')
+    const rbRead = document.getElementById('rbRead')
+    const rbPhone = document.getElementById('rbPhone')
+    const rbName = document.getElementById('rbName')
+    const rbCountry = document.getElementById('rbCountry')
+    const noteCards = document.getElementById('noteCards')
+    const emojiBtn = document.getElementById('emojiBtn')
+    const emojiMenu = document.getElementById('emojiMenu')
+    const plusBtn = document.getElementById('plusBtn')
+    const plusMenu = document.getElementById('plusMenu')
+    const photoInput = document.getElementById('photoInput')
+    let currentPhone = null
+    let conversations = []
+    let msgs = []
+    let replyToId = null
+    let lastAgentTs = 0
+    const menuOverlay = document.getElementById('menuOverlay') || (() => { const o = document.createElement('div'); o.id='menuOverlay'; o.className='menu-overlay hidden'; document.body.appendChild(o); return o })()
+    const previewOverlay = document.getElementById('previewOverlay') || (() => { const o = document.createElement('div'); o.id='previewOverlay'; o.className='preview-overlay hidden'; const b=document.createElement('div'); b.className='preview-box'; const i=document.createElement('img'); i.className='preview-image'; const a=document.createElement('div'); a.className='preview-actions'; const c=document.createElement('button'); c.textContent='取消'; const s=document.createElement('button'); s.textContent='发送图片'; a.appendChild(c); a.appendChild(s); b.appendChild(i); b.appendChild(a); o.appendChild(b); document.body.appendChild(o); o._img=i; o._send=s; o._cancel=c; return o })()
+    let autoScroll = false
+    const mo = new MutationObserver(() => { if (autoScroll) messagesEl.scrollTop = messagesEl.scrollHeight })
+    mo.observe(messagesEl, { childList: true })
+    function forceScrollBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight
+      requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight })
+      setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight }, 50)
+      setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight }, 150)
+      setTimeout(() => { messagesEl.scrollTop = messagesEl.scrollHeight }, 300)
+    }
+    messagesEl.addEventListener('scroll', () => {
+      const nearBottom = (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight) < 20
+      autoScroll = nearBottom
+    })
+    function getQuoteText(id) {
+      if (!id && id !== 0) return null
+      const sid = String(id)
+      const q = msgs.find(x => String(x.id) === sid)
+      if (q) return q.type === 'image' ? '图片' : (q.content || '')
+      const el = messagesEl.querySelector('[data-id="' + sid + '"]')
+      if (el) return el.querySelector('.msg-image') ? '图片' : (el.textContent || '')
+      return null
+    }
+    composerEl.classList.add('hidden')
+    const replyPreview = document.createElement('div')
+    replyPreview.className = 'reply-preview hidden'
+    const replyText = document.createElement('div')
+    replyText.className = 'reply-preview-text'
+    const replyCancel = document.createElement('button')
+    replyCancel.className = 'reply-preview-cancel'
+    replyCancel.textContent = '取消引用'
+    replyPreview.appendChild(replyText)
+    replyPreview.appendChild(replyCancel)
+    composerEl.insertBefore(replyPreview, messageInput)
+    replyCancel.onclick = () => { replyToId = null; replyPreview.classList.add('hidden'); replyText.textContent = '' }
+    function setReply(m) {
+      replyToId = m.id || null
+      replyText.textContent = m.type === 'image' ? '图片' : (m.content || '')
+      replyPreview.classList.remove('hidden')
+    }
+
+    function renderMessage(m) {
+      const div = document.createElement('div')
+      div.className = m.sender === 'agent' ? 'msg me' : 'msg other'
+      div.dataset.id = m.id || ''
+      if (m.reply_to != null) {
+        const rp = document.createElement('div')
+        rp.className = 'reply'
+        const qt = getQuoteText(m.reply_to)
+        if (qt) {
+          if (qt === '图片') {
+            const imgEl = messagesEl.querySelector('[data-id="' + m.reply_to + '"] .msg-image')
+            if (imgEl) {
+              const t = document.createElement('img')
+              t.className = 'reply-thumb'
+              t.src = imgEl.src
+              rp.appendChild(t)
+              const s = document.createElement('span')
+              s.textContent = '图片'
+              rp.appendChild(s)
+            } else {
+              rp.textContent = '图片'
+            }
+          } else {
+            rp.textContent = qt
+          }
+        } else {
+          rp.textContent = '引用消息'
+          fetch('/api/message/' + encodeURIComponent(m.reply_to)).then(r => r.ok ? r.json() : null).then(row => {
+            if (!row) return
+            if (row.type === 'image') {
+              rp.textContent = ''
+              const t = document.createElement('img')
+              t.className = 'reply-thumb'
+              t.src = row.content
+              rp.appendChild(t)
+              const s = document.createElement('span')
+              s.textContent = '图片'
+              rp.appendChild(s)
+            } else {
+              rp.textContent = row.content || ''
+            }
+          })
+        }
+        div.appendChild(rp)
+        rp.onclick = () => {
+          const el = messagesEl.querySelector('[data-id="' + m.reply_to + '"]')
+          if (!el) return
+          const top = Math.max(0, el.offsetTop - (messagesEl.clientHeight - el.offsetHeight) / 2)
+          messagesEl.scrollTo({ top, behavior: 'smooth' })
+          el.classList.add('flash')
+          setTimeout(() => { el.classList.remove('flash') }, 1200)
+        }
+      }
+      if (m.type === 'recall') {
+        div.textContent = '用户已撤回消息：' + (m.content || '')
+      } else if (m.type === 'image') {
+        const img = document.createElement('img')
+        img.src = m.content
+        img.className = 'msg-image'
+        img.onload = () => { if (autoScroll) forceScrollBottom() }
+        div.appendChild(img)
+      } else {
+        const txt = document.createElement('div')
+        txt.textContent = m.content
+        div.appendChild(txt)
+      }
+      messagesEl.appendChild(div)
+      if (autoScroll || m.sender === 'agent') {
+        forceScrollBottom()
+      }
+      if (m.sender === 'agent') lastAgentTs = m.ts || lastAgentTs
+      msgs.push(m)
+      div.oncontextmenu = (e) => { e.preventDefault(); openMsgMenu(e, m) }
+      let t
+      div.addEventListener('touchstart', () => { t = setTimeout(() => openMsgMenu({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, m), 500) })
+      const cancel = () => { if (t) clearTimeout(t) }
+      div.addEventListener('touchend', cancel)
+      div.addEventListener('touchmove', cancel)
+    }
+
+    let activeMsgMenu = null
+    function openMsgMenu(e, m) {
+      if (activeMsgMenu) { activeMsgMenu.remove(); activeMsgMenu = null }
+      const menu = document.createElement('div')
+      menu.className = 'msg-menu'
+      const mk = (text, cls, fn) => { const it = document.createElement('div'); it.className = 'msg-menu-item' + (cls ? ' ' + cls : ''); it.textContent = text; it.onclick = () => { fn(); closeMenu() }; return it }
+      const closeMenu = () => { if (activeMsgMenu) { activeMsgMenu.remove(); activeMsgMenu = null; menuOverlay.classList.add('hidden') } }
+      menu.appendChild(mk('回复', '', () => setReply(m)))
+      menu.appendChild(mk('复制', '', () => { const v = m.type === 'image' ? m.content : (m.content || ''); if (navigator.clipboard) navigator.clipboard.writeText(v) }))
+      if (m.sender === 'agent') menu.appendChild(mk('撤回', 'danger', () => { socket.emit('recall', { phone: currentPhone, id: m.id, by: 'agent' }) }))
+      menu.style.top = Math.min(e.clientY, window.innerHeight - 160) + 'px'
+      menu.style.left = Math.min(e.clientX, window.innerWidth - 160) + 'px'
+      document.body.appendChild(menu)
+      activeMsgMenu = menu
+      menuOverlay.classList.remove('hidden')
+      menuOverlay.onclick = closeMenu
+    }
+
+    function setPresence(online) {
+      onlineBadge.textContent = online ? '在线' : '离线'
+      onlineBadge.className = online ? 'badge online' : 'badge offline'
+      rbOnline.textContent = online ? '在线' : '离线'
+    }
+
+    function setReadStatus(isRead) {
+      readBadge.textContent = isRead ? '已读' : '未读'
+      readBadge.className = isRead ? 'badge read' : 'badge unread'
+      rbRead.textContent = isRead ? '已读' : '未读'
+    }
+
+    function renderList(data) {
+      listEl.innerHTML = ''
+      const arr = Array.isArray(data) ? data : []
+      arr.forEach(item => {
+        const row = document.createElement('div')
+        row.className = 'conversation-item'
+        const left = document.createElement('div')
+        left.className = 'ci-left'
+        const dot = document.createElement('span')
+        dot.className = item.online ? 'dot online' : 'dot offline'
+        const name = document.createElement('div')
+        name.className = 'ci-name'
+        name.textContent = item.name || item.phone
+        const meta = document.createElement('div')
+        meta.className = 'ci-meta'
+        meta.textContent = item.last_content || ''
+        left.appendChild(dot)
+        left.appendChild(name)
+        left.appendChild(meta)
+        const right = document.createElement('div')
+        right.className = 'ci-right'
+        const read = document.createElement('span')
+        const hasAgent = !!item.last_agent_ts
+        const isRead = hasAgent ? ((item.last_seen_ts || 0) >= item.last_agent_ts) : true
+        read.className = 'read-pill' + (isRead ? '' : ' unread')
+        read.textContent = isRead ? '已读' : '未读'
+        right.appendChild(read)
+        row.appendChild(left)
+        row.appendChild(right)
+        row.onclick = () => loadConversation(item.phone)
+        listEl.appendChild(row)
+      })
+    }
+
+    async function refreshConversations() {
+      try {
+        const r = await fetch('/api/conversations')
+        if (!r.ok) {
+          if (r.status === 401) showTokenBar()
+          conversations = []
+          renderList(conversations)
+          return
+        }
+        const data = await r.json()
+        conversations = Array.isArray(data) ? data : []
+        renderList(conversations)
+      } catch (_) {
+        conversations = []
+        renderList(conversations)
+      }
+    }
+
+    async function loadConversation(phone) {
+      currentPhone = phone
+      messagesEl.innerHTML = ''
+      msgs = []
+      socket.emit('join', { phone, role: 'agent' })
+      const user = await fetch('/api/user/' + encodeURIComponent(phone)).then(r => r.ok ? r.json() : null)
+      if (user) {
+        phoneEl.textContent = user.phone || ''
+        nameEl.textContent = user.name || ''
+        avatarEl.src = user.avatar || ''
+        avatarEl.style.display = user.avatar ? 'block' : 'none'
+      } else {
+        phoneEl.textContent = phone
+        nameEl.textContent = ''
+        avatarEl.style.display = 'none'
+      }
+      const note = await fetch('/api/note/' + encodeURIComponent(phone)).then(r => r.json())
+      noteInput.value = ''
+      const notes = await fetch('/api/notes/' + encodeURIComponent(phone)).then(r => r.json())
+      renderNoteCards(notes)
+      rbPhone.textContent = user && user.phone ? user.phone : phone
+      rbName.textContent = user && user.name ? user.name : ''
+      rbCountry.textContent = user && user.country ? user.country : ''
+      rightbar.classList.remove('hidden')
+      composerEl.classList.remove('hidden')
+      const history = await fetch('/api/messages/' + encodeURIComponent(phone)).then(r => r.json())
+      history.forEach(renderMessage)
+      autoScroll = true
+      forceScrollBottom()
+      setTimeout(forceScrollBottom, 500)
+      setTimeout(forceScrollBottom, 1000)
+      setTimeout(forceScrollBottom, 2500)
+      
+      const lastTs = history.length ? history[history.length - 1].ts : Date.now()
+      await fetch('/api/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, ts: lastTs }) })
+      setPresence(!!(conversations.find(x => x.phone === phone) || {}).online)
+      const lastAgent = [...history].reverse().find(m => m.sender === 'agent')
+      lastAgentTs = lastAgent ? lastAgent.ts : 0
+      const conv = conversations.find(x => x.phone === phone)
+      const seenTs = conv && conv.last_seen_ts ? conv.last_seen_ts : 0
+      setReadStatus(lastAgent ? lastAgent.ts <= seenTs : false)
+    }
+
+    loadBtn.onclick = () => {
+      const phone = searchPhone.value.trim()
+      if (!phone) return
+      loadConversation(phone)
+    }
+
+    function doSend() {
+      if (!currentPhone) {
+        const p = (phoneEl.textContent || '').trim() || (searchPhone.value || '').trim()
+        if (!p) return
+        currentPhone = p
+        socket.emit('join', { phone: currentPhone, role: 'agent' })
+      }
+      const content = messageInput.value.trim()
+      if (!content) return
+      socket.emit('message', { phone: currentPhone, sender: 'agent', content, reply_to: replyToId })
+      messageInput.value = ''
+      updateComposerHeight()
+      replyToId = null
+      replyPreview.classList.add('hidden')
+      forceScrollBottom()
+      setTimeout(forceScrollBottom, 100)
+    }
+    sendBtn.onclick = doSend
+
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia('(pointer: coarse)').matches
+    messageInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !isMobile && !e.shiftKey && !e.isComposing) {
+        e.preventDefault()
+        doSend()
+      }
+    })
+
+    function updateComposerHeight() {
+      const maxH = Math.floor(messagesEl.clientHeight / 3)
+      messageInput.style.height = 'auto'
+      const h = Math.min(messageInput.scrollHeight, maxH)
+      messageInput.style.height = h + 'px'
+      messageInput.style.overflowY = messageInput.scrollHeight > maxH ? 'auto' : 'hidden'
+    }
+    messageInput.addEventListener('input', updateComposerHeight)
+    window.addEventListener('resize', updateComposerHeight)
+    messageInput.addEventListener('paste', e => {
+      const cd = e.clipboardData
+      if (!cd) return
+      const item = Array.from(cd.items || []).find(x => x.type && x.type.indexOf('image/') === 0)
+      const file = item && item.getAsFile ? item.getAsFile() : (cd.files && cd.files[0])
+      if (!file) return
+      if (file.size > 5 * 1024 * 1024 || !/^image\//.test(file.type)) return
+      const url = URL.createObjectURL(file)
+      previewOverlay._img.src = url
+      previewOverlay.classList.remove('hidden')
+      const close = () => { previewOverlay.classList.add('hidden'); URL.revokeObjectURL(url) }
+      previewOverlay._cancel.onclick = close
+      previewOverlay._send.onclick = async () => {
+        if (!currentPhone) return close()
+        const fd = new FormData()
+        fd.append('file', file)
+        const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json())
+        if (r && r.url) socket.emit('message', { phone: currentPhone, sender: 'agent', content: r.url, type: 'image', reply_to: replyToId })
+        close()
+      }
+    })
+
+    emojiBtn.onclick = () => {
+      emojiMenu.classList.toggle('hidden')
+    }
+    emojiMenu.querySelectorAll('.emoji-item').forEach(el => {
+      el.onclick = () => {
+        messageInput.value += el.textContent
+        emojiMenu.classList.add('hidden')
+        messageInput.focus()
+      }
+    })
+    plusBtn.onclick = () => {
+      plusMenu.classList.toggle('hidden')
+    }
+    plusMenu.onclick = () => {
+      photoInput.click()
+    }
+    photoInput.onchange = async () => {
+      const f = photoInput.files[0]
+      if (!f || !currentPhone) return
+      if (f.size > 5 * 1024 * 1024) { photoInput.value = ''; return }
+      const fd = new FormData()
+      fd.append('file', f)
+      const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json())
+      if (r && r.url) {
+        socket.emit('message', { phone: currentPhone, sender: 'agent', content: r.url, type: 'image', reply_to: replyToId })
+      }
+      photoInput.value = ''
+      plusMenu.classList.add('hidden')
+      replyToId = null
+      replyPreview.classList.add('hidden')
+    }
+
+    socket.on('message', m => {
+      renderMessage(m)
+      if (!currentPhone || m.phone !== currentPhone) {
+        const i = conversations.findIndex(x => x.phone === m.phone)
+        if (i >= 0) {
+          if (m.sender === 'agent') conversations[i].last_agent_ts = m.ts
+          conversations[i].unread_count = (conversations[i].unread_count || 0) + (m.sender === 'customer' ? 1 : 0)
+        }
+        refreshConversations()
+      } else {
+        if (m.sender === 'agent') {
+          lastAgentTs = m.ts || lastAgentTs
+          setReadStatus(false)
+          const i = conversations.findIndex(x => x.phone === currentPhone)
+          if (i >= 0) { conversations[i].last_agent_ts = m.ts; conversations[i].last_content = m.type === 'image' ? '图片' : m.content; conversations[i].last_ts = m.ts; renderList(conversations) }
+          forceScrollBottom()
+        } else {
+          fetch('/api/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: currentPhone, ts: m.ts }) })
+          const i = conversations.findIndex(x => x.phone === currentPhone)
+          if (i >= 0) { conversations[i].unread_count = 0; conversations[i].last_content = m.type === 'image' ? '图片' : m.content; conversations[i].last_ts = m.ts; renderList(conversations) }
+          if (autoScroll) forceScrollBottom()
+          const last = messagesEl.lastElementChild
+          if (last && autoScroll) last.scrollIntoView({ block: 'end' })
+        }
+      }
+    })
+    socket.on('message_feed', m => {
+      if (!Array.isArray(conversations)) conversations = []
+      const i = conversations.findIndex(x => x.phone === m.phone)
+      if (i >= 0) {
+        if (m.sender === 'agent') conversations[i].last_agent_ts = m.ts
+        conversations[i].unread_count = (conversations[i].unread_count || 0) + (m.sender === 'customer' ? 1 : 0)
+        conversations[i].last_content = m.type === 'image' ? '图片' : m.content
+        conversations[i].last_ts = m.ts
+        renderList(conversations)
+      } else {
+        refreshConversations()
+      }
+    })
+    socket.on('recalled', r => {
+      if (!currentPhone || r.phone !== currentPhone) return
+      const el = messagesEl.querySelector('[data-id="' + r.id + '"]')
+      if (!el) return
+      if (r.by === 'customer') {
+        el.innerHTML = ''
+        el.className = 'msg other'
+        const prev = msgs.find(x => x.id === r.id)
+        const label = prev && prev.type === 'image' ? '图片' : (r.content || '')
+        el.textContent = '用户已撤回消息：' + label
+        msgs = msgs.map(x => x.id === r.id ? { ...x, type: 'recall' } : x)
+        const i = conversations.findIndex(x => x.phone === r.phone)
+        if (i >= 0) { conversations[i].last_content = '用户已撤回消息'; conversations[i].last_ts = Date.now(); renderList(conversations) }
+      } else {
+        el.remove()
+        msgs = msgs.filter(x => x.id !== r.id)
+        const i = conversations.findIndex(x => x.phone === r.phone)
+        if (i >= 0) { renderList(conversations) }
+      }
+      forceScrollBottom()
+    })
+
+    socket.on('presence', p => {
+      const i = conversations.findIndex(x => x.phone === p.phone)
+      if (i >= 0) conversations[i].online = p.online
+      if (currentPhone === p.phone) setPresence(p.online)
+      renderList(conversations)
+    })
+
+    socket.on('read-status', r => {
+      const i = conversations.findIndex(x => x.phone === r.phone)
+      if (i >= 0) conversations[i].last_seen_ts = r.last_seen_ts
+      renderList(conversations)
+      if (currentPhone === r.phone) {
+        setReadStatus(r.last_seen_ts >= lastAgentTs)
+      }
+    })
+
+    saveNoteBtn.onclick = async () => {
+      if (!currentPhone) return
+      const note = noteInput.value.trim()
+      if (!note) return
+      await fetch('/api/note', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: currentPhone, note }) })
+      const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+      renderNoteCards(notes)
+    }
+
+    // 图片放大查看
+    const lightbox = document.createElement('div')
+    lightbox.id = 'lightbox'
+    lightbox.className = 'lightbox hidden'
+    const lightImg = document.createElement('img')
+    lightImg.id = 'lightboxImage'
+    lightbox.appendChild(lightImg)
+    document.body.appendChild(lightbox)
+    messagesEl.addEventListener('click', e => {
+      const t = e.target
+      if (t && t.classList.contains('msg-image')) {
+        lightImg.src = t.src
+        lightbox.classList.remove('hidden')
+      }
+    })
+    lightbox.onclick = () => {
+      lightbox.classList.add('hidden')
+    }
+
+    refreshConversations()
+
+    function renderNoteCards(items) {
+      noteCards.innerHTML = ''
+      items.forEach(n => {
+        const card = document.createElement('div')
+        card.className = 'note-card'
+        const head = document.createElement('div')
+        head.className = 'note-card-head'
+        head.textContent = new Date(n.ts).toLocaleString()
+        const body = document.createElement('div')
+        body.className = 'note-card-body'
+        body.textContent = n.content
+        const menuBtn = document.createElement('button')
+        menuBtn.className = 'card-menu-btn'
+        menuBtn.textContent = '✏️'
+        const menu = document.createElement('div')
+        menu.className = 'card-menu popup-menu hidden'
+        const editItem = document.createElement('div')
+        editItem.className = 'popup-item'
+        editItem.textContent = '编辑'
+        editItem.onclick = async () => {
+          const v = prompt('编辑备注内容', n.content)
+          if (v == null) return
+          await fetch('/api/notes/' + n.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: v }) })
+          const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+          renderNoteCards(notes)
+          menu.classList.add('hidden')
+        }
+        const pinItem = document.createElement('div')
+        pinItem.className = 'popup-item'
+        pinItem.textContent = n.pinned ? '取消置顶' : '置顶'
+        pinItem.onclick = async () => {
+          await fetch('/api/notes/' + n.id + '/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: !n.pinned }) })
+          const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+          renderNoteCards(notes)
+          menu.classList.add('hidden')
+          menuOverlay.classList.add('hidden')
+        }
+        const delItem = document.createElement('div')
+        delItem.className = 'popup-item'
+        delItem.textContent = '删除'
+        delItem.onclick = async () => {
+          await fetch('/api/notes/' + n.id, { method: 'DELETE' })
+          const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+          renderNoteCards(notes)
+          menu.classList.add('hidden')
+          menuOverlay.classList.add('hidden')
+        }
+        menu.appendChild(editItem)
+        menu.appendChild(pinItem)
+        menu.appendChild(delItem)
+        menuBtn.onclick = (e) => {
+          e.stopPropagation()
+          document.querySelectorAll('.card-menu').forEach(m => { if (m !== menu) m.classList.add('hidden') })
+          const opening = menu.classList.contains('hidden')
+          menu.classList.toggle('hidden')
+          if (opening) {
+            menuOverlay.classList.remove('hidden')
+            menuOverlay.onclick = () => {
+              document.querySelectorAll('.card-menu').forEach(m => m.classList.add('hidden'))
+              menuOverlay.classList.add('hidden')
+            }
+          } else {
+            menuOverlay.classList.add('hidden')
+          }
+        }
+        card.appendChild(head)
+        card.appendChild(body)
+        card.appendChild(menuBtn)
+        card.appendChild(menu)
+        noteCards.appendChild(card)
+      })
+      document.addEventListener('click', () => {
+        document.querySelectorAll('.card-menu').forEach(m => m.classList.add('hidden'))
+        menuOverlay.classList.add('hidden')
+      })
+    }
+  </script>
+</body>
+</html>

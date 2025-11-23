@@ -1,0 +1,92 @@
+services:
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: mxg-backend
+    environment:
+      - PORT=5210
+      - NODE_ENV=production
+      - CORS_ORIGIN=https://xg.kudafn.com,https://super.kudafn.com,http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174
+      - COOKIE_SECURE=0
+      - COOKIE_SAMESITE=Lax
+      - ENABLE_LOGIN_RATE_LIMIT=0
+      - ADMIN_OTP_REQUIRED=0
+      - ENABLE_SEED_SUPER=1
+      - REQUIRE_ENCRYPTED_DB=0
+      - DB_ENC_MARKER_FILE=/app/data/enc.ok
+      - DB_FIELD_ENC_KEY=${DB_FIELD_ENC_KEY}
+      - DB_ENC_KEY=${DB_ENC_KEY}
+      - REDIS_URL=redis://mxg-redis:6379
+      - UPLOAD_SCAN_URL=${UPLOAD_SCAN_URL}
+    ports:
+      - "5210:5210"   # primary API port for local dev
+    volumes:
+      - ./server/data:/app/data
+    networks:
+      - mxg-net
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "http=require('http'); http.get('http://localhost:5210/api/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1));"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Database is SQLite; we mount a volume for the DB file
+  # If you later adopt Postgres/MySQL, replace this service accordingly.
+  database:
+    image: alpine:3.20
+    container_name: mxg-database-helper
+    command: ["/bin/sh","-c","sleep infinity"]
+    volumes:
+      - ./server/data:/app/data
+    networks:
+      - mxg-net
+    restart: unless-stopped
+
+  im:
+    build:
+      context: ./im-main/im-main
+      dockerfile: Dockerfile
+    container_name: mxg-im-main
+    environment:
+      - PORT=3000
+      - IM_TOKEN=imdevtoken
+      - IM_DB_ENC_KEY=${IM_DB_ENC_KEY}
+      - REDIS_URL=redis://mxg-redis:6379
+      - UPLOAD_SCAN_URL=${UPLOAD_SCAN_URL}
+    ports:
+      - "3000:3000"
+    volumes:
+      - im-data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - mxg-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: mxg-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - mxg-net
+    restart: unless-stopped
+
+networks:
+  mxg-net:
+    name: mxg-net
+    driver: bridge
+
+volumes:
+  im-data:
+    name: im-data

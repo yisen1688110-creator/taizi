@@ -1,0 +1,60 @@
+##
+# Unified ignore for mxg project (frontend + backend)
+##
+
+# Environment & secrets
+.env*
+.env
+.env.local
+
+# Node & build outputs
+node_modules/
+server/node_modules/
+moxige/node_modules/
+dist/
+moxige/dist/
+server/moxige/dist/
+dist-ssr/
+*.local
+
+# OS/editor junk
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Project-specific artifacts
+backups/
+server.log
+.vercel/
+scratch.txt
+server.tgz
+moxige-dist.tgz
+*.tgz
+
+# Local database files (SQLite) — keep out of VCS
+data/
+server/data/
+
+# Sensitive internal docs (do not publish)
+docs/remote-access.md
+
+# Dot-underscore resource forks & transient files
+._*
+# Legacy snapshot and duplicate files
+upstream-mxg/
+**/*(1).*

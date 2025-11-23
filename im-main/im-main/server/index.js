@@ -1,0 +1,635 @@
+const path = require('path')
+const fs = require('fs')
+const express = require('express')
+const http = require('http')
+const { Server } = require('socket.io')
+const sqlite3 = require('sqlite3').verbose()
+const cors = require('cors')
+const { fetchUserProfile, upsertUserProfile } = require('./userService')
+const multer = require('multer')
+
+const app = express()
+const allowOrigins = String(process.env.IM_CORS_ORIGIN || process.env.CORS_ORIGIN || '').split(/[\s,]+/).filter(Boolean)
+const allowAllCors = allowOrigins.length === 0
+app.use(cors({
+  origin: (origin, cb) => {
+    try {
+      if (allowAllCors || !origin) return cb(null, true)
+      const host = new URL(origin).hostname
+      const ok = allowOrigins.some(o => {
+        try { const d = new URL(o).hostname || o; return host === d || host.endsWith('.' + d) }
+        catch { return host === o || host.endsWith('.' + o) }
+      })
+      return cb(ok ? null : new Error('cors_denied'), ok)
+    } catch { return cb(new Error('cors_denied'), false) }
+  }
+}))
+app.use(express.json())
+app.set('trust proxy', true)
+const CSRF_COOKIE_NAME = String(process.env.IM_CSRF_COOKIE_NAME || 'im_csrf_token')
+const CSRF_HEADER_NAME = String(process.env.IM_CSRF_HEADER_NAME || 'x-csrf-token')
+function parseCookie(h) { const out = {}; try { String(h||'').split(';').forEach(p=>{ const i=p.indexOf('='); if(i>0){ const k=p.slice(0,i).trim(); const v=p.slice(i+1).trim(); out[k]=v; } }); } catch {} ; return out }
+function setCsrfCookieIfMissing(req, res, next) { try { const c = parseCookie(req.headers && req.headers.cookie)[CSRF_COOKIE_NAME]; if (!c) { const t = Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2); const isProd = String(process.env.NODE_ENV||'').trim().toLowerCase()==='production'; const opts = { httpOnly: false, sameSite: isProd ? 'None' : 'Lax', secure: isProd, path: '/' }; res.cookie(CSRF_COOKIE_NAME, t, opts); } } catch {} ; next() }
+function csrfGuard(req, res, next) { try { const m = String(req.method||'GET').toUpperCase(); if (!['POST','PUT','PATCH','DELETE'].includes(m)) return next(); const cookies = parseCookie(req.headers && req.headers.cookie); const c = String(cookies[CSRF_COOKIE_NAME]||'').trim(); const h = String(req.headers[CSRF_HEADER_NAME]||'').trim(); if (!c || !h || c !== h) return res.status(403).json({ error: 'csrf_invalid' }); return next(); } catch (_) { return res.status(403).json({ error: 'csrf_invalid' }) } }
+app.use(setCsrfCookieIfMissing)
+function securityHeaders(req, res, next) {
+  try {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    const hsts = String(process.env.ENABLE_HSTS || '').trim() === '1'
+    if (hsts) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains')
+    const csp = String(process.env.CSP || '').trim()
+    if (csp) res.setHeader('Content-Security-Policy', csp)
+    else if (String(process.env.NODE_ENV||'').trim().toLowerCase()==='production') res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:")
+  } catch (_) {}
+  next()
+}
+app.use(securityHeaders)
+const rateBuckets = new Map()
+function createRateLimiter(opts) {
+  const windowMs = Math.max(1000, Number((opts && opts.windowMs) || 60000))
+  const max = Math.max(1, Number((opts && opts.max) || 10))
+  const REDIS_URL = String(process.env.REDIS_URL || '').trim()
+  let redis = null; try { if (REDIS_URL) { const Redis = require('ioredis'); redis = new Redis(REDIS_URL) } } catch (_){ redis = null }
+  if (redis) {
+    return async (req, res, next) => {
+      try {
+        const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+        const ip = xf || req.ip || (req.connection && req.connection.remoteAddress) || 'unknown'
+        const key = `ip:${ip}:rl:${windowMs}:${max}`
+        const ttl = Math.ceil(windowMs/1000)
+        const val = await redis.incr(key)
+        if (val === 1) await redis.expire(key, ttl)
+        if (val > max) return res.status(429).json({ error: 'rate_limited' })
+        return next()
+      } catch (_) { return next() }
+    }
+  }
+  return (req, res, next) => {
+    try {
+      const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+      const ip = xf || req.ip || (req.connection && req.connection.remoteAddress) || 'unknown'
+      const key = `ip:${ip}`
+      const now = Date.now()
+      const b = rateBuckets.get(key)
+      if (!b || now > b.reset) { rateBuckets.set(key, { reset: now + windowMs, count: 1 }); return next() }
+      if (b.count >= max) return res.status(429).json({ error: 'rate_limited' })
+      b.count += 1; return next()
+    } catch (_) { return next() }
+  }
+}
+const rateLimitUpload = createRateLimiter({ windowMs: 60000, max: 5 })
+const rateLimitWrite = createRateLimiter({ windowMs: 60000, max: 20 })
+
+app.get('/healthz', (req, res) => res.json({ ok: true }))
+
+const IM_TOKEN = process.env.IM_TOKEN ? String(process.env.IM_TOKEN) : ''
+const server = http.createServer(app)
+const io = new Server(server, { cors: { origin: allowOrigins, credentials: true } })
+const PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production'
+if (PROD && !IM_TOKEN) { try { console.error('[im-main] IM_TOKEN is required in production') } catch (_) {} ; process.exit(1) }
+
+if (IM_TOKEN) {
+  app.use((req, res, next) => {
+    try {
+      const url = String(req.url || '')
+      const method = String(req.method || 'GET').toUpperCase()
+      const publicStatic = url === '/' || url.startsWith('/agent') || url.startsWith('/customer') || url.startsWith('/styles') || url.startsWith('/uploads/') || url.startsWith('/socket.io/')
+      if (publicStatic) return next()
+      const anonAllowed = (
+        (url === '/api/health') ||
+        (url === '/api/version') ||
+        (url === '/api/user') ||
+        (url.startsWith('/api/user/'))
+      )
+      if (anonAllowed) return next()
+      if (!url.startsWith('/api')) return next()
+      const tHeader = String(req.headers['x-im-token'] || '').trim()
+      const tQuery = String((req.query && (req.query.token || req.query['x-im-token'])) || '').trim()
+      const t = tHeader || tQuery
+      if (t && t === IM_TOKEN) return next()
+      return res.status(401).json({ error: 'unauthorized' })
+    } catch (_) { return res.status(401).json({ error: 'unauthorized' }) }
+  })
+  io.use((socket, next) => {
+    try {
+      const a = socket.handshake && socket.handshake.auth && socket.handshake.auth.token
+      const q = socket.handshake && socket.handshake.query && (socket.handshake.query.token || socket.handshake.query['x-im-token'])
+      const h = socket.handshake && socket.handshake.headers && socket.handshake.headers['x-im-token']
+      const at = socket.handshake && socket.handshake.headers && socket.handshake.headers['x-im-agent']
+      const t = String(a || q || h || '').trim()
+      const PROD = String(process.env.NODE_ENV||'').trim().toLowerCase()==='production'
+      if (at) {
+        db.get('SELECT id FROM agent_tokens WHERE token = ?', [String(at)], (err, row) => {
+          if (!err && row) { try { socket.data = { role: 'agent' } } catch (_) {}; return next() }
+          if (!PROD && t && t === IM_TOKEN) { try { socket.data = { role: 'agent' } } catch (_) {}; return next() }
+          return next(new Error('unauthorized'))
+        })
+        return
+      }
+      if (!PROD && t && t === IM_TOKEN) { try { socket.data = { role: 'agent' } } catch (_) {} ; return next() }
+      return next(new Error('unauthorized'))
+    } catch (_) { return next(new Error('unauthorized')) }
+  })
+}
+
+
+const dataDir = path.join(__dirname, '..', 'data')
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir)
+const dbPath = path.join(dataDir, 'chat.db')
+const db = new sqlite3.Database(dbPath)
+
+db.serialize(() => {
+  db.run('PRAGMA journal_mode=WAL')
+  db.run('PRAGMA synchronous=NORMAL')
+  db.run('PRAGMA foreign_keys=ON')
+  db.run('CREATE TABLE IF NOT EXISTS users (phone TEXT PRIMARY KEY, name TEXT, avatar TEXT)')
+  db.all('PRAGMA table_info(users)', (err, cols) => {
+    if (!err) {
+      const hasCountry = Array.isArray(cols) && cols.some(c => c.name === 'country')
+      if (!hasCountry) db.run('ALTER TABLE users ADD COLUMN country TEXT')
+    }
+  })
+  db.run('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, sender TEXT, content TEXT, ts INTEGER, type TEXT)')
+  db.run('CREATE TABLE IF NOT EXISTS reads (phone TEXT PRIMARY KEY, last_read_ts INTEGER)')
+  db.run('CREATE TABLE IF NOT EXISTS user_notes (phone TEXT PRIMARY KEY, note TEXT)')
+  db.run('CREATE TABLE IF NOT EXISTS seen (phone TEXT PRIMARY KEY, last_seen_ts INTEGER)')
+  db.run('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, content TEXT, ts INTEGER)')
+  db.all('PRAGMA table_info(notes)', (err, cols) => {
+    if (!err) {
+      const hasPinned = Array.isArray(cols) && cols.some(c => c.name === 'pinned')
+      if (!hasPinned) db.run('ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0')
+    }
+  })
+  db.all('PRAGMA table_info(messages)', (err, cols) => {
+    if (!err) {
+      const hasType = Array.isArray(cols) && cols.some(c => c.name === 'type')
+      if (!hasType) db.run('ALTER TABLE messages ADD COLUMN type TEXT')
+      const hasReplyTo = Array.isArray(cols) && cols.some(c => c.name === 'reply_to')
+      if (!hasReplyTo) db.run('ALTER TABLE messages ADD COLUMN reply_to INTEGER')
+      const hasIp = Array.isArray(cols) && cols.some(c => c.name === 'ip')
+      if (!hasIp) db.run('ALTER TABLE messages ADD COLUMN ip TEXT')
+      const hasMsgCountry = Array.isArray(cols) && cols.some(c => c.name === 'country')
+      if (!hasMsgCountry) db.run('ALTER TABLE messages ADD COLUMN country TEXT')
+    }
+  })
+  db.run('CREATE TABLE IF NOT EXISTS agent_acl (phone TEXT PRIMARY KEY)')
+  db.run('CREATE TABLE IF NOT EXISTS agent_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, token TEXT)')
+})
+
+app.use(express.static(path.join(__dirname, '..', 'public')))
+
+const uploadDir = path.join(__dirname, '..', 'public', 'uploads')
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir)
+const pendingDir = path.join(__dirname, '..', 'data', 'pending')
+try { if (!fs.existsSync(path.join(__dirname, '..', 'data'))) fs.mkdirSync(path.join(__dirname, '..', 'data')) } catch (_) {}
+try { if (!fs.existsSync(pendingDir)) fs.mkdirSync(pendingDir) } catch (_) {}
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: pendingDir,
+    filename: (_, file, cb) => {
+      const ext = path.extname(file.originalname)
+      const name = Date.now() + '-' + Math.random().toString(36).slice(2) + ext
+      cb(null, name)
+    }
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_, file, cb) => {
+    const ok = /^image\//.test(file.mimetype)
+    cb(ok ? null : new Error('invalid_filetype'), ok)
+  }
+})
+
+app.get('/api/user/:phone', async (req, res) => {
+  const phone = req.params.phone
+  db.get('SELECT phone, name, avatar, country FROM users WHERE phone = ?', [phone], async (err, row) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    if (row) {
+      if (!row.country) {
+        db.get('SELECT country, ip FROM messages WHERE phone = ? AND sender = ? ORDER BY ts DESC LIMIT 1', [phone, 'customer'], async (e2, last) => {
+          if (!e2 && last && (last.country || last.ip)) {
+            const c = last.country || await resolveCountry(last.ip)
+            if (c) db.run('UPDATE users SET country = ? WHERE phone = ?', [c, phone])
+            return res.json({ ...row, country: c || row.country || '' })
+          }
+          return res.json(row)
+        })
+      } else {
+        return res.json(row)
+      }
+      return
+    }
+    const profile = await fetchUserProfile(phone)
+    if (profile) {
+      upsertUserProfile(db, profile)
+      return res.json(profile)
+    }
+    res.status(404).json({ error: 'not_found' })
+  })
+})
+
+app.post('/api/user', async (req, res) => {
+  const { phone, name, avatar } = req.body || {}
+  if (!phone) return res.status(400).json({ error: 'phone_required' })
+  try {
+    const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.ip || ''
+    const country = await resolveCountry(ip)
+    upsertUserProfile(db, { phone, name: name || '', avatar: avatar || '', country })
+    res.json({ ok: true })
+  } catch (_) {
+    upsertUserProfile(db, { phone, name: name || '', avatar: avatar || '' })
+    res.json({ ok: true })
+  }
+})
+
+app.get('/api/messages/:phone', (req, res) => {
+  const phone = req.params.phone
+  db.all('SELECT id, phone, sender, content, ts, type, reply_to, ip, country FROM messages WHERE phone = ? ORDER BY ts ASC', [phone], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json(rows)
+  })
+})
+
+app.get('/api/message/:id', (req, res) => {
+  const id = req.params.id
+  db.get('SELECT id, phone, sender, content, ts, type, reply_to FROM messages WHERE id = ?', [id], (err, row) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    if (!row) return res.status(404).json({ error: 'not_found' })
+    res.json(row)
+  })
+})
+
+app.get('/api/conversations', (req, res) => {
+  const sql = `
+  SELECT p.phone as phone,
+         u.name as name,
+         u.avatar as avatar,
+         un.note as note,
+         (SELECT content FROM messages WHERE phone=p.phone ORDER BY ts DESC LIMIT 1) AS last_content,
+         (SELECT ts FROM messages WHERE phone=p.phone ORDER BY ts DESC LIMIT 1) AS last_ts,
+         (SELECT ts FROM messages WHERE phone=p.phone AND sender='agent' ORDER BY ts DESC LIMIT 1) AS last_agent_ts,
+         IFNULL((SELECT COUNT(1) FROM messages m LEFT JOIN reads r ON r.phone=m.phone WHERE m.phone=p.phone AND m.sender='customer' AND (r.last_read_ts IS NULL OR m.ts>r.last_read_ts)),0) AS unread_count,
+         s.last_seen_ts as last_seen_ts
+  FROM (SELECT DISTINCT phone FROM messages) p
+  LEFT JOIN users u ON u.phone=p.phone
+  LEFT JOIN user_notes un ON un.phone=p.phone
+  LEFT JOIN seen s ON s.phone=p.phone
+  ORDER BY last_ts DESC
+  `
+  db.all(sql, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    const list = rows.map(r => ({ ...r, online: onlinePhones.get(r.phone) > 0 }))
+    res.json(list)
+  })
+})
+
+app.post('/api/read', (req, res) => {
+  const { phone, ts } = req.body || {}
+  if (!phone) return res.status(400).json({ error: 'phone_required' })
+  const v = ts || Date.now()
+  db.run('INSERT INTO reads (phone, last_read_ts) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET last_read_ts=excluded.last_read_ts', [phone, v], err => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json({ ok: true })
+  })
+})
+
+app.get('/api/note/:phone', (req, res) => {
+  const phone = req.params.phone
+  db.get('SELECT note FROM user_notes WHERE phone = ?', [phone], (err, row) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json({ phone, note: row ? row.note : '' })
+  })
+})
+
+app.post('/api/note', (req, res) => {
+  const { phone, note } = req.body || {}
+  if (!phone) return res.status(400).json({ error: 'phone_required' })
+  const ts = Date.now()
+  db.run('INSERT INTO user_notes (phone, note) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET note=excluded.note', [phone, note || ''], err => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    db.run('INSERT INTO notes (phone, content, ts) VALUES (?, ?, ?)', [phone, note || '', ts])
+    res.json({ ok: true, ts })
+  })
+})
+
+app.get('/api/notes/:phone', (req, res) => {
+  const phone = req.params.phone
+  db.all('SELECT id, phone, content, ts, pinned FROM notes WHERE phone = ? ORDER BY pinned DESC, ts DESC', [phone], (err, rows) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json(rows)
+  })
+})
+
+app.post('/api/notes', rateLimitWrite, (req, res) => {
+  if (!csrfGuard(req, res, () => {})) return
+  const { phone, content } = req.body || {}
+  if (!phone || !content) return res.status(400).json({ error: 'bad_request' })
+  const ts = Date.now()
+  db.run('INSERT INTO notes (phone, content, ts) VALUES (?, ?, ?)', [phone, content, ts], function (err) {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json({ ok: true, id: this.lastID, ts })
+  })
+})
+
+app.patch('/api/notes/:id', rateLimitWrite, (req, res) => {
+  if (!csrfGuard(req, res, () => {})) return
+  const id = req.params.id
+  const { content } = req.body || {}
+  if (!id || typeof content !== 'string') return res.status(400).json({ error: 'bad_request' })
+  db.run('UPDATE notes SET content = ? WHERE id = ?', [content, id], err => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json({ ok: true })
+  })
+})
+
+app.post('/api/notes/:id/pin', rateLimitWrite, (req, res) => {
+  if (!csrfGuard(req, res, () => {})) return
+  const id = req.params.id
+  const { pinned } = req.body || {}
+  const val = pinned ? 1 : 0
+  db.run('UPDATE notes SET pinned = ? WHERE id = ?', [val, id], err => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json({ ok: true })
+  })
+})
+
+app.delete('/api/notes/:id', rateLimitWrite, (req, res) => {
+  if (!csrfGuard(req, res, () => {})) return
+  const id = req.params.id
+  if (!id) return res.status(400).json({ error: 'bad_request' })
+  db.run('DELETE FROM notes WHERE id = ?', [id], err => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    res.json({ ok: true })
+  })
+})
+
+const onlinePhones = new Map()
+
+const socketBuckets = new Map()
+function socketLimit(socket, key, opts) {
+  try {
+    const windowMs = Math.max(1000, Number((opts && opts.windowMs) || 60000))
+    const role = (socket.data && socket.data.role) || 'customer'
+    const max = role === 'agent' ? Number((opts && opts.agentMax) || 120) : Number((opts && opts.customerMax) || 30)
+    const id = socket.id
+    const bk = `${id}:${key}`
+    const now = Date.now()
+    const b = socketBuckets.get(bk)
+    if (!b || now > b.reset) { socketBuckets.set(bk, { reset: now + windowMs, count: 1 }); return true }
+    if (b.count >= max) { try { socket.emit('rate_limited', { key }) } catch {} ; return false }
+    b.count += 1; return true
+  } catch { return true }
+}
+
+io.on('connection', socket => {
+  try { /* minimal connection log */ } catch {}
+  socket.on('join', ({ phone }) => {
+    if (!socketLimit(socket, 'join', { windowMs: 60000, customerMax: 5, agentMax: 30 })) return
+    if (!phone) return
+    const role = (socket.data && socket.data.role) === 'agent' ? 'agent' : 'customer'
+    if (role === 'agent') {
+      try {
+        const allowAll = String(process.env.IM_AGENT_ALLOW_ALL || '').trim() === '1'
+        const allowed = db.prepare('SELECT phone FROM agent_acl WHERE phone = ?').get(String(phone))
+        if (!allowAll && !allowed) return
+      } catch (_) { return }
+    }
+    if (role === 'customer' && socket.data && socket.data.phone && socket.data.phone !== phone) return
+    socket.join(phone)
+    socket.data = { phone, role }
+    if (role === 'customer') {
+      const c = onlinePhones.get(phone) || 0
+      onlinePhones.set(phone, c + 1)
+      io.to(phone).emit('presence', { phone, online: true })
+      const ip = (socket.handshake.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || socket.handshake.address || ''
+      resolveCountry(ip).then(country => {
+        if (country) db.run('INSERT INTO users (phone, country) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET country=excluded.country', [phone, country])
+      }).catch(() => {})
+    }
+  })
+  socket.on('message', payload => {
+    if (!socketLimit(socket, 'message', { windowMs: 60000, customerMax: 30, agentMax: 120 })) return
+    const { phone, sender, content, type, reply_to } = payload || {}
+    if (!phone || !content) return
+    if ((socket.data && socket.data.role) === 'customer' && (socket.data && socket.data.phone) && socket.data.phone !== phone) return
+    const ts = Date.now()
+    const ip = (socket.handshake.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || socket.handshake.address || ''
+    const isCustomer = (sender || 'customer') === 'customer'
+    const p = isCustomer ? resolveCountry(ip) : Promise.resolve(null)
+    p.then(country => {
+      db.run('INSERT INTO messages (phone, sender, content, ts, type, reply_to, ip, country) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [phone, sender || 'customer', content, ts, type || null, reply_to || null, isCustomer ? ip : null, isCustomer ? (country || null) : null], function (err) {
+        if (err) return
+        if (isCustomer && country) db.run('INSERT INTO users (phone, country) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET country=excluded.country', [phone, country])
+        const payload = { id: this.lastID, phone, sender: sender || 'customer', content, ts, type: type || null, reply_to: reply_to || null }
+        io.to(phone).emit('message', payload)
+      })
+    })
+  })
+  socket.on('recall', payload => {
+    if (!socketLimit(socket, 'recall', { windowMs: 60000, customerMax: 10, agentMax: 60 })) return
+    const { phone, id, by } = payload || {}
+    if (!phone || !id) return
+    if ((socket.data && socket.data.role) === 'customer' && (socket.data && socket.data.phone) && socket.data.phone !== phone) return
+    db.get('SELECT id, content FROM messages WHERE id = ? AND phone = ?', [id, phone], (err, row) => {
+      if (err || !row) return
+      if (by === 'customer') {
+        db.run('UPDATE messages SET type = ? WHERE id = ?', ['recall', id], () => {
+          io.to(phone).emit('recalled', { phone, id, by: 'customer', content: row.content })
+        })
+      } else {
+        db.run('DELETE FROM messages WHERE id = ?', [id], () => {
+          io.to(phone).emit('recalled', { phone, id, by: 'agent' })
+        })
+      }
+    })
+  })
+  socket.on('seen', payload => {
+    if (!socketLimit(socket, 'seen', { windowMs: 60000, customerMax: 60, agentMax: 120 })) return
+    const { phone } = payload || {}
+    if (!phone) return
+    if ((socket.data && socket.data.role) === 'customer' && (socket.data && socket.data.phone) && socket.data.phone !== phone) return
+    const v = Date.now()
+    db.run('INSERT INTO seen (phone, last_seen_ts) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET last_seen_ts=excluded.last_seen_ts', [phone, v])
+    io.to(phone).emit('read-status', { phone, last_seen_ts: v })
+  })
+  socket.on('disconnect', () => {
+    const d = socket.data || {}
+    try { /* minimal disconnect log */ } catch {}
+    if (d.role === 'customer' && d.phone) {
+      const c = onlinePhones.get(d.phone) || 0
+      const n = Math.max(0, c - 1)
+      if (n === 0) onlinePhones.delete(d.phone); else onlinePhones.set(d.phone, n)
+      io.to(d.phone).emit('presence', { phone: d.phone, online: n > 0 })
+    }
+  })
+})
+
+const port = process.env.PORT || 3000
+server.listen(port, () => {})
+function encryptSnapshot() {
+  try {
+    const keyHex = String(process.env.IM_DB_ENC_KEY || '').trim()
+    if (!keyHex || keyHex.length !== 64) return
+    const ts = new Date().toISOString().replace(/[-:]/g,'').replace('T','').slice(0,14)
+    const src = dbPath
+    const dst = path.join(dataDir, `chat.snap.${ts}.db.enc`)
+    const iv = require('crypto').randomBytes(12)
+    const key = Buffer.from(keyHex, 'hex')
+    const cipher = require('crypto').createCipheriv('aes-256-gcm', key, iv)
+    const data = fs.readFileSync(src)
+    const enc = Buffer.concat([cipher.update(data), cipher.final()])
+    const tag = cipher.getAuthTag()
+    fs.writeFileSync(dst, Buffer.concat([iv, enc, tag]))
+  } catch (_) {}
+}
+try { setInterval(encryptSnapshot, 60*60*1000) } catch (_) {}
+app.get('/api/health', (req, res) => {
+  try {
+    res.json({ ok: true, status: 'healthy', port: Number(port), tokenEnabled: !!IM_TOKEN })
+  } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }) }
+})
+app.get('/api/version', (req, res) => {
+  res.json({ ok: true, name: 'im-main', version: '0.1.0', port: Number(port) })
+})
+app.post('/api/upload', rateLimitUpload, upload.single('file'), (req, res) => {
+  if (!csrfGuard(req, res, () => {})) return
+  if (!req.file) return res.status(400).json({ error: 'no_file' })
+  const src = path.join(pendingDir, req.file.filename)
+  const dst = path.join(uploadDir, req.file.filename)
+  const url = '/uploads/' + req.file.filename
+  try {
+    const buf = fs.readFileSync(src)
+    const sha = require('crypto').createHash('sha256').update(buf).digest('hex')
+    db.run('CREATE TABLE IF NOT EXISTS uploads_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, size INTEGER, mime TEXT, sha256 TEXT, ts INTEGER)')
+    db.run('INSERT INTO uploads_audit (name, size, mime, sha256, ts) VALUES (?, ?, ?, ?, ?)', [req.file.filename, Number(req.file.size||buf.length), String(req.file.mimetype||''), sha, Date.now()])
+    const scanUrl = String(process.env.UPLOAD_SCAN_URL||'').trim()
+    if (scanUrl) {
+      const payload = JSON.stringify({ name: req.file.filename, size: Number(req.file.size||buf.length), mime: String(req.file.mimetype||''), sha256: sha })
+      const http = scanUrl.startsWith('https') ? require('https') : require('http')
+      const u = new URL(scanUrl)
+      const opt = { method:'POST', hostname:u.hostname, port:u.port|| (u.protocol==='https:'?443:80), path:u.pathname+u.search, headers:{ 'Content-Type':'application/json', 'Content-Length': Buffer.byteLength(payload) } }
+      const rq = http.request(opt, r => { let data=''; r.on('data', d=>data+=d); r.on('end', ()=>{ try { const obj = JSON.parse(data||'{}'); if (obj && (obj.flagged || obj.ok===false)) { try { fs.unlinkSync(src) } catch {}; return res.status(400).json({ error:'file_flagged' }) } } catch {} ; try { fs.renameSync(src, dst) } catch {} ; return res.json({ url }) }) })
+      rq.on('error', ()=> res.json({ url }))
+      rq.write(payload); rq.end();
+      return
+    }
+  } catch (_) {}
+  try { fs.renameSync(src, dst) } catch {} ; res.json({ url })
+})
+
+function scheduleUploadCleanup() {
+  try {
+    const days = Number(process.env.IM_UPLOAD_RETENTION_DAYS || 30)
+    const keepMs = Math.max(1, days) * 24 * 60 * 60 * 1000
+    const run = () => {
+      try {
+        const now = Date.now()
+        const files = fs.readdirSync(uploadDir)
+        for (const f of files) {
+          try {
+            const fp = path.join(uploadDir, f)
+            const st = fs.statSync(fp)
+            if (st.isFile() && (now - st.mtimeMs) > keepMs) { fs.unlinkSync(fp) }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    setInterval(run, 60 * 60 * 1000)
+  } catch (_) {}
+}
+scheduleUploadCleanup()
+
+function resolveCountry(ip) {
+  return new Promise((resolve) => {
+    if (!ip || ip === '::1' || ip === '127.0.0.1') return resolve('本地')
+    try {
+      const https = require('https')
+      const url = `https://ipapi.co/${encodeURIComponent(ip)}/country_name/`
+      https.get(url, r => {
+        let data = ''
+        r.on('data', chunk => { data += chunk })
+        r.on('end', () => {
+          const t = (data || '').trim()
+          resolve(t || null)
+        })
+      }).on('error', () => resolve(null))
+    } catch (_) {
+      resolve(null)
+    }
+  })
+}
+// Agent ACL management (requires IM_TOKEN)
+app.get('/api/agent/acl', (req, res) => {
+  try {
+    if (!IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    const tHeader = String(req.headers['x-im-token'] || '').trim()
+    const tQuery = String((req.query && (req.query.token || req.query['x-im-token'])) || '').trim()
+    const t = tHeader || tQuery
+    if (!t || t !== IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    db.all('SELECT phone FROM agent_acl ORDER BY phone ASC', [], (err, rows) => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ items: rows.map(r => r.phone) })
+    })
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})
+app.post('/api/agent/acl/add', (req, res) => {
+  try {
+    const tHeader = String(req.headers['x-im-token'] || '').trim()
+    const t = tHeader || ''
+    if (!IM_TOKEN || t !== IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    const phone = String((req.body && req.body.phone) || '').trim()
+    if (!phone) return res.status(400).json({ error: 'bad_request' })
+    db.run('INSERT INTO agent_acl (phone) VALUES (?) ON CONFLICT(phone) DO NOTHING', [phone], err => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ ok: true })
+    })
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})
+app.delete('/api/agent/acl/:phone', (req, res) => {
+  try {
+    const tHeader = String(req.headers['x-im-token'] || '').trim()
+    const t = tHeader || ''
+    if (!IM_TOKEN || t !== IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    const phone = String(req.params.phone || '').trim()
+    if (!phone) return res.status(400).json({ error: 'bad_request' })
+    db.run('DELETE FROM agent_acl WHERE phone = ?', [phone], err => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ ok: true })
+    })
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})
+app.get('/api/agent/tokens', (req, res) => {
+  try {
+    const tHeader = String(req.headers['x-im-token'] || '').trim()
+    if (!IM_TOKEN || tHeader !== IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    db.all('SELECT id, name FROM agent_tokens ORDER BY id ASC', [], (err, rows) => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ items: rows })
+    })
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})
+app.post('/api/agent/tokens', (req, res) => {
+  try {
+    const tHeader = String(req.headers['x-im-token'] || '').trim()
+    if (!IM_TOKEN || tHeader !== IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    const name = String((req.body && req.body.name) || '').trim()
+    const tok = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+    db.run('INSERT INTO agent_tokens (name, token) VALUES (?, ?)', [name || 'agent', tok], err => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ ok: true, token: tok })
+    })
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})
+app.delete('/api/agent/tokens/:id', (req, res) => {
+  try {
+    const tHeader = String(req.headers['x-im-token'] || '').trim()
+    if (!IM_TOKEN || tHeader !== IM_TOKEN) return res.status(401).json({ error: 'unauthorized' })
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'bad_request' })
+    db.run('DELETE FROM agent_tokens WHERE id = ?', [id], err => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ ok: true })
+    })
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})

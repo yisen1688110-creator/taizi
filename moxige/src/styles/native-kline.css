@@ -1,0 +1,313 @@
+/* TradingView风格的K线图样式 */
+.native-kline-chart {
+  background: #0B1426;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* 工具栏样式 */
+.chart-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #131722;
+  border-bottom: 1px solid #2A2E39;
+  height: 40px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 交易对信息 */
+.symbol-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.symbol {
+  color: #D1D4DC;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.exchange {
+  color: #787B86;
+  font-size: 12px;
+  background: #2A2E39;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* 时间周期选择器 */
+.timeframe-selector {
+  display: flex;
+  gap: 2px;
+}
+
+.timeframe-btn {
+  background: transparent;
+  border: none;
+  color: #787B86;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.timeframe-btn:hover {
+  background: #2A2E39;
+  color: #D1D4DC;
+}
+
+.timeframe-btn.active {
+  background: #2962FF;
+  color: white;
+}
+
+/* 图表类型选择器 */
+.chart-type-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.chart-type-btn {
+  background: transparent;
+  border: 1px solid #2A2E39;
+  color: #787B86;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.chart-type-btn:hover {
+  border-color: #434651;
+  color: #D1D4DC;
+}
+
+.chart-type-btn.active {
+  background: #2962FF;
+  border-color: #2962FF;
+  color: white;
+}
+
+/* 工具按钮 */
+.chart-tools {
+  display: flex;
+  gap: 4px;
+}
+
+.tool-btn {
+  background: transparent;
+  border: 1px solid #2A2E39;
+  color: #787B86;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 12px;
+}
+
+.tool-btn:hover {
+  border-color: #434651;
+  color: #D1D4DC;
+  background: #2A2E39;
+}
+
+/* 价格信息面板 */
+.price-info-panel {
+  position: absolute;
+  top: 50px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(19, 23, 34, 0.8);
+  padding: 6px 12px;
+  border-radius: 4px;
+  backdrop-filter: blur(10px);
+  z-index: 10;
+}
+
+.price-label {
+  color: #787B86;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.price-value {
+  color: #D1D4DC;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+/* K线图画布 */
+.kline-canvas {
+  background: transparent;
+  cursor: crosshair;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .chart-toolbar {
+    padding: 6px 8px;
+    height: 36px;
+  }
+  
+  .toolbar-left {
+    gap: 8px;
+  }
+  
+  .toolbar-right {
+    gap: 6px;
+  }
+  
+  .timeframe-selector {
+    display: none;
+  }
+  
+  .symbol {
+    font-size: 13px;
+  }
+  
+  .exchange {
+    font-size: 11px;
+  }
+  
+  .price-info-panel {
+    top: 42px;
+    left: 8px;
+    gap: 8px;
+    padding: 4px 8px;
+  }
+  
+  .price-label {
+    font-size: 10px;
+  }
+  
+  .price-value {
+    font-size: 11px;
+  }
+}
+
+/* 加载状态 */
+.chart-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #787B86;
+  font-size: 14px;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #2A2E39;
+  border-top: 2px solid #2962FF;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 8px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 错误状态 */
+.chart-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #FF4444;
+  text-align: center;
+  padding: 20px;
+}
+
+.error-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.error-message {
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.error-retry {
+  background: #2962FF;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s ease;
+}
+
+.error-retry:hover {
+  background: #1E53E5;
+}
+
+/* 十字线样式 */
+.crosshair-line {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.crosshair-horizontal {
+  width: 100%;
+  height: 1px;
+  background: #787B86;
+  opacity: 0.5;
+}
+
+.crosshair-vertical {
+  width: 1px;
+  height: 100%;
+  background: #787B86;
+  opacity: 0.5;
+}
+
+/* 价格标签 */
+.price-tag {
+  position: absolute;
+  background: #2962FF;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  z-index: 10;
+}
+
+/* 时间标签 */
+.time-tag {
+  position: absolute;
+  background: #2A2E39;
+  color: #D1D4DC;
+  padding: 2px 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  z-index: 10;
+}

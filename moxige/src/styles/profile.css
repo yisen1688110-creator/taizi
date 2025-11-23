@@ -1,0 +1,92 @@
+/* Profile Page Styles - aligned with existing design system */
+.profile-screen { align-items: flex-start !important; justify-content: flex-start !important; }
+.profile-card { max-width: var(--card-w); margin-top: 8px; }
+
+/* 个人中心可选：去掉外层卡片边框和阴影 */
+.card.flat { border: none !important; box-shadow: none !important; background: transparent !important; padding: 0 !important; }
+
+/* 顶部：账户资金卡片（左头像右资金） */
+.profile-top-card { max-width: var(--card-w); margin-top: 83px; display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; }
+.top-left { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-left: clamp(10px, 3vw, 24px); }
+.top-name { font-size: 14px; color: #e2e8f0; }
+.top-right { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.top-title { font-weight: 700; font-size: 16px; }
+.funds-list { display: flex; flex-direction: column; gap: 6px; }
+.fund-row { display: flex; align-items: center; gap: 10px; }
+.fund-row .label { width: 44px; color: #8aa1c7; }
+.fund-row .value { color: #e2e8f0; font-weight: 600; }
+.withdraw-btn { height: 36px; align-self: flex-end; }
+
+/* 资金与提现并排显示：按钮在右侧 */
+.funds-and-action { display: grid; grid-template-columns: 1fr; row-gap: 10px; justify-items: end; align-items: start; width: 100%; }
+
+.profile-header { display: flex; align-items: center; gap: 16px; }
+.avatar-wrap { width: 64px; height: 64px; border-radius: 50%; overflow: hidden; border: 1px solid #263b5e; cursor: pointer; }
+.avatar { width: 100%; height: 100%; display: block; object-fit: cover; object-position: center; border-radius: 50%; }
+.avatar.sm { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; }
+.header-info { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.profile-name { text-align: center; font-weight: 700; font-size: 18px; }
+.edit-row { display: flex; gap: 8px; align-items: center; }
+.btn.slim { height: 36px; background: #20314d; color: #e2e8f0; }
+
+.funds-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+.fund-chip { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 10px; background: #152035; border: 1px solid #2a3441; }
+.fund-left { display: flex; align-items: center; gap: 8px; }
+.fund-icon { width: 20px; height: 20px; display: grid; place-items: center; font-size: 16px; color: #8aa1c7; }
+.fund-label { color: #8aa1c7; font-size: 12px; }
+.fund-amount { color: #e2e8f0; font-weight: 600; font-size: clamp(12px, 2.6vw, 16px); }
+
+@media (max-width: 520px) { .funds-grid { grid-template-columns: 1fr; } }
+
+.settings-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 16px; }
+.setting-item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; background: #152035; border: 1px solid #2a3441; cursor: pointer; transition: background 0.2s ease; }
+.setting-item:hover { background: #1a2844; }
+.setting-item.disabled { opacity: 0.75; cursor: default; }
+.setting-title { font-size: 14px; }
+.setting-title.muted { color: #8aa1c7; }
+.setting-icon { width: 40px; height: 40px; display: grid; place-items: center; font-size: 20px; }
+
+/* 图标网格：两行三列，圆形图标+文字 */
+.icon-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.icon-item { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; background: #152035; border: 1px solid #2a3441; cursor: pointer; }
+.icon-circle { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: #e2e8f0; background: #0f1a2c; border: 1px solid #2a3441; }
+.icon-label { font-size: 14px; color: #e2e8f0; }
+/* 机构持仓标签按钮与默认按钮风格一致 */
+.btn { height: 40px; border-radius: 8px; background: #152035; color: #e2e8f0; border: 1px solid #2a3441; padding: 0 12px; }
+.btn.slim { background: #20314d; }
+
+.section-card { max-width: var(--card-w); margin-top: 84px; }
+
+/* 第一张功能卡片（紧邻资金信息）和第二张卡片分别再下移一点 */
+.profile-top-card + .section-card { margin-top: 35px; }
+.section-card + .section-card { margin-top: 30px; }
+
+.sub-card { margin-top: 16px; }
+.sub-title { font-weight: 600; margin-bottom: 10px; }
+.cards-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.bank-card, .wallet-card { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 10px; background: #152035; border: 1px solid #2a3441; }
+.bank-left { color: #e2e8f0; }
+.bank-right { color: #8aa1c7; }
+.card-form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.card-form .col { display: flex; flex-direction: column; gap: 8px; }
+
+.promo-block { width: 100%; height: 140px; border-radius: 12px; border: 1px dashed #2a3441; display: grid; place-items: center; color: #8aa1c7; margin-top: 16px; background: rgba(21,32,53,0.35); }
+
+/* 退出按钮下移并居中 */
+.logout-area { display: flex; justify-content: center; margin-top: 70px; }
+.logout-btn { background: #5cff9b; color: #0f213a; border: 1px solid #5cff9b; padding: 12px 18px; border-radius: 12px; font-weight: 700; min-width: 180px; }
+.logout-btn:hover { filter: brightness(1.06); }
+
+@media (max-width: 720px) {
+  .settings-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Institution page: borderless outer layout with internal cards */
+.inst-container { width: 100%; max-width: var(--card-w); margin: 0 auto; padding: clamp(12px, 2vw, 24px); display: grid; gap: 16px; }
+.inst-card {
+  background: #152035;
+  border: 1px solid #2a3441;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.25);
+}

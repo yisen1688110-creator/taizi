@@ -1,0 +1,600 @@
+/* Market Tabs */
+:root {
+  /* 响应式布局所需的统一变量（使用 rem 保持相对缩放） */
+  --container-max: 64rem;           /* 最大内容宽度，避免过度拉伸 */
+  --gap-xxs: 0.5rem;                /* 8px 等效 */
+  --gap-xs: 0.75rem;                /* 12px 等效 */
+  --gap-sm: 1rem;                   /* 16px 等效 */
+  --gap-md: 1.25rem;                /* 20px 等效 */
+  --gap-lg: 1.5rem;                 /* 24px 等效 */
+  --nav-space-mobile: 5.5rem;       /* 移动端顶部固定导航所占空间 */
+  --nav-space-desktop: 6rem;        /* 桌面端顶部固定导航所占空间 */
+}
+
+/* 市场页容器：顶部固定导航时，内容需从顶部开始而非居中 */
+.screen.market-screen {
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  padding-top: 0 !important;
+}
+.market-tabs { 
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--gap-xxs);
+  margin: var(--gap-xs) auto var(--gap-xxs);
+  padding: 0.375rem; /* 6px 等效 */
+  border-radius: 0.875rem; /* 14px 等效 */
+  border: 1px solid #263b5e;
+  background: rgba(21,32,53,0.65);
+  box-shadow: 0 8px 22px rgba(0, 229, 255, 0.08);
+}
+
+/* 固定导航栏样式 - 桌面端优化 */
+.market-navigation-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #263b5e;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+}
+
+/* 内容区域样式 - 统一间距比例 */
+.market-content {
+  /* 使用固定 rem 间距并采用网格布局，保证稳定 */
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap-md);
+  /* 为移动端留出顶部固定导航空间，并额外下移首卡边框 20px 左右 */
+  padding-top: calc(var(--nav-space-mobile) + 1.25rem);
+  max-width: var(--container-max);
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* 统一将市场页首个卡片整体下移 15px，避免紧贴分隔线 */
+.market-content .card { margin-top: 15px; }
+
+/* 桌面端优化 - 保持固定导航栏 */
+@media (min-width: 768px) {
+  .market-navigation-fixed {
+    position: fixed; /* 桌面端也使用固定定位 */
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  
+  .market-content {
+    /* 桌面端为固定导航栏留出空间，并额外下移首卡边框 30px 左右 */
+    padding-top: calc(var(--nav-space-desktop) + 1.875rem);
+    max-width: var(--container-max);
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 2vw; /* 横向采用百分比，避免过窄 */
+    padding-right: 2vw;
+  }
+  
+  .market-tabs {
+    margin: var(--gap-xxs) auto var(--gap-xxs); /* 更紧凑，减少导航整体高度 */
+    max-width: 50rem; /* 桌面端限制最大宽度 */
+  }
+  
+  .market-tabs .pill {
+    height: 36px;
+    padding: 0 16px;
+    font-size: 15px;
+    min-width: 120px;
+  }
+  
+  /* 限制导航区域最大宽度，但内容区域不限制 */
+  .market-navigation-fixed .card {
+    max-width: var(--container-max);
+    margin: 0 auto;
+    padding-block: 0.75rem; /* 垂直内边距固定值 */
+    padding-inline: 2vw;
+    min-height: var(--nav-space-desktop);
+    box-sizing: border-box;
+  }
+
+  /* 压缩导航标题的底部边距，进一步减少空隙 */
+  .market-navigation-fixed .title {
+    margin-bottom: 0.5rem;
+  }
+  
+  /* 桌面端表格优化 - 更大的字体和间距 */
+  .data-table {
+    font-size: 16px; /* 增大字体 */
+    margin: 0 auto;
+    width: 100%;
+  }
+  
+  .data-table th {
+    font-size: 17px;
+    font-weight: 600;
+    padding: 16px 12px; /* 增加内边距 */
+  }
+  
+  .data-table td {
+    font-size: 16px;
+    padding: 16px 12px; /* 增加内边距 */
+    line-height: 1.5;
+  }
+  
+  /* 桌面端收藏图标优化 */
+  .favorite-star {
+    width: 20px;
+    height: 20px;
+    font-size: 18px;
+    padding: 0.25rem 0.375rem;
+  }
+  
+  /* 大屏幕优化 - 更丰满的布局 */
+  @media (min-width: 1200px) {
+    .market-content {
+      padding-left: 3vw; /* 大屏幕更多内边距 */
+      padding-right: 3vw;
+    }
+    
+    .data-table {
+      font-size: 17px; /* 大屏幕更大字体 */
+    }
+    
+    .data-table th {
+      font-size: 18px;
+      padding: 1.125rem 1rem; /* 大屏幕更大间距 */
+    }
+    
+    .data-table td {
+      font-size: 17px;
+      padding: 1.125rem 1rem; /* 大屏幕更大间距 */
+    }
+  }
+  
+  /* 超大屏幕优化 */
+  @media (min-width: 1600px) {
+    .market-content {
+      padding-left: 4vw; /* 超大屏幕最大内边距 */
+      padding-right: 4vw;
+    }
+    
+    .data-table {
+      font-size: 18px; /* 超大屏幕最大字体 */
+    }
+    
+    .data-table th {
+      font-size: 19px;
+      padding: 1.25rem 1.125rem; /* 超大屏幕最大间距 */
+    }
+    
+    .data-table td {
+      font-size: 18px;
+      padding: 1.25rem 1.125rem; /* 超大屏幕最大间距 */
+    }
+  }
+}
+
+/* 搜索区与建议浮层的响应式处理 */
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-xs);
+  position: relative;
+  flex-wrap: wrap;
+}
+.search-label {
+  min-width: clamp(110px, 24vw, 180px);
+}
+.search-input {
+  flex: 1;
+  min-width: 220px;
+  width: 100%;
+}
+.suggestion-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid #263b5e;
+  border-radius: 10px;
+  background: rgba(21,32,53,0.9);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+}
+.suggestion-item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.suggestion-item:hover { background: rgba(91,141,239,0.08); }
+.suggestion-item.empty { color: #a8b3cf; }
+
+@media (max-width: 480px) {
+  .search-label { min-width: 120px; }
+  .search-input { min-width: 180px; }
+}
+
+/* 默认 pill（用于其他位置）保持不变 */
+.pill { 
+  height: 34px; 
+  padding: 0 14px; 
+  border-radius: 999px; 
+  border: 1px solid #2b3f66; 
+  background: rgba(28,44,72,0.6); 
+  color: #e3e8f7; 
+  cursor: pointer; 
+  transition: all 160ms ease;
+  font-size: 14px; /* 优化文字大小 */
+}
+.pill:hover { border-color: #5b8def; filter: brightness(1.08); }
+.pill.active { 
+  border-color: #5b8def; 
+  background: radial-gradient(100% 100% at 50% 0%, rgba(91,141,239,0.35) 0%, rgba(28,44,72,0.75) 100%);
+}
+
+/* 市场切换专用：更紧凑并统一宽度 */
+.market-tabs .pill {
+  height: 1.875rem; 
+  padding: 0 0.75rem; 
+  font-size: 0.8125rem; 
+  font-weight: 600; 
+  border-radius: 0.875rem; 
+  min-width: 6.5rem; 
+  text-align: center;
+}
+.market-tabs .pill.active { 
+  box-shadow: 0 0 0 1px rgba(91,141,239,0.5) inset, 0 6px 14px rgba(91,141,239,0.20);
+}
+
+/* 图标样式：增强识别度 */
+.pill-icon {
+  display: inline-block;
+  width: 18px; height: 18px;
+  margin-right: 8px;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.25));
+}
+
+/* 下拉导航样式 */
+.dropdown-nav {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dropdown-trigger:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: rgba(30, 41, 59, 0.95);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  min-width: 200px;
+  z-index: 1000;
+  margin-top: 0; /* 移除间隙 */
+  display: none;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: all 0.2s ease;
+  padding: 8px 0;
+}
+
+/* 添加伪元素来填补触发器和下拉菜单之间的间隙 */
+.dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: transparent;
+}
+
+@keyframes dropdownFadeIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-section {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-section:last-child {
+  border-bottom: none;
+}
+
+.dropdown-label {
+  display: block;
+  padding: 0 16px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 8px 18px; /* 增加水平内边距 */
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin: 2px 0; /* 增加项目间距但保持悬停区域连续 */
+}
+
+.dropdown-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.dropdown-item.active {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.dropdown-item.active:hover {
+  background-color: rgba(34, 197, 94, 0.3);
+}
+
+/* 悬停显示下拉菜单 - 优化版本 */
+.dropdown-nav:hover .dropdown-menu,
+.dropdown-nav .dropdown-menu:hover {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 确保下拉菜单容器在悬停时保持显示 */
+.dropdown-nav {
+  position: relative;
+}
+
+.dropdown-nav:hover .dropdown-menu {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 移动端下拉菜单优化 */
+@media (max-width: 767px) {
+  /* 移动端下拉菜单改为点击触发，而非悬停 */
+  .dropdown-nav:hover .dropdown-menu {
+    display: none; /* 移动端禁用悬停效果 */
+  }
+  
+  /* 移动端点击显示下拉菜单 */
+  .dropdown-menu.mobile-show {
+    display: block !important;
+    opacity: 1 !important;
+    transform: translateX(0) translateY(0) !important;
+  }
+  
+  /* 移动端固定定位 + 高度限制，避免被挤出屏幕 */
+  .dropdown-menu {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + var(--nav-space-mobile));
+    left: 16px;
+    right: 16px;
+    transform: translateY(-10px);
+    min-width: 280px; /* 适配移动端可读性 */
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - var(--nav-space-mobile) - env(safe-area-inset-bottom, 0px) - 76px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    font-size: 16px; /* 触屏优化字体 */
+    z-index: 10000; /* 盖住底部导航 */
+  }
+  
+  .dropdown-item {
+    padding: 12px 16px; /* 增加触摸区域 */
+    font-size: 16px;
+    min-height: 44px; /* 符合移动端最小触摸区域标准 */
+    display: flex;
+    align-items: center;
+  }
+  
+  .dropdown-label {
+    font-size: 14px;
+    padding: 8px 16px 6px;
+  }
+  
+  .dropdown-section {
+    padding: 8px 0;
+  }
+  
+  /* 移动端下拉菜单动画 */
+  .dropdown-menu {
+    animation: dropdownFadeInMobile 0.24s ease forwards;
+  }
+  
+  @keyframes dropdownFadeInMobile {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* 移动端导航按钮优化 */
+  .dropdown-trigger {
+    min-height: 44px; /* 增加触摸区域 */
+    padding: 8px 12px;
+    font-size: 16px;
+  }
+}
+
+/* 桌面端下拉菜单优化 */
+@media (min-width: 768px) {
+  .dropdown-menu {
+    min-width: 220px;
+  }
+  
+  .dropdown-item {
+    font-size: 15px;
+    padding: 10px 18px;
+  }
+  
+  .dropdown-label {
+    padding: 0 18px 10px;
+  }
+}
+
+/* 小屏优化：自动换行并保持间距 */
+@media (max-width: 767px) {
+  .market-tabs { flex-wrap: wrap; gap: var(--gap-xxs); }
+  .market-tabs .pill { flex: 1 1 30%; min-width: 6rem; }
+  .market-navigation-fixed .card { min-height: var(--nav-space-mobile); padding-block: 0.75rem; }
+  /* 小屏幕为固定导航栏留出空间，并额外下移首卡边框 */
+  .market-content { padding-top: calc(var(--nav-space-mobile) + 1.25rem); }
+}
+
+/* Chips 行与建议列表美化 */
+.chips-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.pill.chip {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid #2b3f66;
+  background: rgba(28,44,72,0.6);
+  color: #e3e8f7;
+  box-shadow: 0 4px 10px rgba(91,141,239,0.14);
+}
+.pill.chip:hover {
+  border-color: #5b8def;
+  filter: brightness(1.08);
+}
+.pill.pill-mini {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.pill.pill-mini.chip-remove {
+  background: rgba(28,44,72,0.55);
+}
+
+/* 优化收藏图标显示 */
+.favorite-star {
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+.favorite-star:hover {
+  background: rgba(91,141,239,0.2);
+  transform: scale(1.1);
+}
+
+/* 表格文字大小优化 */
+.data-table {
+  font-size: 14px;
+}
+.data-table th {
+  font-size: 13px;
+  font-weight: 600;
+}
+.data-table td {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* 表格在窄屏保持布局稳固，允许自动换行并避免挤出屏幕 */
+.data-table { table-layout: fixed; width: 100%; }
+.data-table th, .data-table td { word-wrap: break-word; white-space: normal; }
+.news-grid, .chips-row { max-width: min(100vw - 32px, var(--container-max)); }
+
+.suggestion-list {
+  border: 1px solid #263b5e;
+  border-radius: 8px;
+  background: rgba(21,32,53,0.9);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.35);
+}
+.suggestion-item {
+  padding: 8px 10px;
+  color: #a8b3cf;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.suggestion-item:hover { background: rgba(91,141,239,0.12); }
+.suggestion-item.empty { cursor: default; }
+.suggestion-item .sug-sep { opacity: 0.6; }
+.suggestion-item mark.hl {
+  background: rgba(91,141,239,0.25);
+  color: #e3e8f7;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* ===== 移动端表格溢出优化 ===== */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.table-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: rgba(91,141,239,0.35);
+  border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  .pill-group { flex-wrap: wrap; }
+}
+
+/* 极小屏隐藏趋势列，进一步压缩宽度 */
+@media (max-width: 380px) {
+  .data-table thead th:last-child,
+  .data-table tbody td:last-child {
+    display: none;
+  }
+}
