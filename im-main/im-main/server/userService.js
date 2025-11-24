@@ -1,5 +1,15 @@
 async function fetchUserProfile(phone) {
-  return null
+  try {
+    const base = process.env.MXG_API_BASE || 'http://127.0.0.1:5210';
+    const url = `${base.replace(/\/$/, '')}/api/public/user_profile?phone=${encodeURIComponent(phone)}`;
+    const r = await fetch(url, { method: 'GET' });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data || !data.phone) return null;
+    return { phone: String(data.phone), name: String(data.name || ''), avatar: String(data.avatar || ''), country: String(data.country || '') };
+  } catch (_) {
+    return null;
+  }
 }
 
 function upsertUserProfile(db, profile) {

@@ -15,6 +15,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Proxy uploaded assets served by backend
+      '/uploads': {
+        target: 'http://127.0.0.1:5210',
+        changeOrigin: true,
+        secure: false,
+      },
       // Dev-only proxy to bypass CORS for Yahoo Finance chart/quote endpoints
       // Usage in code: fetch('/yf/v8/finance/chart/^GSPC?...')
       '/yf': {

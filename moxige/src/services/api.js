@@ -16,7 +16,7 @@ const BASE = (() => {
     const port = isBrowser ? String(location.port || '') : '';
     const host = isBrowser ? String(location.hostname || '') : '';
     const isDevLocal = isBrowser && (port === '5173' || port === '5174') && (host === 'localhost' || host === '127.0.0.1');
-    if (isDevLocal) return normalizeBase('http://127.0.0.1:5210');
+    if (isDevLocal) return normalizeBase('/api');
     try {
       const override = String(localStorage.getItem('api:base:override') || '').trim();
       if (override) return normalizeBase(override);
@@ -144,8 +144,7 @@ async function request(path, { method = 'GET', body, headers = {}, timeoutMs } =
       try {
         const csrfName = (typeof window !== 'undefined' && (window.CSRF_COOKIE_NAME || 'csrf_token')) || 'csrf_token';
         const isWrite = ['POST','PUT','PATCH','DELETE'].includes(String(method).toUpperCase());
-        const hasAuth = !!h['Authorization'];
-        if (isWrite && !hasAuth) {
+        if (isWrite) {
           let t = getCookie(csrfName);
           if (!t) t = csrfCached || '';
           if (!t) t = await fetchCsrf(base);

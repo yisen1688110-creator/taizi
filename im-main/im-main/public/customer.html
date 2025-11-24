@@ -42,31 +42,47 @@
     const qsToken = qs.get('token') || ''
     const lsToken = (typeof localStorage !== 'undefined' ? (localStorage.getItem('im:token') || '') : '')
     const token = qsToken || lsToken
-    const apiBase = qs.get('api') || ''
-    const wsBase = qs.get('ws') || ''
+    let apiBase = qs.get('api') || ''
+    let wsBase = qs.get('ws') || ''
     const wsPath = qs.get('wspath') || ''
-    const socket = wsBase ? io(wsBase, { auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }) : io({ auth: { token }, query: { token }, path: (wsPath || '/socket.io/') })
+    const makeSocket = () => (wsBase ? io(wsBase, { auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }) : io({ auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }))
+    const CSRF_COOKIE = 'csrf_token'
+    const CSRF_HEADER = 'x-csrf-token'
+    function getCookie(name){ try { const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/([.$?*|{}()\[\]\\\/\+^])/g,'\\$1') + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : '' } catch { return '' } }
+    async function ensureCsrf(){ try { let t = getCookie(CSRF_COOKIE); if (!t){ const r = await fetch('/api/csrf',{ method:'GET', credentials:'include' }); const j = await r.json(); t = j && j.csrf || '' } return t || '' } catch { return '' } }
+    let socket = makeSocket()
     const originalFetch = window.fetch.bind(window)
     window.fetch = (input, init = {}) => {
       try {
         let url = typeof input === 'string' ? input : (input && input.url ? input.url : '')
         if (url && url.startsWith('/api')) {
           const headers = { ...(init.headers || {}), ...(token ? { 'x-im-token': token } : {}) }
+          const method = String((init && init.method) || 'GET').toUpperCase()
+          if (['POST','PUT','PATCH','DELETE'].includes(method)) {
+            try { const t = getCookie(CSRF_COOKIE); if (t) headers[CSRF_HEADER] = t } catch {}
+          }
           if (token) {
             const hasQuery = url.includes('?')
             const hasTokenParam = /[?&](token|x-im-token)=/.test(url)
             if (!hasTokenParam) url = url + (hasQuery ? '&' : '?') + 'token=' + encodeURIComponent(token)
           }
-          if (apiBase) {
-            const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase
-            url = base + url
-          }
+          if (apiBase) { const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase; url = base + url }
           const req = (typeof input === 'string') ? url : new Request(url, input)
-          return originalFetch(req, { ...init, headers })
+          return originalFetch(req, { ...init, headers, credentials: 'include' })
         }
       } catch {}
       return originalFetch(input, init)
     }
+    socket.on('connect_error', () => {
+      try {
+        apiBase = apiBase || 'http://127.0.0.1:3001'
+        wsBase = wsBase || 'http://127.0.0.1:3001'
+        try { socket.disconnect() } catch {}
+        socket = makeSocket()
+        socket.on('connect', () => { if (currentPhone) socket.emit('join', { phone: currentPhone, role: 'customer' }) })
+      } catch {}
+    })
+    socket.on('connect', () => { if (currentPhone) socket.emit('join', { phone: currentPhone, role: 'customer' }) })
     const urlParams = new URLSearchParams(location.search)
     const presetPhone = urlParams.get('phone')
     const presetName = urlParams.get('name')
@@ -89,7 +105,89 @@
     const plusMenu = document.getElementById('plusMenu')
     const photoInput = document.getElementById('photoInput')
     const composerEl = document.querySelector('.composer')
-    const previewOverlay = document.getElementById('previewOverlay') || (() => { const o = document.createElement('div'); o.id='previewOverlay'; o.className='preview-overlay hidden'; const b=document.createElement('div'); b.className='preview-box'; const i=document.createElement('img'); i.className='preview-image'; const a=document.createElement('div'); a.className='preview-actions'; const c=document.createElement('button'); c.textContent='取消'; const s=document.createElement('button'); s.textContent='发送图片'; a.appendChild(c); a.appendChild(s); b.appendChild(i); b.appendChild(a); o.appendChild(b); document.body.appendChild(o); o._img=i; o._send=s; o._cancel=c; return o })()
+    const previewOverlay = document.getElementById('previewOverlay') || (() => {
+      const o = document.createElement('div'); o.id='previewOverlay'; o.className='preview-overlay hidden';
+      // overlay style
+      o.style.position='fixed'; o.style.inset='0'; o.style.background='rgba(0,0,0,0.35)'; o.style.display='flex'; o.style.alignItems='center'; o.style.justifyContent='center'; o.style.zIndex='10050';
+      const b=document.createElement('div'); b.className='preview-box';
+      // box style (smaller)
+      b.style.width='360px'; b.style.maxWidth='92vw'; b.style.maxHeight='80vh'; b.style.background='#111d33'; b.style.borderRadius='12px'; b.style.boxShadow='0 8px 24px rgba(0,0,0,0.35)'; b.style.padding='12px'; b.style.display='flex'; b.style.flexDirection='column'; b.style.gap='12px';
+      const i=document.createElement('img'); i.className='preview-image'; i.style.width='100%'; i.style.height='auto'; i.style.borderRadius='8px'; i.style.objectFit='contain'; i.style.maxHeight='56vh';
+      const a=document.createElement('div'); a.className='preview-actions'; a.style.display='flex'; a.style.justifyContent='flex-end'; a.style.gap='8px'; a.style.pointerEvents='auto';
+      const c=document.createElement('button'); c.textContent='取消'; c.id='previewCancelBtn'; c.type='button'; c.style.minWidth='84px'; c.style.height='32px'; c.style.borderRadius='8px'; c.style.background='#0d2545'; c.style.color='#e6f1ff'; c.style.border='1px solid #1e3b68'; c.style.cursor='pointer';
+      const s=document.createElement('button'); s.textContent='发送图片'; s.id='previewSendBtn'; s.type='button'; s.style.minWidth='96px'; s.style.height='32px'; s.style.borderRadius='8px'; s.style.background='#2e7de9'; s.style.color='#fff'; s.style.border='none'; s.style.cursor='pointer';
+      a.appendChild(c); a.appendChild(s); b.appendChild(i); b.appendChild(a); o.appendChild(b); document.body.appendChild(o); o._img=i; o._send=s; o._cancel=c; 
+      try { c.onclick = () => { cancelPreview() } } catch {}
+      try { c.addEventListener('pointerdown', (e) => { e.stopPropagation(); cancelPreview() }) } catch {}
+      try { c.addEventListener('touchstart', (e) => { e.stopPropagation(); cancelPreview() }) } catch {}
+      try { s.onclick = () => { sendCurrentFile() } } catch {}
+      try { s.addEventListener('pointerdown', (e) => { e.stopPropagation(); sendCurrentFile() }) } catch {}
+      try { s.addEventListener('touchstart', (e) => { e.stopPropagation(); sendCurrentFile() }) } catch {}
+      return o })()
+    let pendingFile = null
+    previewOverlay._currentUrl = ''
+    function cancelPreview() {
+      try { if (previewOverlay._currentUrl) { URL.revokeObjectURL(previewOverlay._currentUrl); previewOverlay._currentUrl = '' } } catch {}
+      pendingFile = null
+      previewOverlay.classList.add('hidden')
+      try { photoInput.value = '' } catch {}
+    }
+    async function sendCurrentFile() {
+      if (!pendingFile) {
+        try {
+          const src = String(previewOverlay && previewOverlay._img && previewOverlay._img.src || '')
+          if (src && src.startsWith('blob:')) {
+            const rb = await fetch(src).then(r => r.blob())
+            pendingFile = new File([rb], 'image.' + (String(rb.type||'image/png').split('/')[1]||'png'), { type: rb.type||'image/png' })
+          }
+        } catch {}
+        if (!pendingFile) return
+      }
+      const fd = new FormData(); fd.append('file', pendingFile)
+      if (!currentPhone) {
+        let p = (typeof localStorage !== 'undefined' ? (localStorage.getItem('anon_phone') || '') : '') || presetPhone || ''
+        if (!p) {
+          p = 'anon_' + Date.now()
+          try { if (typeof localStorage !== 'undefined') localStorage.setItem('anon_phone', p) } catch {}
+          try { await fetch('/api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: p, name: '', avatar: '' }) }) } catch {}
+        }
+        currentPhone = p
+        try { socket.emit('join', { phone: currentPhone, role: 'customer' }) } catch {}
+      }
+      await ensureCsrf(); const t = getCookie(CSRF_COOKIE)
+      let ok = false, data = null
+      try {
+        const res = await fetch('/api/upload', { method: 'POST', body: fd, headers: { [CSRF_HEADER]: t || '' } })
+        ok = !!(res && res.ok)
+        try { data = await res.json() } catch {}
+      } catch {}
+      if (ok && data && data.url) {
+        socket.emit('message', { phone: currentPhone, sender: 'customer', content: data.url, type: 'image', reply_to: replyToId })
+        replyToId = null; try { replyPreview.classList.add('hidden') } catch {}
+        cancelPreview()
+      } else {
+        alert('上传太频繁，请稍后再试')
+      }
+    }
+    try { previewOverlay._cancel.addEventListener('click', cancelPreview) } catch {}
+    try { previewOverlay._send.addEventListener('click', sendCurrentFile) } catch {}
+    try { previewOverlay._send.addEventListener('click', (e) => { e.stopPropagation(); sendCurrentFile() }, { capture: true }) } catch {}
+    try { previewOverlay._send.addEventListener('mousedown', (e) => { e.stopPropagation(); sendCurrentFile() }) } catch {}
+    try {
+      document.addEventListener('click', (e) => {
+        const t = e.target
+        if (t && t.id === 'previewCancelBtn') { cancelPreview() }
+        else if (t && t.id === 'previewSendBtn') { sendCurrentFile() }
+      })
+    } catch {}
+    try {
+      window.addEventListener('keydown', (e) => {
+        if (!previewOverlay.classList.contains('hidden') && e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+          e.preventDefault();
+          sendCurrentFile();
+        }
+      })
+    } catch {}
     function scrollChatToBottom() {
       if (!messagesEl) return
       requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight })
@@ -147,6 +245,11 @@
     const labelUpload = isEsLang ? 'Subir foto' : 'Upload photo'
     const uploadTextEl = document.getElementById('uploadText')
     if (uploadTextEl) uploadTextEl.textContent = labelUpload
+    // set preview action texts by lang
+    try {
+      previewOverlay._cancel.textContent = isEsLang ? 'Cancelar' : '取消'
+      previewOverlay._send.textContent = isEsLang ? 'Enviar foto' : '发送图片'
+    } catch {}
 
     function renderMessage(m) {
       if (m.type === 'recall') return
@@ -242,36 +345,13 @@
       setProfile({ phone: currentPhone, name, avatar })
       if (chatEl) { chatEl.classList.remove('hidden') }
       socket.emit('join', { phone: currentPhone, role: 'customer' })
-      const msgsHistory = await fetch('/api/messages/' + encodeURIComponent(currentPhone)).then(r => r.json())
-      (Array.isArray(msgsHistory) ? msgsHistory : []).forEach(renderMessage)
+      const initialMsgs = await fetch('/api/messages/' + encodeURIComponent(currentPhone)).then(r => r.json()).catch(() => [])
+      ;(Array.isArray(initialMsgs) ? initialMsgs : []).forEach(renderMessage)
       setTimeout(scrollChatToBottom, 0)
       if (isActive && atBottom()) socket.emit('seen', { phone: currentPhone })
       const tryEmitSeen = () => { if (isActive && atBottom()) socket.emit('seen', { phone: currentPhone }) }
       
-    sendBtn.innerHTML = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M21.5 2.5L2.8 10.8c-.9.4-.9 1.7 0 2.1l5.9 2.4 2.4 5.9c.4.9 1.7.9 2.1 0L21.5 2.5zM9.6 14.4l4.1-4.1-6.7 2.8 2.6 1.3z" fill="#fff"/></svg>'
-    sendBtn.onclick = () => {
-        const content = messageInput.value.trim()
-        if (!content) return
-        if (!currentPhone) {
-          const p = localStorage.getItem('anon_phone') || ''
-          if (!p) return
-          currentPhone = p
-          socket.emit('join', { phone: currentPhone, role: 'customer' })
-        }
-        socket.emit('message', { phone: currentPhone, sender: 'customer', content, reply_to: replyToId })
-        messageInput.value = ''
-        updateComposerHeight()
-        replyToId = null
-        replyPreview.classList.add('hidden')
-        scrollChatToBottom()
-      }
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.matchMedia('(pointer: coarse)').matches
-      messageInput.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-          e.preventDefault()
-          sendBtn.click()
-        }
-      })
       messagesEl.addEventListener('scroll', tryEmitSeen)
       window.addEventListener('focus', tryEmitSeen)
       messageInput.addEventListener('paste', e => {
@@ -282,17 +362,10 @@
         if (!file) return
         if (file.size > 5 * 1024 * 1024 || !/^image\//.test(file.type)) return
         const url = URL.createObjectURL(file)
+        previewOverlay._currentUrl = url
         previewOverlay._img.src = url
+        pendingFile = file
         previewOverlay.classList.remove('hidden')
-        const close = () => { previewOverlay.classList.add('hidden'); URL.revokeObjectURL(url) }
-        previewOverlay._cancel.onclick = close
-        previewOverlay._send.onclick = async () => {
-          const fd = new FormData()
-          fd.append('file', file)
-          const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json())
-          if (r && r.url) socket.emit('message', { phone: currentPhone, sender: 'customer', content: r.url, type: 'image', reply_to: replyToId })
-          close()
-        }
       })
       function updateComposerHeight() {
         const maxH = Math.floor(messagesEl.clientHeight / 3)
@@ -325,20 +398,15 @@
         photoInput.click()
       }
       document.addEventListener('click', () => { emojiMenu.classList.add('hidden'); plusMenu.classList.add('hidden') })
-      photoInput.onchange = async () => {
+      photoInput.onchange = () => {
         const f = photoInput.files[0]
         if (!f) return
         if (f.size > 5 * 1024 * 1024) { photoInput.value = ''; return }
-        const fd = new FormData()
-        fd.append('file', f)
-        const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json())
-        if (r && r.url) {
-          socket.emit('message', { phone: currentPhone, sender: 'customer', content: r.url, type: 'image', reply_to: replyToId })
-        }
-        photoInput.value = ''
+        pendingFile = f
+        try { const u = URL.createObjectURL(f); previewOverlay._currentUrl = u; previewOverlay._img.src = u } catch {}
+        previewOverlay.classList.remove('hidden')
         plusMenu.classList.add('hidden')
-        replyToId = null
-        replyPreview.classList.add('hidden')
+      }
       }
       socket.on('message', m => {
         renderMessage(m)
@@ -368,8 +436,7 @@
         }
       } catch { location.href = '/me' }
     }
-  }
-
+  
   if (presetPhone) {
     startChat(presetPhone, presetName || '', presetAvatar || '')
   }
@@ -409,6 +476,34 @@
       activeMsgMenu = menu
       document.addEventListener('click', closeMenu, { once: true })
     }
-</script>
+    sendBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg"><path d="M12 3l-6 6h4v8h4V9h4l-6-6z" fill="#fff"/></svg>'
+    sendBtn.onclick = async () => {
+      const content = messageInput.value.trim()
+      if (!content) return
+      if (!currentPhone) {
+        let p = localStorage.getItem('anon_phone') || presetPhone || ''
+        if (!p) {
+          p = 'anon_' + Date.now()
+          localStorage.setItem('anon_phone', p)
+          await fetch('/api/user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: p, name: '', avatar: '' }) })
+        }
+        currentPhone = p
+        socket.emit('join', { phone: currentPhone, role: 'customer' })
+      }
+      socket.emit('message', { phone: currentPhone, sender: 'customer', content, reply_to: replyToId })
+      messageInput.value = ''
+      messageInput.style.height = 'auto'
+      try { updateComposerHeight() } catch {}
+      replyToId = null
+      try { if (replyPreview) replyPreview.classList.add('hidden') } catch {}
+      scrollChatToBottom()
+    }
+    messageInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault()
+        sendBtn.click()
+      }
+    })
+  </script>
 </body>
 </html>

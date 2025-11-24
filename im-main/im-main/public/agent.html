@@ -77,10 +77,11 @@
     const qsToken = qs.get('token') || ''
     const lsToken = (typeof localStorage !== 'undefined' ? (localStorage.getItem('im:token') || '') : '')
     const token = qsToken || lsToken
-    const apiBase = qs.get('api') || ''
-    const wsBase = qs.get('ws') || ''
+    let apiBase = qs.get('api') || ''
+    let wsBase = qs.get('ws') || ''
     const wsPath = qs.get('wspath') || ''
-    const socket = wsBase ? io(wsBase, { auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }) : io({ auth: { token }, query: { token }, path: (wsPath || '/socket.io/') })
+    const makeSocket = () => (wsBase ? io(wsBase, { auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }) : io({ auth: { token }, query: { token }, path: (wsPath || '/socket.io/') }))
+    let socket = makeSocket()
     const originalFetch = window.fetch.bind(window)
     window.fetch = (input, init = {}) => {
       try {
@@ -125,7 +126,15 @@
       bar.appendChild(btn)
       document.body.appendChild(bar)
     }
-    if (!token) { showTokenBar() }
+    if (!token && qs.get('tokenbar') === '1') { showTokenBar() }
+    socket.on('connect_error', () => {
+      try {
+        apiBase = apiBase || 'http://127.0.0.1:3001'
+        wsBase = wsBase || 'http://127.0.0.1:3001'
+        try { socket.disconnect() } catch {}
+        socket = makeSocket()
+      } catch {}
+    })
     const messagesEl = document.getElementById('messages')
     const sendBtn = document.getElementById('sendBtn')
     const messageInput = document.getElementById('messageInput')
@@ -485,13 +494,21 @@
     plusMenu.onclick = () => {
       photoInput.click()
     }
+    async function ensureCsrf() {
+      try {
+        const r = await fetch('/api/csrf', { method: 'GET' })
+        const j = await r.json()
+        return j && j.csrf ? j.csrf : ''
+      } catch (_) { return '' }
+    }
     photoInput.onchange = async () => {
       const f = photoInput.files[0]
       if (!f || !currentPhone) return
       if (f.size > 5 * 1024 * 1024) { photoInput.value = ''; return }
       const fd = new FormData()
       fd.append('file', f)
-      const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json())
+      const csrf = await ensureCsrf()
+      const r = await fetch('/api/upload', { method: 'POST', headers: csrf ? { 'x-csrf-token': csrf } : {}, body: fd }).then(r => r.json()).catch(() => null)
       if (r && r.url) {
         socket.emit('message', { phone: currentPhone, sender: 'agent', content: r.url, type: 'image', reply_to: replyToId })
       }

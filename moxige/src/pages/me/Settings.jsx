@@ -178,9 +178,9 @@ export default function Settings() {
   const [kycName, setKycName] = useState(() => (user?.name || ''));
   const [kycDocType, setKycDocType] = useState('passport');
   const [kycDocNo, setKycDocNo] = useState('');
-  const [kycImage, setKycImage] = useState('');
+  const [kycImages, setKycImages] = useState([]);
   const [kycSubmitting, setKycSubmitting] = useState(false);
-  const kycFileRef = useRef(null);
+  const kycFileRefs = [useRef(null), useRef(null)];
   useEffect(() => { setKycName(user?.name || ''); }, [user?.name]);
   useEffect(() => { (async () => { try { const data = await api.get('/me/kyc/status'); let s = String((data?.status || '')).toLowerCase(); if (!s) s = 'none'; if (s === 'none') s = 'unverified'; setKycStatus(s); try { localStorage.setItem('kyc:status', s); } catch {} } catch {} })(); }, []);
   const openKycModal = () => {
@@ -188,7 +188,7 @@ export default function Settings() {
       showToast(lang==='zh'?'正在审核中':(lang==='es'?'En revisión':'Under review'), 'info');
       return;
     }
-    setKycName(user?.name || ''); setKycDocType('passport'); setKycDocNo(''); setKycImage(''); setModal({ type: 'kyc' });
+    setKycName(user?.name || ''); setKycDocType('passport'); setKycDocNo(''); setKycImages([]); setModal({ type: 'kyc' });
   };
   async function compressImageFile(file) {
     return new Promise((resolve, reject) => {
@@ -217,14 +217,14 @@ export default function Settings() {
       } catch (err) { reject(err); }
     });
   }
-  const onKycFile = async (e) => {
+  const onKycFileAt = async (i, e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     try {
       const dataUrl = await compressImageFile(f);
       const approxBytes = Math.ceil((dataUrl.length || 0) * 3 / 4);
       if (approxBytes > 18 * 1024 * 1024) { showToast(lang==='zh'?'图片过大':(lang==='es'?'Imagen demasiado grande':'Image too large'), 'error'); return; }
-      setKycImage(dataUrl);
+      setKycImages(prev => { const arr = [...prev]; arr[i] = dataUrl; return arr.slice(0,2); });
     } catch { showToast(lang==='zh'?'图片处理失败':(lang==='es'?'Error al procesar imagen':'Image processing failed'), 'error'); }
   };
   const submitKyc = async () => {
@@ -234,10 +234,11 @@ export default function Settings() {
     if (nm.length < 2) { showToast(t('errorNameLength'), 'error'); return; }
     if (!dt) { showToast(t('fetchError'), 'error'); return; }
     if (!dn) { showToast(t('fetchError'), 'error'); return; }
-    if (!kycImage) { showToast(t('fetchError'), 'error'); return; }
+    const photos = (Array.isArray(kycImages) ? kycImages.filter(Boolean).slice(0,2) : []).map(u => ({ url: u, thumbUrl: u }));
+    if (photos.length === 0) { showToast(t('fetchError'), 'error'); return; }
     try {
       setKycSubmitting(true);
-      await api.post('/me/kyc/submit', { fields: { name: nm, idType: dt, idNumber: dn }, photos: [{ url: kycImage, thumbUrl: kycImage }] });
+      await api.post('/me/kyc/submit', { fields: { name: nm, idType: dt, idNumber: dn }, photos });
       setKycStatus('submitted');
       try { localStorage.setItem('kyc:status', 'submitted'); } catch {}
       showToast(lang==='es' ? 'Enviado para revisión' : 'Submitted for review', 'ok');
@@ -272,7 +273,9 @@ export default function Settings() {
       try { const v = String(import.meta.env?.VITE_IM_BASE || '').trim(); if (v) return v; } catch {}
       return 'http://127.0.0.1:3000';
     })();
-    const url = `${base.replace(/\/$/, '')}/customer.html?phone=${encodeURIComponent(phone || '')}&name=${encodeURIComponent(name || '')}&avatar=${encodeURIComponent(avatarUrl || '')}`;
+    try { localStorage.setItem('im:base', base); } catch {}
+    const ver = (() => { try { return String(localStorage.getItem('buildVersion')||'') } catch { return '' } })() || String(Date.now())
+    const url = `${String(base).replace(/\/$/, '')}/customer.html?phone=${encodeURIComponent(phone || '')}&name=${encodeURIComponent(name || '')}&avatar=${encodeURIComponent(avatarUrl || '')}&v=${encodeURIComponent(ver)}`;
     window.open(url, 'customer_chat', 'width=460,height=720');
   };
 
@@ -427,10 +430,12 @@ export default function Settings() {
               <input className="input" value={kycDocNo} onChange={e=>setKycDocNo(e.target.value)} />
               <div className="desc" style={{ marginTop: 8 }}>{lang==='es'?'Carga la foto correspondiente del documento':'Please upload the corresponding document photo'}</div>
               <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8 }}>
-                <div style={{ width:80, height:80, border:'1px dashed #263b5e', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }} onClick={()=>{ if (String(kycStatus).toLowerCase()==='submitted') { showToast(lang==='zh'?'正在审核中':(lang==='es'?'En revisión':'Under review'), 'info'); return; } kycFileRef.current?.click(); }}>+
-                </div>
-                {kycImage && <img src={kycImage} alt="doc" style={{ width:80, height:80, objectFit:'cover', borderRadius:10, border:'1px solid #263b5e' }} />}
-                <input ref={kycFileRef} type="file" accept="image/*" onChange={onKycFile} style={{ display:'none' }} />
+                {[0,1].map((i)=> (
+                  <div key={i} style={{ width:80, height:80, border:'1px dashed #263b5e', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }} onClick={()=>{ if (String(kycStatus).toLowerCase()==='submitted') { showToast(lang==='zh'?'正在审核中':(lang==='es'?'En revisión':'Under review'), 'info'); return; } kycFileRefs[i].current?.click(); }}>
+                    {kycImages[i] ? (<img src={kycImages[i]} alt="doc" style={{ width:80, height:80, objectFit:'cover', borderRadius:10, border:'1px solid #263b5e' }} />) : '+'}
+                    <input ref={kycFileRefs[i]} type="file" accept="image/*" onChange={(e)=>onKycFileAt(i, e)} style={{ display:'none' }} />
+                  </div>
+                ))}
               </div>
               <div className="sub-actions" style={{ justifyContent:'space-between' }}>
                 <button className="btn" onClick={closeModal}>{t('cancel')}</button>

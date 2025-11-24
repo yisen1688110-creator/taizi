@@ -25,6 +25,7 @@ import InstitutionBlocks from "./pages/institution/Blocks.jsx";
 import InstitutionFunds from "./pages/institution/Funds.jsx";
 import IpoRwaPage from "./pages/institution/IpoRwa.jsx";
 import { LanguageProvider, useI18n } from "./i18n.jsx";
+import { waitForHealth } from "./services/api.js";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 // 语言切换移至账户设置页，此处移除顶部语言切换组件
@@ -69,6 +70,8 @@ function detectAdminEnv() {
 
 export default function App() {
   const isAdminEnv = detectAdminEnv();
+  const { t } = useI18n();
+  const [retrying, setRetrying] = useState(false);
   const [healthOk, setHealthOk] = useState(false);
   // 便捷调试：支持通过 URL 参数配置本地开关
   // 示例：?xmex=1&debug=1&prefer_yf_mx=1&enable_yf=1&tdkey=YOUR_TWELVE_DATA_KEY
@@ -100,16 +103,12 @@ export default function App() {
   }, []);
   useEffect(() => {
     let stopped = false;
-    const check = async () => {
-      if (stopped) return;
+    (async () => {
       try {
-        const r = await fetch("/api/health");
-        const j = await r.json();
-        if (j && j.ok) { setHealthOk(true); return; }
+        await waitForHealth(9000);
+        if (!stopped) setHealthOk(true);
       } catch {}
-      setTimeout(check, 1000);
-    };
-    check();
+    })();
     return () => { stopped = true; };
   }, []);
   // 简易登录保护：未登录不允许访问交易页
@@ -120,9 +119,21 @@ export default function App() {
     return children;
   }
   if (!healthOk) {
+    const retry = async () => {
+      if (retrying) return;
+      setRetrying(true);
+      try { await waitForHealth(6000); setHealthOk(true); }
+      catch {}
+      setRetrying(false);
+    };
     return (
       <LanguageProvider>
-        <div className={isAdminEnv ? "app admin-app" : "app"} style={{ height:'100vh' }} />
+        <div className={isAdminEnv ? "app admin-app" : "app"} style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ textAlign:'center', color:'#9eb0c7' }}>
+            <div style={{ fontSize:18, marginBottom:8 }}>{t('loading') || '正在连接服务…'}</div>
+            <button onClick={retry} disabled={retrying} style={{ padding:'8px 14px', borderRadius:6, background:'#1e2a3a', color:'#cfe1ff', border:'1px solid #2f3e52' }}>{retrying ? (t('loading') || '正在连接…') : (t('retry') || '重试连接')}</button>
+          </div>
+        </div>
       </LanguageProvider>
     );
   }

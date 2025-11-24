@@ -151,14 +151,19 @@ export default function Home() {
 
   const me = useMemo(() => {
     if (!session) return null;
-    // 优先后端数值ID，其次本地镜像表匹配
     const backendId = Number(session?.id ?? session?.backendId);
     const byBackend = users.find(u => Number(u.id) === backendId) || users.find(u => Number(u.backendId) === backendId);
     const byPhone = users.find(u => u.phone === session.phone);
-    return byBackend || byPhone || session;
+    const base = byBackend || byPhone || session;
+    // 始终以后端会话中的头像字段为准，避免本地镜像覆盖掉最新头像
+    return {
+      ...(base || {}),
+      avatar: session?.avatar ?? base?.avatar ?? null,
+      avatarUrl: session?.avatarUrl ?? base?.avatarUrl ?? null,
+    };
   }, [session, users]);
 
-  const avatarSrc = normalizeAvatar(me?.avatarUrl || me?.avatar || (session?.profile && session.profile.avatarUrl) || ""); // 默认系统 logo
+  const avatarSrc = normalizeAvatar(session?.avatar || session?.avatarUrl || me?.avatarUrl || me?.avatar || (session?.profile && session.profile.avatarUrl) || "");
   const displayName = me?.name || me?.phone || "Usuario";
   // 余额状态：仅从后端数据库读取；初始化为 0
   const [balanceMXN, setBalanceMXN] = useState(0);

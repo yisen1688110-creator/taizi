@@ -40,6 +40,7 @@ try {
   const autoLogin = params.get('autologin');
   const apiBase = params.get('apibase');
   const avKey = params.get('avkey');
+  const tdKey = params.get('tdkey');
   const isDev = !!import.meta.env?.DEV;
   if (isDev && autoLogin === '1') {
     const existing = JSON.parse(localStorage.getItem('sessionUser') || 'null');
@@ -56,6 +57,11 @@ try {
     try { localStorage.setItem('av:key', avKey); } catch {}
     try { localStorage.setItem('VITE_ALPHAVANTAGE_KEY', avKey); } catch {}
     try { localStorage.setItem('VITE_AV_KEY', avKey); } catch {}
+  }
+  if (tdKey) {
+    try { localStorage.setItem('td:key', tdKey); } catch {}
+    try { localStorage.setItem('VITE_TWELVEDATA_KEY', tdKey); } catch {}
+    try { localStorage.setItem('VITE_TD_KEY', tdKey); } catch {}
   }
 } catch {}
 const rootElement = (

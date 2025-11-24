@@ -347,7 +347,7 @@ export default function Swap() {
     if (!isStock) return;
     (async () => {
       try {
-        const data = await api.get(`/api/trade/ipo/lookup?code=${encodeURIComponent(disp)}`);
+        const data = await api.get(`/trade/ipo/lookup?code=${encodeURIComponent(disp)}`);
         const it = data?.item || data;
         if (it && (it.code || it.list_at || it.listAt)) {
           setIpoConstraints(p => ({
@@ -629,7 +629,8 @@ export default function Swap() {
       }
     }
     fetchOnce();
-    return () => { aborted = true; };
+    const iv = setInterval(fetchOnce, 3000);
+    return () => { aborted = true; clearInterval(iv); };
   }, [tradingViewSymbol]);
 
   // 顶部价格条：每0.5s从缓存读取更新（不触发网络，也不影响图表）

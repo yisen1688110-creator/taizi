@@ -31,8 +31,8 @@ const validators = {
 export default function Profile() {
   const nav = useNavigate();
   const { lang, t } = useI18n();
-  const [session] = useState(() => readSession());
-  const [users] = useState(() => readUsers());
+  const [session, setSession] = useState(() => readSession());
+  const [users, setUsers] = useState(() => readUsers());
   const [, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showInvite, setShowInvite] = useState(false);
@@ -47,9 +47,18 @@ export default function Profile() {
     const byPhone = users.find(u => u.phone === session.phone);
     return byId || byPhone || session;
   }, [session, users]);
-  const [avatarUrl, setAvatarUrl] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("avatarUrl") || "null") || (user?.avatarUrl) || "/logo.png"; } catch { return "/logo.png"; }
-  });
+  function normalizeAvatar(u) {
+    try {
+      const s = String(u || '').trim();
+      if (!s) return '/logo.png';
+      if (/^data:image\/(png|jpeg);base64,/i.test(s)) return s;
+      if (/^https?:\/\//i.test(s)) return s;
+      if (s.startsWith('/')) return s;
+      if (/^[\w\-/.]+$/.test(s)) return `/uploads/${s.replace(/^\/+/, '')}`;
+      return '/logo.png';
+    } catch { return '/logo.png'; }
+  }
+  const [avatarUrl, setAvatarUrl] = useState(() => normalizeAvatar(session?.avatar || session?.avatarUrl || (user?.avatar || user?.avatarUrl) || (JSON.parse(localStorage.getItem('avatarUrl')||'null')||'')));
   const fileInputRef = useRef(null);
 
   // 资金（MXN / USD / USDT），从后端余额接口匹配真实数据（与 Home/Swap 同源逻辑）
@@ -104,15 +113,58 @@ export default function Profile() {
       try {
         setLoading(true);
         await api.post('/me/avatar', { data: base64 });
+        try {
+          const meData = await api.get('/me');
+          const u = (meData && (meData.user || meData)) || null;
+          if (u) {
+            try { localStorage.setItem('sessionUser', JSON.stringify(u)); } catch {}
+            setSession(u);
+            try {
+              const users = JSON.parse(localStorage.getItem('users') || '[]');
+              const next = users.map(m => (m.id === u.id ? { ...m, avatarUrl: u.avatar || base64 } : m));
+              localStorage.setItem('users', JSON.stringify(next));
+              setUsers(next);
+            } catch {}
+          }
+        } catch {}
       } catch (_) { /* 后端不可用则本地保存 */ }
       finally {
         setLoading(false);
         try { localStorage.setItem('avatarUrl', JSON.stringify(base64)); } catch {}
-        setAvatarUrl(base64);
+        setAvatarUrl(normalizeAvatar(base64));
       }
     };
     reader.readAsDataURL(file);
   };
+
+  // 会话/存储变化时刷新头像（避免使用旧本地缓存）
+  useEffect(() => {
+    const applyFromSession = () => {
+      try {
+        const s = JSON.parse(localStorage.getItem('sessionUser') || 'null');
+        if (s) { setSession(s); setAvatarUrl(normalizeAvatar(s.avatar || s.avatarUrl || '')); }
+      } catch {}
+    };
+    applyFromSession();
+    const onStorage = (e) => { if (!e || !e.key || e.key === 'sessionUser') applyFromSession(); };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // 页面进入时从后端读取最新用户信息，确保头像为最新路径
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await api.get('/me');
+        const u = (me && (me.user || me)) || null;
+        if (u) {
+          try { localStorage.setItem('sessionUser', JSON.stringify(u)); } catch {}
+          setSession(u);
+          setAvatarUrl(normalizeAvatar(u.avatar || u.avatarUrl || ''));
+        }
+      } catch {}
+    })();
+  }, []);
 
   // 姓名编辑入口已移除，顶部仅展示用户名称/电话
 

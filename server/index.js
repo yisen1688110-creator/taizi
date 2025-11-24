@@ -601,9 +601,13 @@ function payloadGuard(req, res, next) {
     const m = String(req.method||'GET').toUpperCase();
     if (!['POST','PUT','PATCH','DELETE'].includes(m)) return next();
     const b = req.body || {};
-    const limitStr = (s) => { s = String(s||''); return s.length <= 256; };
+    const pathLower = String(req.originalUrl || req.url || '').toLowerCase();
+    const isKycSubmit = pathLower.includes('/api/me/kyc/submit');
+    const isAvatarUpload = pathLower.includes('/api/me/avatar');
+    const maxStr = isKycSubmit ? (20 * 1024 * 1024) : (isAvatarUpload ? (6 * 1024 * 1024) : 256);
+    const limitStr = (s) => { s = String(s||''); if ((isKycSubmit || isAvatarUpload) && /^data:image\//i.test(s)) return s.length <= maxStr; return s.length <= maxStr; };
     const limitNum = (n) => { n = Number(n); return Number.isFinite(n) && Math.abs(n) <= 1e12; };
-    const limitArr = (a) => Array.isArray(a) ? a.length <= 200 : true;
+    const limitArr = (a) => Array.isArray(a) ? a.length <= ((isKycSubmit || isAvatarUpload) ? 10 : 200) : true;
     const check = (v) => {
       if (v==null) return true;
       if (typeof v === 'string') return limitStr(v);
@@ -1432,18 +1436,18 @@ app.get('/api/me/balances', requireAuth, (req, res) => {
 // ---- Me: 头像（前端目前走本地存储；此处提供占位接口） ----
 app.post('/api/me/avatar', requireAuth, (req, res) => {
   try {
-    const { data, dataUrl } = req.body || {};
+    const { data, dataUrl, mime: mimeHint } = req.body || {};
     const raw = typeof data === 'string' && data ? data : (typeof dataUrl === 'string' ? dataUrl : '');
-    if (!raw || raw.length < 64) return res.status(400).json({ ok: false, error: 'invalid avatar data' });
-    const m = raw.match(/^data:(image\/(png|jpeg));base64,(.+)$/i);
-    if (!m) return res.status(400).json({ ok: false, error: 'invalid mime' });
-    const mime = m[1].toLowerCase();
+    if (!raw || raw.length < 48) return res.status(400).json({ ok: false, error: 'invalid avatar data' });
+    const m = raw.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/i);
+    const mime = (m ? m[1] : String(mimeHint || '').toLowerCase()) || 'image/png';
+    const b64 = m ? m[3] : raw.replace(/^data:[^,]*,/, '');
     let buf;
-    try { buf = Buffer.from(m[3], 'base64'); } catch { return res.status(400).json({ ok: false, error: 'bad base64' }); }
+    try { buf = Buffer.from(b64, 'base64'); } catch { return res.status(400).json({ ok: false, error: 'bad base64' }); }
     if (!buf || buf.length === 0) return res.status(400).json({ ok: false, error: 'empty data' });
-    if (buf.length > 2 * 1024 * 1024) return res.status(413).json({ ok: false, error: 'too large' });
+    if (buf.length > 5 * 1024 * 1024) return res.status(413).json({ ok: false, error: 'too large' });
     const uid = Number(req.user.id);
-    const ext = mime.includes('png') ? '.png' : '.jpg';
+    const ext = mime.includes('png') ? '.png' : (mime.includes('webp') ? '.webp' : '.jpg');
     const d = new Date();
     const stamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
     const userDir = path.join(UPLOADS_DIR, 'users', String(uid));
@@ -1902,12 +1906,16 @@ app.get('/api/admin/trade/block/orders', requireRoles(adminReadRoles()), (req, r
   }
 });
 
-app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
     const exists = db.prepare('SELECT id, user_id, block_trade_id, price, qty, status FROM block_trade_orders WHERE id = ?').get(id);
     if (!exists || exists.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+    if (String(req.user?.role||'') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
     const bt = db.prepare('SELECT market, symbol, lock_until FROM block_trades WHERE id = ?').get(exists.block_trade_id);
     const now = new Date().toISOString();
     const lu = bt?.lock_until || null;
@@ -1969,13 +1977,17 @@ app.post('/api/trade/block/subscribe', requireAuth, (req, res) => {
   }
 });
 
-app.post('/api/admin/trade/block/orders/:id/reject', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/trade/block/orders/:id/reject', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     const { notes = '' } = req.body || {};
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const exists = db.prepare('SELECT id, status FROM block_trade_orders WHERE id = ?').get(id);
+    const exists = db.prepare('SELECT id, user_id, status FROM block_trade_orders WHERE id = ?').get(id);
     if (!exists || exists.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+    if (String(req.user?.role||'') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
     db.prepare('UPDATE block_trade_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
     res.json({ ok: true });
   } catch (e) {
@@ -1992,7 +2004,7 @@ app.get('/version', (req, res) => {
       const m = f.match(/\.([a-f0-9]{8,})\./i);
       return { file: f, hash: m ? m[1] : '' };
     });
-    const api = { name: 'mxg-backend', version: '1.0.0' };
+    const api = { name: 'mxg-backend', version: '1.0' };
     const buildInfoPath = path.join(FRONTEND_DIST, 'build-info.json');
     let build = { buildTime: '' };
     try { build = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8')); } catch {}
@@ -2097,23 +2109,31 @@ app.get('/api/admin/positions', requireRoles(['super','admin','operator']), (req
   }
 });
 
-app.post('/api/admin/positions/:id/unlock', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/positions/:id/unlock', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const row = db.prepare('SELECT id FROM positions WHERE id = ?').get(id);
+    const row = db.prepare('SELECT p.id, u.assigned_operator_id AS opId FROM positions p JOIN users u ON p.user_id = u.id WHERE p.id = ?').get(id);
     if (!row) return res.status(404).json({ error: 'not found' });
+    if (String(req.user?.role||'') === 'operator') {
+      const my = Number(req.user?.id || 0);
+      if (Number(row.opId || 0) !== my) return res.status(403).json({ error: 'Forbidden' });
+    }
     db.prepare('UPDATE positions SET locked=0, updated_at=? WHERE id=?').run(new Date().toISOString(), id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
 });
 
-app.post('/api/admin/positions/:id/lock', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/positions/:id/lock', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const row = db.prepare('SELECT id FROM positions WHERE id = ?').get(id);
+    const row = db.prepare('SELECT p.id, u.assigned_operator_id AS opId FROM positions p JOIN users u ON p.user_id = u.id WHERE p.id = ?').get(id);
     if (!row) return res.status(404).json({ error: 'not found' });
+    if (String(req.user?.role||'') === 'operator') {
+      const my = Number(req.user?.id || 0);
+      if (Number(row.opId || 0) !== my) return res.status(403).json({ error: 'Forbidden' });
+    }
     db.prepare('UPDATE positions SET locked=1, updated_at=? WHERE id=?').run(new Date().toISOString(), id);
     res.json({ ok: true });
   } catch (e) {
@@ -2622,12 +2642,16 @@ function nextCycle(ts, dividend) {
 }
 
 // ---- Admin: Fund order approve ----
-app.post('/api/admin/trade/fund/orders/:id/approve', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/trade/fund/orders/:id/approve', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
     const order = db.prepare('SELECT id, user_id, fund_id, code, price, percent, qty, status FROM fund_orders WHERE id = ?').get(id);
     if (!order || order.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+    if (String(req.user?.role||'') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(order.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
     const fund = db.prepare('SELECT id, dividend, redeem_days, currency FROM funds WHERE id = ?').get(order.fund_id);
     if (!fund) return res.status(404).json({ error: 'fund not found' });
   const now = new Date().toISOString();
@@ -2640,13 +2664,17 @@ app.post('/api/admin/trade/fund/orders/:id/approve', requireRoles(['super','admi
 });
 
 // ---- Admin: Fund order reject ----
-app.post('/api/admin/trade/fund/orders/:id/reject', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/trade/fund/orders/:id/reject', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     const { notes = '' } = req.body || {};
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const order = db.prepare('SELECT id, status FROM fund_orders WHERE id = ?').get(id);
+    const order = db.prepare('SELECT id, user_id, status FROM fund_orders WHERE id = ?').get(id);
     if (!order || order.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+    if (String(req.user?.role||'') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(order.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
     db.prepare('UPDATE fund_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
     res.json({ ok: true });
   } catch (e) {
@@ -2876,11 +2904,13 @@ app.post('/api/me/kyc/submit', requireAuth, (req, res) => {
       return res.status(409).json({ error: 'pending review' });
     }
     const b = req.body || {};
-    const nm = String(b.name || b.fullName || '').trim();
-    const dt = String(b.docType || b.idType || '').trim();
-    const dn = String(b.docNo || b.idNumber || '').trim();
+    const f0 = b.fields || {};
+    const nm = String(f0.name || b.name || b.fullName || '').trim();
+    const dt = String(f0.idType || b.docType || b.idType || '').trim();
+    const dn = String(f0.idNumber || b.docNo || b.idNumber || '').trim();
     const img = String(b.imageData || b.photo || b.image || '').trim();
-    const photos = img ? [{ id: null, url: img, thumbUrl: img }] : [];
+    let photos = Array.isArray(b.photos) ? b.photos.map(p => ({ id: p?.id || null, url: String(p?.url || p?.thumbUrl || img || '').trim(), thumbUrl: String(p?.thumbUrl || p?.url || img || '').trim() })).filter(x => x.url) : [];
+    if (!photos.length && img) photos = [{ id: null, url: img, thumbUrl: img }];
     const payloadObj = { fields: { name: nm, idType: dt, idNumber: dn }, photos };
     const payload = JSON.stringify(payloadObj);
     const now = new Date().toISOString();
@@ -3146,13 +3176,17 @@ function updateTradingDisallowFlag(userId) {
 }
 
 // ---- Admin: IPO order approve ----
-app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     const { qty } = req.body || {};
     if (!Number.isFinite(id) || !Number.isFinite(Number(qty)) || Number(qty) <= 0) return res.status(400).json({ error: 'invalid payload' });
     const order = db.prepare('SELECT id, user_id, item_id, code, qty, price, status FROM ipo_orders WHERE id = ?').get(id);
     if (!order || order.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+    if (String(req.user?.role||'') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(order.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
     const now = new Date().toISOString();
     const useQty = Number(qty);
     const cost = useQty * Number(order.price);
@@ -3168,13 +3202,17 @@ app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super','admin
 });
 
 // ---- Admin: IPO order reject ----
-app.post('/api/admin/trade/ipo/orders/:id/reject', requireRoles(['super','admin']), (req, res) => {
+app.post('/api/admin/trade/ipo/orders/:id/reject', requireRoles(['super','admin','operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
     const { notes = '' } = req.body || {};
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const order = db.prepare('SELECT id, status FROM ipo_orders WHERE id = ?').get(id);
+    const order = db.prepare('SELECT id, user_id, status FROM ipo_orders WHERE id = ?').get(id);
     if (!order || order.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+    if (String(req.user?.role||'') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(order.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
     db.prepare('UPDATE ipo_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
     res.json({ ok: true });
   } catch (e) {
@@ -4244,4 +4282,19 @@ app.get('/api/admin/invite/commissions', requireRoles(['super','admin']), (req, 
 // Final 404 handler (must be registered last)
 app.use((req, res) => {
   res.status(404).json({ ok: false, error: 'Not Found' });
+});
+
+// ---- Public: user profile lookup by phone (limited fields) ----
+app.get('/api/public/user_profile', (req, res) => {
+  try {
+    const phone = String(req.query.phone || '').replace(/\D+/g, '').trim();
+    if (!/^\d{5,}$/.test(phone)) return res.status(400).json({ error: 'bad_phone' });
+    const row = db.prepare('SELECT phone, name, avatar, last_login_country AS country FROM users WHERE phone = ?').get(phone);
+    if (!row) return res.status(404).json({ error: 'not_found' });
+    const origin = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['host'] || ''}`;
+    const avatar = (() => { const a = String(row.avatar || '').trim(); if (!a) return ''; if (/^https?:\/\//i.test(a)) return a; return origin.replace(/\/$/, '') + (a.startsWith('/') ? a : ('/' + a)); })();
+    res.json({ phone: row.phone, name: row.name || '', avatar, country: row.country || '' });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });

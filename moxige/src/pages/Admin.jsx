@@ -46,7 +46,7 @@ export default function Admin() {
       if (isDevLocal) {
         try { localStorage.removeItem('api:base:override'); } catch {}
         try { localStorage.removeItem('api:base'); } catch {}
-        api.setBase('http://127.0.0.1:5210');
+        api.setBase('/api');
       }
     } catch {}
   }, []);
@@ -490,7 +490,7 @@ export default function Admin() {
   };
 
   // ---- 用户持仓页面组件 ----
-function PositionsPage() {
+function PositionsPage({ session }) {
     const [phone, setPhone] = useState('');
     const [operatorId, setOperatorId] = useState('');
     const [statusList, setStatusList] = useState(['holding','pending','completed']);
@@ -847,14 +847,16 @@ function PositionsPage() {
         <nav className="nav">
           <button className={`nav-item ${active === "overview" ? "active" : ""}`} onClick={() => setActive("overview")}>概览</button>
           <button className={`nav-item ${active === "users" ? "active" : ""}`} onClick={() => setActive("users")}>用户管理</button>
-          <button className={`nav-item ${active === "team" ? "active" : ""}`} onClick={() => setActive("team")}>团队管理</button>
+          {session?.role !== 'operator' && (
+            <button className={`nav-item ${active === "team" ? "active" : ""}`} onClick={() => setActive("team")}>团队管理</button>
+          )}
           {/* 新增：股票信息（可折叠子菜单） */}
           <div className="nav-group">
             <details open>
               <summary className="nav-item">股票信息</summary>
-              <div className="nav-sub">
-                <button className={`nav-item ${active === "positions" ? "active" : ""}`} onClick={() => setActive("positions")}>用户持仓</button>
-              </div>
+          <div className="nav-sub">
+            <button className={`nav-item ${active === "positions" ? "active" : ""}`} onClick={() => setActive("positions")}>用户持仓</button>
+          </div>
             </details>
           </div>
           {/* 新增：交易设置（可折叠子菜单） */}
@@ -873,9 +875,15 @@ function PositionsPage() {
             <details>
               <summary className="nav-item">资金管理</summary>
               <div className="nav-sub">
-                <button className={`nav-item ${active === "funds-recharge" ? "active" : ""}`} onClick={() => { setActive("funds-recharge"); try { window.history.pushState(null, '', '/admin/chognzhi'); } catch {} }}>账户充值</button>
-                <button className={`nav-item ${active === "funds-logs" ? "active" : ""}`} onClick={() => { setActive("funds-logs"); try { window.history.pushState(null, '', '/admin/zijin'); } catch {} }}>资金明细</button>
-                <button className={`nav-item ${active === "funds-withdraws" ? "active" : ""}`} onClick={() => { setActive('funds-withdraws'); try { window.history.pushState(null, '', '/admin/withdraws'); } catch {} }}>用户提现</button>
+                {session?.role !== 'operator' && (
+                  <button className={`nav-item ${active === "funds-recharge" ? "active" : ""}`} onClick={() => { setActive("funds-recharge"); try { window.history.pushState(null, '', '/admin/chognzhi'); } catch {} }}>账户充值</button>
+                )}
+                {session?.role !== 'operator' && (
+                  <button className={`nav-item ${active === "funds-logs" ? "active" : ""}`} onClick={() => { setActive("funds-logs"); try { window.history.pushState(null, '', '/admin/zijin'); } catch {} }}>资金明细</button>
+                )}
+                {session?.role !== 'operator' && (
+                  <button className={`nav-item ${active === "funds-withdraws" ? "active" : ""}`} onClick={() => { setActive('funds-withdraws'); try { window.history.pushState(null, '', '/admin/withdraws'); } catch {} }}>用户提现</button>
+                )}
               </div>
             </details>
           </div>
@@ -884,8 +892,12 @@ function PositionsPage() {
             <details open>
               <summary className="nav-item">系统设置</summary>
               <div className="nav-sub">
-                <button className={`nav-item ${active === "settings-trading" ? "active" : ""}`} onClick={() => setActive("settings-trading")}>交易时间限制</button>
-                <button className={`nav-item ${active === "settings-invite" ? "active" : ""}`} onClick={() => setActive("settings-invite")}>邀请系统设置</button>
+                {session?.role !== 'operator' && (
+                  <button className={`nav-item ${active === "settings-trading" ? "active" : ""}`} onClick={() => setActive("settings-trading")}>交易时间限制</button>
+                )}
+                {session?.role !== 'operator' && (
+                  <button className={`nav-item ${active === "settings-invite" ? "active" : ""}`} onClick={() => setActive("settings-invite")}>邀请系统设置</button>
+                )}
                 <button className={`nav-item ${active === "invite-commissions" ? "active" : ""}`} onClick={() => setActive("invite-commissions")}>邀请佣金记录</button>
               </div>
             </details>
@@ -893,6 +905,7 @@ function PositionsPage() {
         </nav>
         <div className="sidebar-footer">
           <div style={{ marginBottom: 8 }}>{session?.name || "员工"}</div>
+          {session?.role !== 'operator' && (
           <button className="nav-item" onClick={() => {
             try {
               const override = String(localStorage.getItem('im:base') || '').trim();
@@ -915,6 +928,7 @@ function PositionsPage() {
           }}>
             客服系统
           </button>
+          )}
           <button className="nav-item" onClick={handleLogout}>退出登录</button>
         </div>
       </aside>
@@ -984,12 +998,14 @@ function PositionsPage() {
                 <div className="ov-desc">查看并维护用户信息</div>
                 <button className="btn slim" onClick={() => setActive("users")}>进入</button>
               </div>
-              <div className="ov-card">
-                <div className="ov-icon">🧑‍💼</div>
-                <div className="ov-title">团队管理</div>
-                <div className="ov-desc">管理员与运营协作</div>
-                <button className="btn slim" onClick={() => setActive("team")}>进入</button>
-              </div>
+              {session?.role !== 'operator' && (
+                <div className="ov-card">
+                  <div className="ov-icon">🧑‍💼</div>
+                  <div className="ov-title">团队管理</div>
+                  <div className="ov-desc">管理员与运营协作</div>
+                  <button className="btn slim" onClick={() => setActive("team")}>进入</button>
+                </div>
+              )}
               <div className="ov-card">
                 <div className="ov-icon">📊</div>
                 <div className="ov-title">数据概览</div>
@@ -1000,18 +1016,22 @@ function PositionsPage() {
                   <div className="stat"><div className="stat-num">{adminCount}</div><div className="stat-label">管理员</div></div>
                 </div>
               </div>
-              <div className="ov-card">
-                <div className="ov-icon">💬</div>
-                <div className="ov-title">消息中心</div>
-                <div className="ov-desc">站内消息与通知</div>
-                <button className="btn slim">进入</button>
-              </div>
-              <div className="ov-card">
-                <div className="ov-icon">⚙️</div>
-                <div className="ov-title">设置</div>
-                <div className="ov-desc">基础配置与偏好</div>
-                <button className="btn slim">进入</button>
-              </div>
+              {session?.role !== 'operator' && (
+                <div className="ov-card">
+                  <div className="ov-icon">💬</div>
+                  <div className="ov-title">消息中心</div>
+                  <div className="ov-desc">站内消息与通知</div>
+                  <button className="btn slim">进入</button>
+                </div>
+              )}
+              {session?.role !== 'operator' && (
+                <div className="ov-card">
+                  <div className="ov-icon">⚙️</div>
+                  <div className="ov-title">设置</div>
+                  <div className="ov-desc">基础配置与偏好</div>
+                  <button className="btn slim">进入</button>
+                </div>
+              )}
               <div className="ov-card">
                 <div className="ov-icon">🧾</div>
                 <div className="ov-title">工单</div>
@@ -1102,11 +1122,13 @@ function PositionsPage() {
                                 setOpsOpenId(null);
                                 setSelectedUser({ ...u, action: 'assign' });
                               }}>改归属</button>
-                              <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => {
-                                if (!['admin','super'].includes(session?.role)) { alert('无权限'); return; }
-                                setOpsOpenId(null);
-                                setSelectedUser({ ...u, action: 'funds' });
-                              }}>修改账户资金</button>
+                              {session?.role !== 'operator' && (
+                                <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => {
+                                  if (!['admin','super'].includes(session?.role)) { alert('无权限'); return; }
+                                  setOpsOpenId(null);
+                                  setSelectedUser({ ...u, action: 'funds' });
+                                }}>修改账户资金</button>
+                              )}
                               <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => {
                                 if (!['admin','super'].includes(session?.role)) { alert('无权限'); return; }
                                 setOpsOpenId(null);
@@ -1202,7 +1224,9 @@ function PositionsPage() {
                                 <div className="menu" style={{ position: 'absolute', zIndex: 5, background: '#0f213a', border: '1px solid #263b5e', borderRadius: 6, padding: 6, minWidth: 140 }}>
                                   <button className="btn slim" style={{ width: '100%' }} onClick={() => { setOpsOpenId(null); setSelectedUser(u); }}>详情</button>
                                   <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); setSelectedUser({ ...u, action: 'changePassword' }); }}>改登录密码</button>
-                                  <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); setSelectedUser({ ...u, action: 'funds' }); }}>修改账户资金</button>
+                                  {session?.role !== 'operator' && (
+                                    <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); setSelectedUser({ ...u, action: 'funds' }); }}>修改账户资金</button>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1309,22 +1333,22 @@ function PositionsPage() {
 
         {/* 用户持仓页面 */}
         {active === "positions" && (
-          <PositionsPage />
+          <PositionsPage session={session} />
         )}
 
         {/* 交易设置：大宗交易 */}
         {active === "trade-block" && (
-          <BlockTradesAdmin />
+          <BlockTradesAdmin session={session} />
         )}
 
         {/* 交易设置：基金 */}
         {active === "trade-fund" && (
-          <FundAdmin />
+          <FundAdmin session={session} />
         )}
 
         {/* 交易设置：新股/实物资产 */}
         {active === "trade-ipo" && (
-          <IpoRwaAdmin />
+          <IpoRwaAdmin session={session} />
         )}
 
         {/* 资金管理：账户充值 */}
@@ -1788,24 +1812,12 @@ function VersionPanel() {
   return (
     <div className="ov-card" style={{ gridColumn: 'span 2' }}>
       <div className="ov-icon">🔎</div>
-      <div className="ov-title">版本状态</div>
-      <div className="ov-desc">实时查看后端与前端资源版本</div>
-      <div className="desc" style={{ marginTop: 8 }}>
-        <div>环境：{env}</div>
-        <div>后端：{status.api ? `${status.api.name} v${status.api.version}` : '—'}</div>
-        <div>构建：{status.build?.buildTime ? new Date(status.build.buildTime).toLocaleString() : '—'}</div>
-        <div>资源：{status.assets.length ? status.assets.map(a => a.file).join(', ') : '—'}</div>
-        <div>来源：{status.origin || '—'}</div>
-      </div>
-      <div className="sub-actions" style={{ justifyContent:'flex-end', marginTop: 8 }}>
-        <button className="btn" onClick={refresh} disabled={loading}>{loading ? '刷新中…' : '刷新'}</button>
-      </div>
-      {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+      <div className="ov-title">版本状态： V {status?.api?.version || '1.0'}</div>
     </div>
   );
 }
 
-function BlockTradesAdmin() {
+function BlockTradesAdmin({ session }) {
   const [items, setItems] = useState([]);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
@@ -2237,63 +2249,67 @@ function BlockTradesAdmin() {
     }
   };
 
-  return (
-    <div className="card flat">
-      <h1 className="title">大宗交易</h1>
-      <div className="form admin-form-compact" style={{ marginTop: 10 }}>
-        <label className="label">搜索股票代码</label>
-        <input className="input" placeholder="如 AAPL（美股）或 ETH（加密）" value={q} onChange={e => setQ(e.target.value)} />
-        <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8 }}>
-          <button className="btn" onClick={fetchList}>查询</button>
-          <button className="btn primary" onClick={openAdd}>添加</button>
-        </div>
-      </div>
+    return (
+      <div className="card flat">
+        <h1 className="title">大宗交易</h1>
+        {session?.role !== 'operator' && (
+          <>
+            <div className="form admin-form-compact" style={{ marginTop: 10 }}>
+              <label className="label">搜索股票代码</label>
+              <input className="input" placeholder="如 AAPL（美股）或 ETH（加密）" value={q} onChange={e => setQ(e.target.value)} />
+              <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8 }}>
+                <button className="btn" onClick={fetchList}>查询</button>
+                <button className="btn primary" onClick={openAdd}>添加</button>
+              </div>
+            </div>
 
-      <div style={{ marginTop: 14 }}>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
-          <thead>
-            <tr style={{ textAlign:'left' }}>
-              <th style={{ padding:'8px 6px' }}>市场</th>
-              <th style={{ padding:'8px 6px' }}>股票/币种</th>
-              <th style={{ padding:'8px 6px' }}>价格</th>
-              <th style={{ padding:'8px 6px' }}>最低数量</th>
-              <th style={{ padding:'8px 6px' }}>购买时间窗</th>
-              <th style={{ padding:'8px 6px' }}>锁定至</th>
-              <th style={{ padding:'8px 6px' }}>认购密钥</th>
-              <th style={{ padding:'8px 6px' }}>状态</th>
-              <th style={{ padding:'8px 6px' }}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(it => (
-              <tr key={it.id} style={{ borderTop:'1px solid #263b5e' }}>
-                <td style={{ padding:'8px 6px' }}>{it.market}</td>
-                <td style={{ padding:'8px 6px' }}>{it.symbol}</td>
-                <td style={{ padding:'8px 6px' }}>{it.price}</td>
-                <td style={{ padding:'8px 6px' }}>{it.min_qty}</td>
-                <td style={{ padding:'8px 6px' }}>{shortIso(it.start_at)} ~ {shortIso(it.end_at)}</td>
-                <td style={{ padding:'8px 6px' }}>{shortIso(it.lock_until)}</td>
-                <td style={{ padding:'8px 6px' }}>{it.subscribe_key || '-'}</td>
-                <td style={{ padding:'8px 6px' }}>{it.status}</td>
-                <td style={{ padding:'8px 6px', position:'relative' }}>
-                  <button className="btn" onClick={() => setOpsOpenId(opsOpenId===it.id?null:it.id)}>操作</button>
-                  {opsOpenId===it.id && (
-                    <div className="card" style={{ position:'absolute', zIndex:10, padding:8, right:8 }}>
-                      <button className="btn slim" style={{ width:'100%' }} onClick={() => { setOpsOpenId(null); openEdit(it); }}>编辑</button>
-                      <button className="btn slim" style={{ width:'100%', marginTop:6 }} onClick={() => { setOpsOpenId(null); removeItem(it.id); }}>删除</button>
-                    </div>
+            <div style={{ marginTop: 14 }}>
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign:'left' }}>
+                    <th style={{ padding:'8px 6px' }}>市场</th>
+                    <th style={{ padding:'8px 6px' }}>股票/币种</th>
+                    <th style={{ padding:'8px 6px' }}>价格</th>
+                    <th style={{ padding:'8px 6px' }}>最低数量</th>
+                    <th style={{ padding:'8px 6px' }}>购买时间窗</th>
+                    <th style={{ padding:'8px 6px' }}>锁定至</th>
+                    <th style={{ padding:'8px 6px' }}>认购密钥</th>
+                    <th style={{ padding:'8px 6px' }}>状态</th>
+                    <th style={{ padding:'8px 6px' }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(it => (
+                    <tr key={it.id} style={{ borderTop:'1px solid #263b5e' }}>
+                      <td style={{ padding:'8px 6px' }}>{it.market}</td>
+                      <td style={{ padding:'8px 6px' }}>{it.symbol}</td>
+                      <td style={{ padding:'8px 6px' }}>{it.price}</td>
+                      <td style={{ padding:'8px 6px' }}>{it.min_qty}</td>
+                      <td style={{ padding:'8px 6px' }}>{shortIso(it.start_at)} ~ {shortIso(it.end_at)}</td>
+                      <td style={{ padding:'8px 6px' }}>{shortIso(it.lock_until)}</td>
+                      <td style={{ padding:'8px 6px' }}>{it.subscribe_key || '-'}</td>
+                      <td style={{ padding:'8px 6px' }}>{it.status}</td>
+                      <td style={{ padding:'8px 6px', position:'relative' }}>
+                        <button className="btn" onClick={() => setOpsOpenId(opsOpenId===it.id?null:it.id)}>操作</button>
+                        {opsOpenId===it.id && (
+                          <div className="card" style={{ position:'absolute', zIndex:10, padding:8, right:8 }}>
+                            <button className="btn slim" style={{ width:'100%' }} onClick={() => { setOpsOpenId(null); openEdit(it); }}>编辑</button>
+                            <button className="btn slim" style={{ width:'100%', marginTop:6 }} onClick={() => { setOpsOpenId(null); removeItem(it.id); }}>删除</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {items.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="desc" style={{ padding:'10px 6px' }}>{loading ? '加载中...' : '暂无数据'}</td>
+                    </tr>
                   )}
-                </td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={8} className="desc" style={{ padding:'10px 6px' }}>{loading ? '加载中...' : '暂无数据'}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
       {/* 审核订单列表 */}
       <div className="card flat" style={{ marginTop: 18 }}>
@@ -2343,8 +2359,10 @@ function BlockTradesAdmin() {
                   <td style={{ padding:'8px 6px', position:'relative' }}>
                     {o.status === 'submitted' ? (
                       <>
-                        <button className="btn primary" onClick={() => approveOrder(o.id)}>通过</button>
-                        <button className="btn" style={{ marginLeft: 8 }} onClick={() => rejectOrder(o.id)}>驳回</button>
+                        <>
+                          <button className="btn primary" onClick={() => approveOrder(o.id)}>通过</button>
+                          <button className="btn" style={{ marginLeft: 8 }} onClick={() => rejectOrder(o.id)}>驳回</button>
+                        </>
                       </>
                     ) : (
                       <>
@@ -2371,7 +2389,7 @@ function BlockTradesAdmin() {
         </div>
       </div>
 
-      {showAdd ? (
+      {showAdd && session?.role !== 'operator' ? (
         <div className="modal" style={{ alignItems:'flex-start', paddingTop: 100 }}>
           <div className="modal-card">
             <h2 className="title" style={{ marginTop: 0 }}>添加大宗交易</h2>
@@ -2643,7 +2661,7 @@ function BalanceLogsPage() {
   );
 }
 
-  function IpoRwaAdmin() {
+function IpoRwaAdmin({ session }) {
   const [q, setQ] = useState('');
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -2768,17 +2786,19 @@ function BalanceLogsPage() {
   return (
     <div className="card flat">
       <h1 className="title">新股 / 实物资产</h1>
-      <div className="form admin-form-compact" style={{ marginTop: 10 }}>
-        <label className="label">搜索编码或名称</label>
-        <input className="input" placeholder="如 AAPL 或关键词" value={q} onChange={e => setQ(e.target.value)} />
-        <div className="sub-actions" style={{ justifyContent:'flex-start', gap:8 }}>
-          <button className="btn" onClick={() => { setPage(1); fetchList(); }}>查询</button>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>创建</button>
+      {session?.role !== 'operator' && (
+        <>
+        <div className="form admin-form-compact" style={{ marginTop: 10 }}>
+          <label className="label">搜索编码或名称</label>
+          <input className="input" placeholder="如 AAPL 或关键词" value={q} onChange={e => setQ(e.target.value)} />
+          <div className="sub-actions" style={{ justifyContent:'flex-start', gap:8 }}>
+            <button className="btn" onClick={() => { setPage(1); fetchList(); }}>查询</button>
+            <button className="btn primary" onClick={() => setShowAdd(true)}>创建</button>
+          </div>
         </div>
-      </div>
 
-      <div style={{ marginTop: 14 }}>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <div style={{ marginTop: 14 }}>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ textAlign:'left' }}>
               <th style={{ padding:'8px 6px' }}>类型</th>
@@ -2837,7 +2857,9 @@ function BalanceLogsPage() {
             <button className="btn" disabled={page>=Math.max(1, Math.ceil((total||0)/(pageSize||20)))} onClick={() => setPage(p => Math.min(Math.max(1, Math.ceil((total||0)/(pageSize||20))), p+1))}>下一页</button>
           </div>
         </div>
-      </div>
+        </div>
+        </>
+      )}
 
         <div style={{ marginTop: 20 }}>
           <h2 className="title" style={{ marginTop: 0 }}>订单审核</h2>
@@ -2880,8 +2902,10 @@ function BalanceLogsPage() {
                 <td style={{ padding:'8px 6px' }}>
                   {o.status === 'submitted' ? (
                     <>
-                      <button className="btn primary" style={{ height:32 }} onClick={() => approveOrder(o.id)}>审批并扣款</button>
-                      <button className="btn" style={{ height:32, marginLeft:8 }} onClick={() => rejectOrder(o.id)}>驳回</button>
+                      <>
+                        <button className="btn primary" style={{ height:32 }} onClick={() => approveOrder(o.id)}>审批并扣款</button>
+                        <button className="btn" style={{ height:32, marginLeft:8 }} onClick={() => rejectOrder(o.id)}>驳回</button>
+                      </>
                     </>
                   ) : (
                     <span className="desc">—</span>
@@ -2914,7 +2938,7 @@ function BalanceLogsPage() {
         </div>
       </div>
 
-      {showAdd ? (
+      {showAdd && session?.role !== 'operator' ? (
         <div className="modal" style={{ alignItems:'flex-start', justifyContent:'center', paddingTop: 100 }}>
           <div className="modal-card" style={{ maxWidth:'92vw', width:680, maxHeight:'80vh', overflow:'auto' }}>
             <h2 className="title" style={{ marginTop: 0 }}>创建新项目</h2>
@@ -2993,7 +3017,7 @@ function BalanceLogsPage() {
   );
 }
 
-function FundAdmin() {
+function FundAdmin({ session }) {
   const [q, setQ] = useState('');
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -3157,17 +3181,19 @@ function FundAdmin() {
   return (
     <div className="card flat">
       <h1 className="title">基金</h1>
-      <div className="form admin-form-compact" style={{ marginTop: 10 }}>
-        <label className="label">搜索基金</label>
-        <input className="input" placeholder="输入代码或名称关键词" value={q} onChange={e => setQ(e.target.value)} />
-        <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8 }}>
-          <button className="btn" onClick={() => { setPage(1); fetchList(); }}>查询</button>
-          <button className="btn primary" onClick={() => setShowAdd(true)}>添加</button>
+      {session?.role !== 'operator' && (
+        <>
+        <div className="form admin-form-compact" style={{ marginTop: 10 }}>
+          <label className="label">搜索基金</label>
+          <input className="input" placeholder="输入代码或名称关键词" value={q} onChange={e => setQ(e.target.value)} />
+          <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8 }}>
+            <button className="btn" onClick={() => { setPage(1); fetchList(); }}>查询</button>
+            <button className="btn primary" onClick={() => setShowAdd(true)}>添加</button>
+          </div>
         </div>
-      </div>
 
-      <div style={{ marginTop: 14 }}>
-        <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        <div style={{ marginTop: 14 }}>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
             <tr style={{ textAlign:'left' }}>
               <th style={{ padding:'8px 6px' }}>代码</th>
@@ -3217,6 +3243,8 @@ function FundAdmin() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
         <div style={{ marginTop: 20 }}>
           <h2 className="title" style={{ marginTop: 0 }}>订单审核</h2>
@@ -3277,8 +3305,10 @@ function FundAdmin() {
                       <button className="btn" onClick={() => setFundOrderOpsOpenId(fundOrderOpsOpenId===o.id?null:o.id)}>操作</button>
                       {fundOrderOpsOpenId===o.id && (
                         <div className="card" style={{ position:'absolute', zIndex:10, padding:8, right:8 }}>
-                          <button className="btn slim primary" style={{ width:'100%' }} onClick={() => { setFundOrderOpsOpenId(null); approveOrder(o.id); }}>通过</button>
-                          <button className="btn slim" style={{ width:'100%', marginTop:6 }} onClick={() => { setFundOrderOpsOpenId(null); rejectOrder(o.id); }}>驳回</button>
+                          <>
+                            <button className="btn slim primary" style={{ width:'100%' }} onClick={() => { setFundOrderOpsOpenId(null); approveOrder(o.id); }}>通过</button>
+                            <button className="btn slim" style={{ width:'100%', marginTop:6 }} onClick={() => { setFundOrderOpsOpenId(null); rejectOrder(o.id); }}>驳回</button>
+                          </>
                         </div>
                       )}
                     </>
@@ -3317,8 +3347,8 @@ function FundAdmin() {
           </div>
         </div>
 
-        {showAdd ? (
-          <div className="modal" style={{ alignItems:'flex-start', paddingTop: 100 }}>
+      {showAdd && session?.role !== 'operator' ? (
+        <div className="modal" style={{ alignItems:'flex-start', paddingTop: 100 }}>
             <div className="modal-card" style={{ maxWidth: 720 }}>
               <h2 className="title" style={{ marginTop: 0 }}>{fundEditId ? '编辑基金' : '添加基金'}</h2>
               <div className="form">
@@ -3356,7 +3386,7 @@ function FundAdmin() {
               </div>
             </div>
           </div>
-        ) : null}
+      ) : null}
       </div>
 
   );

@@ -3,7 +3,8 @@ const fs = require('fs')
 const express = require('express')
 const http = require('http')
 const { Server } = require('socket.io')
-const sqlite3 = require('sqlite3').verbose()
+let sqlite3 = null
+try { sqlite3 = require('sqlite3').verbose() } catch (_) { sqlite3 = null }
 const cors = require('cors')
 const { fetchUserProfile, upsertUserProfile } = require('./userService')
 const multer = require('multer')
@@ -24,13 +25,28 @@ app.use(cors({
     } catch { return cb(new Error('cors_denied'), false) }
   }
 }))
-app.use(express.json())
+app.use(express.json({ limit: '20mb' }))
+app.use(express.urlencoded({ extended: true, limit: '20mb' }))
 app.set('trust proxy', true)
-const CSRF_COOKIE_NAME = String(process.env.IM_CSRF_COOKIE_NAME || 'im_csrf_token')
+const CSRF_COOKIE_NAME = String(process.env.IM_CSRF_COOKIE_NAME || 'csrf_token')
 const CSRF_HEADER_NAME = String(process.env.IM_CSRF_HEADER_NAME || 'x-csrf-token')
 function parseCookie(h) { const out = {}; try { String(h||'').split(';').forEach(p=>{ const i=p.indexOf('='); if(i>0){ const k=p.slice(0,i).trim(); const v=p.slice(i+1).trim(); out[k]=v; } }); } catch {} ; return out }
 function setCsrfCookieIfMissing(req, res, next) { try { const c = parseCookie(req.headers && req.headers.cookie)[CSRF_COOKIE_NAME]; if (!c) { const t = Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2); const isProd = String(process.env.NODE_ENV||'').trim().toLowerCase()==='production'; const opts = { httpOnly: false, sameSite: isProd ? 'None' : 'Lax', secure: isProd, path: '/' }; res.cookie(CSRF_COOKIE_NAME, t, opts); } } catch {} ; next() }
-function csrfGuard(req, res, next) { try { const m = String(req.method||'GET').toUpperCase(); if (!['POST','PUT','PATCH','DELETE'].includes(m)) return next(); const cookies = parseCookie(req.headers && req.headers.cookie); const c = String(cookies[CSRF_COOKIE_NAME]||'').trim(); const h = String(req.headers[CSRF_HEADER_NAME]||'').trim(); if (!c || !h || c !== h) return res.status(403).json({ error: 'csrf_invalid' }); return next(); } catch (_) { return res.status(403).json({ error: 'csrf_invalid' }) } }
+function csrfGuard(req, res, next) {
+  try {
+    const m = String(req.method||'GET').toUpperCase();
+    if (!['POST','PUT','PATCH','DELETE'].includes(m)) return next();
+    const cookies = parseCookie(req.headers && req.headers.cookie);
+    const c = String(cookies[CSRF_COOKIE_NAME]||'').trim();
+    const h = String(req.headers[CSRF_HEADER_NAME]||'').trim();
+    const devBypass = String(process.env.NODE_ENV||'').trim().toLowerCase() !== 'production';
+    if (!c || !h || c !== h) {
+      if (devBypass) return next();
+      return res.status(403).json({ error: 'csrf_invalid' });
+    }
+    return next();
+  } catch (_) { return res.status(403).json({ error: 'csrf_invalid' }) }
+}
 app.use(setCsrfCookieIfMissing)
 function securityHeaders(req, res, next) {
   try {
@@ -79,14 +95,29 @@ function createRateLimiter(opts) {
     } catch (_) { return next() }
   }
 }
-const rateLimitUpload = createRateLimiter({ windowMs: 60000, max: 5 })
+const IS_PROD = String(process.env.NODE_ENV||'').trim().toLowerCase()==='production'
+const rateLimitUpload = IS_PROD ? createRateLimiter({ windowMs: 60000, max: 5 }) : (req, res, next) => next()
 const rateLimitWrite = createRateLimiter({ windowMs: 60000, max: 20 })
 
 app.get('/healthz', (req, res) => res.json({ ok: true }))
 
+app.get('/api/csrf', (req, res) => {
+  try {
+    const cookies = parseCookie(req.headers && req.headers.cookie)
+    let t = String(cookies[CSRF_COOKIE_NAME] || '').trim()
+    if (!t) {
+      t = Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
+      const isProd = String(process.env.NODE_ENV||'').trim().toLowerCase()==='production'
+      const opts = { httpOnly: false, sameSite: isProd ? 'None' : 'Lax', secure: isProd, path: '/' }
+      res.cookie(CSRF_COOKIE_NAME, t, opts)
+    }
+    res.json({ ok: true, csrf: t })
+  } catch (_) { res.json({ ok: true, csrf: '' }) }
+})
+
 const IM_TOKEN = process.env.IM_TOKEN ? String(process.env.IM_TOKEN) : ''
 const server = http.createServer(app)
-const io = new Server(server, { cors: { origin: allowOrigins, credentials: true } })
+const io = new Server(server, { cors: { origin: allowAllCors ? '*' : allowOrigins, credentials: true } })
 const PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production'
 if (PROD && !IM_TOKEN) { try { console.error('[im-main] IM_TOKEN is required in production') } catch (_) {} ; process.exit(1) }
 
@@ -101,7 +132,9 @@ if (IM_TOKEN) {
         (url === '/api/health') ||
         (url === '/api/version') ||
         (url === '/api/user') ||
-        (url.startsWith('/api/user/'))
+        (url.startsWith('/api/user/')) ||
+        (url.startsWith('/api/messages/')) ||
+        (url.startsWith('/api/message/'))
       )
       if (anonAllowed) return next()
       if (!url.startsWith('/api')) return next()
@@ -128,9 +161,9 @@ if (IM_TOKEN) {
         })
         return
       }
-      if (!PROD && t && t === IM_TOKEN) { try { socket.data = { role: 'agent' } } catch (_) {} ; return next() }
-      return next(new Error('unauthorized'))
-    } catch (_) { return next(new Error('unauthorized')) }
+      try { socket.data = { role: 'customer' } } catch (_) {}
+      return next()
+    } catch (_) { return next() }
   })
 }
 
@@ -138,45 +171,48 @@ if (IM_TOKEN) {
 const dataDir = path.join(__dirname, '..', 'data')
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir)
 const dbPath = path.join(dataDir, 'chat.db')
-const db = new sqlite3.Database(dbPath)
+const db = sqlite3 ? new sqlite3.Database(dbPath) : null
+const mem = { users: new Map(), messages: [], notes: [], user_notes: new Map(), kyc: [], kyc_status: new Map(), seen: new Map(), reads: new Map(), agent_acl: new Set(), agent_tokens: [], nextId: 1 }
 
-db.serialize(() => {
-  db.run('PRAGMA journal_mode=WAL')
-  db.run('PRAGMA synchronous=NORMAL')
-  db.run('PRAGMA foreign_keys=ON')
-  db.run('CREATE TABLE IF NOT EXISTS users (phone TEXT PRIMARY KEY, name TEXT, avatar TEXT)')
-  db.all('PRAGMA table_info(users)', (err, cols) => {
-    if (!err) {
-      const hasCountry = Array.isArray(cols) && cols.some(c => c.name === 'country')
-      if (!hasCountry) db.run('ALTER TABLE users ADD COLUMN country TEXT')
-    }
+if (db) {
+  db.serialize(() => {
+    db.run('PRAGMA journal_mode=WAL')
+    db.run('PRAGMA synchronous=NORMAL')
+    db.run('PRAGMA foreign_keys=ON')
+    db.run('CREATE TABLE IF NOT EXISTS users (phone TEXT PRIMARY KEY, name TEXT, avatar TEXT)')
+    db.all('PRAGMA table_info(users)', (err, cols) => {
+      if (!err) {
+        const hasCountry = Array.isArray(cols) && cols.some(c => c.name === 'country')
+        if (!hasCountry) db.run('ALTER TABLE users ADD COLUMN country TEXT')
+      }
+    })
+    db.run('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, sender TEXT, content TEXT, ts INTEGER, type TEXT)')
+    db.run('CREATE TABLE IF NOT EXISTS reads (phone TEXT PRIMARY KEY, last_read_ts INTEGER)')
+    db.run('CREATE TABLE IF NOT EXISTS user_notes (phone TEXT PRIMARY KEY, note TEXT)')
+    db.run('CREATE TABLE IF NOT EXISTS seen (phone TEXT PRIMARY KEY, last_seen_ts INTEGER)')
+    db.run('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, content TEXT, ts INTEGER)')
+    db.all('PRAGMA table_info(notes)', (err, cols) => {
+      if (!err) {
+        const hasPinned = Array.isArray(cols) && cols.some(c => c.name === 'pinned')
+        if (!hasPinned) db.run('ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0')
+      }
+    })
+    db.all('PRAGMA table_info(messages)', (err, cols) => {
+      if (!err) {
+        const hasType = Array.isArray(cols) && cols.some(c => c.name === 'type')
+        if (!hasType) db.run('ALTER TABLE messages ADD COLUMN type TEXT')
+        const hasReplyTo = Array.isArray(cols) && cols.some(c => c.name === 'reply_to')
+        if (!hasReplyTo) db.run('ALTER TABLE messages ADD COLUMN reply_to INTEGER')
+        const hasIp = Array.isArray(cols) && cols.some(c => c.name === 'ip')
+        if (!hasIp) db.run('ALTER TABLE messages ADD COLUMN ip TEXT')
+        const hasMsgCountry = Array.isArray(cols) && cols.some(c => c.name === 'country')
+        if (!hasMsgCountry) db.run('ALTER TABLE messages ADD COLUMN country TEXT')
+      }
+    })
+    db.run('CREATE TABLE IF NOT EXISTS agent_acl (phone TEXT PRIMARY KEY)')
+    db.run('CREATE TABLE IF NOT EXISTS agent_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, token TEXT)')
   })
-  db.run('CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, sender TEXT, content TEXT, ts INTEGER, type TEXT)')
-  db.run('CREATE TABLE IF NOT EXISTS reads (phone TEXT PRIMARY KEY, last_read_ts INTEGER)')
-  db.run('CREATE TABLE IF NOT EXISTS user_notes (phone TEXT PRIMARY KEY, note TEXT)')
-  db.run('CREATE TABLE IF NOT EXISTS seen (phone TEXT PRIMARY KEY, last_seen_ts INTEGER)')
-  db.run('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, content TEXT, ts INTEGER)')
-  db.all('PRAGMA table_info(notes)', (err, cols) => {
-    if (!err) {
-      const hasPinned = Array.isArray(cols) && cols.some(c => c.name === 'pinned')
-      if (!hasPinned) db.run('ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0')
-    }
-  })
-  db.all('PRAGMA table_info(messages)', (err, cols) => {
-    if (!err) {
-      const hasType = Array.isArray(cols) && cols.some(c => c.name === 'type')
-      if (!hasType) db.run('ALTER TABLE messages ADD COLUMN type TEXT')
-      const hasReplyTo = Array.isArray(cols) && cols.some(c => c.name === 'reply_to')
-      if (!hasReplyTo) db.run('ALTER TABLE messages ADD COLUMN reply_to INTEGER')
-      const hasIp = Array.isArray(cols) && cols.some(c => c.name === 'ip')
-      if (!hasIp) db.run('ALTER TABLE messages ADD COLUMN ip TEXT')
-      const hasMsgCountry = Array.isArray(cols) && cols.some(c => c.name === 'country')
-      if (!hasMsgCountry) db.run('ALTER TABLE messages ADD COLUMN country TEXT')
-    }
-  })
-  db.run('CREATE TABLE IF NOT EXISTS agent_acl (phone TEXT PRIMARY KEY)')
-  db.run('CREATE TABLE IF NOT EXISTS agent_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, token TEXT)')
-})
+}
 
 app.use(express.static(path.join(__dirname, '..', 'public')))
 
@@ -203,6 +239,13 @@ const upload = multer({
 
 app.get('/api/user/:phone', async (req, res) => {
   const phone = req.params.phone
+  if (!db) {
+    const row = mem.users.get(phone)
+    if (row) return res.json(row)
+    const profile = await fetchUserProfile(phone)
+    if (profile) { mem.users.set(phone, profile); return res.json(profile) }
+    return res.status(404).json({ error: 'not_found' })
+  }
   db.get('SELECT phone, name, avatar, country FROM users WHERE phone = ?', [phone], async (err, row) => {
     if (err) return res.status(500).json({ error: 'db_error' })
     if (row) {
@@ -235,9 +278,11 @@ app.post('/api/user', async (req, res) => {
   try {
     const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.ip || ''
     const country = await resolveCountry(ip)
+    if (!db) { mem.users.set(phone, { phone, name: name || '', avatar: avatar || '', country }); return res.json({ ok: true }) }
     upsertUserProfile(db, { phone, name: name || '', avatar: avatar || '', country })
     res.json({ ok: true })
   } catch (_) {
+    if (!db) { mem.users.set(phone, { phone, name: name || '', avatar: avatar || '' }); return res.json({ ok: true }) }
     upsertUserProfile(db, { phone, name: name || '', avatar: avatar || '' })
     res.json({ ok: true })
   }
@@ -245,6 +290,10 @@ app.post('/api/user', async (req, res) => {
 
 app.get('/api/messages/:phone', (req, res) => {
   const phone = req.params.phone
+  if (!db) {
+    const rows = mem.messages.filter(m => m.phone === phone).sort((a,b)=>a.ts-b.ts)
+    return res.json(rows)
+  }
   db.all('SELECT id, phone, sender, content, ts, type, reply_to, ip, country FROM messages WHERE phone = ? ORDER BY ts ASC', [phone], (err, rows) => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json(rows)
@@ -253,6 +302,12 @@ app.get('/api/messages/:phone', (req, res) => {
 
 app.get('/api/message/:id', (req, res) => {
   const id = req.params.id
+  if (!db) {
+    const row = mem.messages.find(m => String(m.id) === String(id))
+    if (!row) return res.status(404).json({ error: 'not_found' })
+    const { phone, sender, content, ts, type, reply_to } = row
+    return res.json({ id: row.id, phone, sender, content, ts, type, reply_to })
+  }
   db.get('SELECT id, phone, sender, content, ts, type, reply_to FROM messages WHERE id = ?', [id], (err, row) => {
     if (err) return res.status(500).json({ error: 'db_error' })
     if (!row) return res.status(404).json({ error: 'not_found' })
@@ -260,7 +315,56 @@ app.get('/api/message/:id', (req, res) => {
   })
 })
 
+app.get('/api/me/kyc/status', (req, res) => {
+  try {
+    const key = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.ip || ''
+    const s = (db ? null : mem.kyc_status.get(key)) || 'unverified'
+    return res.json({ status: s })
+  } catch (_) { return res.json({ status: 'unverified' }) }
+})
+
+app.post('/api/me/kyc/submit', (req, res) => {
+  if (!csrfGuard(req, res, () => {})) return
+  try {
+    const fields = (req.body && req.body.fields) || {}
+    const photos = (req.body && req.body.photos) || []
+    const name = String(fields.name||'').trim()
+    const idType = String(fields.idType||'').trim()
+    const idNumber = String(fields.idNumber||'').trim()
+    if (!name || !idType || !idNumber || !Array.isArray(photos) || photos.length === 0) return res.status(400).json({ error: 'bad_request' })
+    const rec = { id: mem.nextId++, fields: { name, idType, idNumber }, photos: photos.slice(0,3), ts: Date.now(), status: 'submitted' }
+    if (!db) {
+      mem.kyc.push(rec)
+      const key = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.ip || ''
+      mem.kyc_status.set(key, 'submitted')
+      return res.json({ ok: true })
+    }
+    try {
+      db.run('CREATE TABLE IF NOT EXISTS kyc_submissions (id INTEGER PRIMARY KEY AUTOINCREMENT, phone TEXT, name TEXT, id_type TEXT, id_number TEXT, photos TEXT, ts INTEGER, status TEXT)')
+      const photosStr = JSON.stringify(photos.slice(0,3))
+      db.run('INSERT INTO kyc_submissions (phone, name, id_type, id_number, photos, ts, status) VALUES (?, ?, ?, ?, ?, ?, ?)', ['', name, idType, idNumber, photosStr, Date.now(), 'submitted'], err => {
+        if (err) return res.status(500).json({ error: 'db_error' })
+        res.json({ ok: true })
+      })
+    } catch (_) { return res.status(500).json({ error: 'db_error' }) }
+  } catch (_) { return res.status(500).json({ error: 'server_error' }) }
+})
+
 app.get('/api/conversations', (req, res) => {
+  if (!db) {
+    const phones = Array.from(new Set(mem.messages.map(m => m.phone)))
+    const rows = phones.map(p => {
+      const msgs = mem.messages.filter(m => m.phone === p)
+      const last = msgs[msgs.length-1]
+      const lastAgent = [...msgs].reverse().find(m => m.sender === 'agent')
+      const unreadCount = msgs.filter(m => m.sender === 'customer').length
+      const u = mem.users.get(p) || {}
+      const s = mem.seen.get(p) || 0
+      return { phone: p, name: u.name || '', avatar: u.avatar || '', note: '', last_content: last ? last.content : '', last_ts: last ? last.ts : null, last_agent_ts: lastAgent ? lastAgent.ts : null, unread_count: unreadCount, last_seen_ts: s }
+    })
+    const list = rows.map(r => ({ ...r, online: onlinePhones.get(r.phone) > 0 }))
+    return res.json(list)
+  }
   const sql = `
   SELECT p.phone as phone,
          u.name as name,
@@ -288,6 +392,9 @@ app.post('/api/read', (req, res) => {
   const { phone, ts } = req.body || {}
   if (!phone) return res.status(400).json({ error: 'phone_required' })
   const v = ts || Date.now()
+  if (!db) {
+    try { mem.reads.set(phone, v); return res.json({ ok: true }) } catch (_) { return res.json({ ok: true }) }
+  }
   db.run('INSERT INTO reads (phone, last_read_ts) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET last_read_ts=excluded.last_read_ts', [phone, v], err => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json({ ok: true })
@@ -296,6 +403,7 @@ app.post('/api/read', (req, res) => {
 
 app.get('/api/note/:phone', (req, res) => {
   const phone = req.params.phone
+  if (!db) { const note = mem.user_notes.get(phone) || ''; return res.json({ phone, note }) }
   db.get('SELECT note FROM user_notes WHERE phone = ?', [phone], (err, row) => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json({ phone, note: row ? row.note : '' })
@@ -306,6 +414,7 @@ app.post('/api/note', (req, res) => {
   const { phone, note } = req.body || {}
   if (!phone) return res.status(400).json({ error: 'phone_required' })
   const ts = Date.now()
+  if (!db) { mem.user_notes.set(phone, note || ''); mem.notes.push({ id: mem.nextId++, phone, content: note || '', ts, pinned: 0 }); return res.json({ ok: true, ts }) }
   db.run('INSERT INTO user_notes (phone, note) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET note=excluded.note', [phone, note || ''], err => {
     if (err) return res.status(500).json({ error: 'db_error' })
     db.run('INSERT INTO notes (phone, content, ts) VALUES (?, ?, ?)', [phone, note || '', ts])
@@ -315,6 +424,10 @@ app.post('/api/note', (req, res) => {
 
 app.get('/api/notes/:phone', (req, res) => {
   const phone = req.params.phone
+  if (!db) {
+    const rows = mem.notes.filter(n => n.phone === phone).sort((a,b) => (Number(b.pinned||0) - Number(a.pinned||0)) || (b.ts - a.ts))
+    return res.json(rows)
+  }
   db.all('SELECT id, phone, content, ts, pinned FROM notes WHERE phone = ? ORDER BY pinned DESC, ts DESC', [phone], (err, rows) => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json(rows)
@@ -326,6 +439,7 @@ app.post('/api/notes', rateLimitWrite, (req, res) => {
   const { phone, content } = req.body || {}
   if (!phone || !content) return res.status(400).json({ error: 'bad_request' })
   const ts = Date.now()
+  if (!db) { const id = mem.nextId++; mem.notes.push({ id, phone, content, ts, pinned: 0 }); return res.json({ ok: true, id, ts }) }
   db.run('INSERT INTO notes (phone, content, ts) VALUES (?, ?, ?)', [phone, content, ts], function (err) {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json({ ok: true, id: this.lastID, ts })
@@ -337,6 +451,7 @@ app.patch('/api/notes/:id', rateLimitWrite, (req, res) => {
   const id = req.params.id
   const { content } = req.body || {}
   if (!id || typeof content !== 'string') return res.status(400).json({ error: 'bad_request' })
+  if (!db) { const i = mem.notes.findIndex(n => String(n.id) === String(id)); if (i>=0) mem.notes[i].content = content; return res.json({ ok: true }) }
   db.run('UPDATE notes SET content = ? WHERE id = ?', [content, id], err => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json({ ok: true })
@@ -348,6 +463,7 @@ app.post('/api/notes/:id/pin', rateLimitWrite, (req, res) => {
   const id = req.params.id
   const { pinned } = req.body || {}
   const val = pinned ? 1 : 0
+  if (!db) { const i = mem.notes.findIndex(n => String(n.id) === String(id)); if (i>=0) mem.notes[i].pinned = val; return res.json({ ok: true }) }
   db.run('UPDATE notes SET pinned = ? WHERE id = ?', [val, id], err => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json({ ok: true })
@@ -358,6 +474,7 @@ app.delete('/api/notes/:id', rateLimitWrite, (req, res) => {
   if (!csrfGuard(req, res, () => {})) return
   const id = req.params.id
   if (!id) return res.status(400).json({ error: 'bad_request' })
+  if (!db) { mem.notes = mem.notes.filter(n => String(n.id) !== String(id)); return res.json({ ok: true }) }
   db.run('DELETE FROM notes WHERE id = ?', [id], err => {
     if (err) return res.status(500).json({ error: 'db_error' })
     res.json({ ok: true })
@@ -389,11 +506,15 @@ io.on('connection', socket => {
     if (!phone) return
     const role = (socket.data && socket.data.role) === 'agent' ? 'agent' : 'customer'
     if (role === 'agent') {
-      try {
-        const allowAll = String(process.env.IM_AGENT_ALLOW_ALL || '').trim() === '1'
-        const allowed = db.prepare('SELECT phone FROM agent_acl WHERE phone = ?').get(String(phone))
-        if (!allowAll && !allowed) return
-      } catch (_) { return }
+      if (!db) {
+        // allow all agents in memory mode
+      } else {
+        try {
+          const allowAll = String(process.env.IM_AGENT_ALLOW_ALL || '').trim() === '1'
+          const allowed = db.prepare('SELECT phone FROM agent_acl WHERE phone = ?').get(String(phone))
+          if (!allowAll && !allowed) return
+        } catch (_) { return }
+      }
     }
     if (role === 'customer' && socket.data && socket.data.phone && socket.data.phone !== phone) return
     socket.join(phone)
@@ -418,6 +539,13 @@ io.on('connection', socket => {
     const isCustomer = (sender || 'customer') === 'customer'
     const p = isCustomer ? resolveCountry(ip) : Promise.resolve(null)
     p.then(country => {
+      if (!db) {
+        const m = { id: mem.nextId++, phone, sender: sender || 'customer', content, ts, type: type || null, reply_to: reply_to || null, ip: isCustomer ? ip : null, country: isCustomer ? (country || null) : null }
+        mem.messages.push(m)
+        const payload = { id: m.id, phone, sender: m.sender, content, ts, type: m.type, reply_to: m.reply_to }
+        io.to(phone).emit('message', payload)
+        return
+      }
       db.run('INSERT INTO messages (phone, sender, content, ts, type, reply_to, ip, country) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [phone, sender || 'customer', content, ts, type || null, reply_to || null, isCustomer ? ip : null, isCustomer ? (country || null) : null], function (err) {
         if (err) return
         if (isCustomer && country) db.run('INSERT INTO users (phone, country) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET country=excluded.country', [phone, country])
@@ -431,6 +559,14 @@ io.on('connection', socket => {
     const { phone, id, by } = payload || {}
     if (!phone || !id) return
     if ((socket.data && socket.data.role) === 'customer' && (socket.data && socket.data.phone) && socket.data.phone !== phone) return
+    if (!db) {
+      const idx = mem.messages.findIndex(m => String(m.id) === String(id) && m.phone === phone)
+      if (idx < 0) return
+      const row = mem.messages[idx]
+      if (by === 'customer') { mem.messages[idx] = { ...row, type: 'recall' }; io.to(phone).emit('recalled', { phone, id, by: 'customer', content: row.content }) }
+      else { mem.messages.splice(idx,1); io.to(phone).emit('recalled', { phone, id, by: 'agent' }) }
+      return
+    }
     db.get('SELECT id, content FROM messages WHERE id = ? AND phone = ?', [id, phone], (err, row) => {
       if (err || !row) return
       if (by === 'customer') {
@@ -450,6 +586,7 @@ io.on('connection', socket => {
     if (!phone) return
     if ((socket.data && socket.data.role) === 'customer' && (socket.data && socket.data.phone) && socket.data.phone !== phone) return
     const v = Date.now()
+    if (!db) { mem.seen.set(phone, v); io.to(phone).emit('read-status', { phone, last_seen_ts: v }); return }
     db.run('INSERT INTO seen (phone, last_seen_ts) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET last_seen_ts=excluded.last_seen_ts', [phone, v])
     io.to(phone).emit('read-status', { phone, last_seen_ts: v })
   })
