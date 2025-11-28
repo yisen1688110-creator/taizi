@@ -191,8 +191,7 @@ class YahooFinanceService {
         previousClose: r.previousClose,
       }));
     } catch (error) {
-      console.error('Error fetching multiple stocks:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -276,7 +275,17 @@ class YahooFinanceService {
         continue;
       }
     }
-    throw lastErr || new Error('Network error');
+    try {
+      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) throw new Error('Invalid content type');
+      const data = await res.json();
+      return data;
+    } catch (e2) {
+      return { quoteResponse: { result: [] } };
+    }
   }
 }
 

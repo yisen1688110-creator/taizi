@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav.jsx";
 import { IconLightning } from "../assets/icons.jsx";
 import { useI18n } from "../i18n.jsx";
-import { getQuotes, getCryptoQuotes, getCryptoSpark, getStockSpark } from "../services/marketData.js";
+import { getQuotes, getCryptoQuotes, getCryptoSpark, getStockSpark, getUsdMxnRate } from "../services/marketData.js";
 import { formatMoney, formatMXN, formatUSDT } from "../utils/money.js";
 import { api } from "../services/api.js";
 
@@ -337,25 +337,7 @@ export default function Home() {
     ]);
   };
 
-  // USD→MXN 汇率（10 分钟缓存）
-  const getUSDToMXNRate = async () => {
-    const k = "fx:USD:MXN";
-    const raw = localStorage.getItem(k);
-    if (raw) {
-      try {
-        const obj = JSON.parse(raw);
-        if (Date.now() - (obj.ts || 0) < 10 * 60 * 1000 && obj.rate) return obj.rate;
-      } catch {}
-    }
-    try {
-      const j = await fetch("https://open.er-api.com/v6/latest/USD").then(r=>r.json());
-      const rate = Number(j?.rates?.MXN || 18.0);
-      localStorage.setItem(k, JSON.stringify({ ts: Date.now(), rate }));
-      return rate;
-    } catch {
-      return 18.0; // 兜底汇率
-    }
-  };
+  
 
   
 
@@ -399,7 +381,7 @@ export default function Home() {
   }, [stocks.length, usStocks.length]);
   const fetchCrypto = async () => {
     try {
-      const rate = await getUSDToMXNRate();
+      const { rate } = await getUsdMxnRate();
       setUsdToMxnRate(rate);
       const nameMap = CRYPTO_NAME_MAP;
       const quotes = await getCryptoQuotes({ symbols: TD_BASES });
@@ -447,7 +429,7 @@ export default function Home() {
       try {
         const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=mxn&order=market_cap_desc&per_page=6&page=1&sparkline=true&price_change_percentage=24h`;
         const markets = await fetch(url).then(r=>r.json());
-        const rate = await getUSDToMXNRate();
+        const { rate } = await getUsdMxnRate();
         const list = markets.map(m => ({
           id: m.id,
           name: m.name,
@@ -483,7 +465,7 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     const updateRate = async () => {
-      try { const r = await getUSDToMXNRate(); if (!cancelled) setUsdToMxnRate(r); } catch {}
+      try { const { rate } = await getUsdMxnRate(); if (!cancelled) setUsdToMxnRate(rate); } catch {}
     };
     updateRate();
     const id = setInterval(updateRate, 10 * 60 * 1000);
@@ -818,31 +800,23 @@ export default function Home() {
               </div>
               <div className="user-name" style={{ fontSize: 14, color: '#e6f1ff' }}>{displayName}</div>
             </div>
-            <div className="wallet-grid">
+            <div className="wallet-grid" style={{ gridTemplateColumns:'1fr' }}>
               <div>
                 <div className="label">MXN</div>
                 <div className="big-amount">{formatMXN(balanceMXN, lang)}</div>
               </div>
-              <div>
-                <div className="label">USD</div>
-                <div className="big-amount">{formatMoney(balanceUSD, "USD", lang)}</div>
-              </div>
-              <div>
-                <div className="label">USDT</div>
-                <div className="big-amount">{formatUSDT(balanceUSDT, lang)}</div>
-              </div>
             </div>
-            <p className="desc">{t('assetsLabel')}</p>
+            {/* 移除资产类型说明 */}
           </div>
           {/* 右侧不再显示用户名，避免重复 */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }} />
         </div>
 
         <div className="sub-actions" style={{ marginTop: 16 }}>
-          <button className="btn primary" disabled title="Próximamente">
+          <button className="btn primary" onClick={() => navigate('/me/support')}>
             {t("recharge")}
           </button>
-          <button className="btn primary" onClick={() => navigate("/exchange")}>{t("swap")}</button>
+          {/* 移除 Swap 按钮 */}
         </div>
       </div>
 
@@ -850,12 +824,7 @@ export default function Home() {
 
       {/* 广告占位移除 */}
 
-      {/* 市场切换 Tabs */}
-      <div className="market-tabs" role="tablist" aria-label="Markets">
-        <button className={`pill ${market === "us" ? "active" : ""}`} role="tab" aria-selected={market === "us"} onClick={() => setMarket("us")}>{t("marketUS")}</button>
-        <button className={`pill ${market === "crypto" ? "active" : ""}`} role="tab" aria-selected={market === "crypto"} onClick={() => setMarket("crypto")}>{t("marketCrypto")}</button>
-        <button className={`pill ${market === "mx" ? "active" : ""}`} role="tab" aria-selected={market === "mx"} onClick={() => setMarket("mx")}>{t("marketMX")}</button>
-      </div>
+      {/* 移除首页市场切换图标页 */}
 
       {/* 1) 各项指数卡片已移除 */}
 

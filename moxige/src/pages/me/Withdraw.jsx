@@ -7,7 +7,7 @@ import { useI18n } from "../../i18n.jsx";
 export default function Withdraw() {
   const nav = useNavigate();
   const { t } = useI18n();
-  const [currency, setCurrency] = useState('USD');
+  const [currency, setCurrency] = useState('MXN');
   const [amount, setAmount] = useState('');
   const [methodType, setMethodType] = useState('bank');
   const [bankAccount, setBankAccount] = useState('');
@@ -17,7 +17,7 @@ export default function Withdraw() {
   const [error, setError] = useState('');
   const [wallets, setWallets] = useState([]);
   const [bankCards, setBankCards] = useState([]);
-  const [balances, setBalances] = useState({ usd: 0, mxn: 0, usdt: 0 });
+  const [balances, setBalances] = useState({ mxn: 0 });
   const [toast, setToast] = useState({ show: false, text: '', type: 'ok' });
 
   useEffect(() => { loadRecords(); loadBindings(); loadBalances(); }, []);
@@ -41,7 +41,7 @@ export default function Withdraw() {
       const r = await api.get('/me/balances');
       const arr = Array.isArray(r?.balances) ? r.balances : [];
       const map = arr.reduce((m, it) => { m[String(it.currency || '').toUpperCase()] = Number(it.amount || 0); return m; }, {});
-      setBalances({ usd: Number(map.USD||0), mxn: Number(map.MXN||0), usdt: Number(map.USDT||0) });
+      setBalances({ mxn: Number(map.MXN||0) });
     } catch { /* 保持现值，避免误显示 */ }
   }
   async function loadBindings() {
@@ -68,29 +68,16 @@ export default function Withdraw() {
     }
   }
 
-  function onCurrencyChange(e) {
-    const c = e.target.value;
-    setCurrency(c);
-    setMethodType(c === 'USDT' ? 'usdt' : 'bank');
-    if (c === 'USDT') {
-      const it = wallets && wallets.length ? wallets[0] : null;
-      setUsdtAddress(it?.address || '');
-      setUsdtNetwork(it?.network || '');
-    } else {
-      const it = bankCards && bankCards.length ? bankCards[0] : null;
-      const masked = it ? `${it.bank_name || 'Bank'} ${String(it.bin||'').slice(0,4)}****${String(it.last4||'').slice(-4)}` : '';
-      setBankAccount(masked);
-    }
-  }
+  function onCurrencyChange() {}
 
   async function submit() {
     setError('');
     try {
-      const curBal = currency === 'USD' ? Number(balances.usd||0) : (currency === 'MXN' ? Number(balances.mxn||0) : Number(balances.usdt||0));
+      const curBal = Number(balances.mxn||0);
       const amt = Number(amount||0);
       if (!Number.isFinite(amt) || amt <= 0) { setError(t('errorAmountInvalid') || 'Invalid amount'); return; }
       if (amt > curBal) { setError(t('errorInsufficientBalance') || 'Insufficient balance'); return; }
-      const payload = { currency, amount: Number(amount||0), method_type: methodType, bank_account: bankAccount, usdt_address: usdtAddress, usdt_network: usdtNetwork };
+      const payload = { currency: 'MXN', amount: Number(amount||0), method_type: 'bank', bank_account: bankAccount };
       const res = await meWithdrawCreate(payload);
       const createdId = res?.id || res?.withdraw_id || `wd_${Date.now()}`;
       // hold funds immediately (frontend fallback)
@@ -158,52 +145,21 @@ export default function Withdraw() {
           <button className="btn primary withdraw-records-btn" onClick={()=>nav('/me/withdraw/records')}>{t('withdrawRecordsLink')}</button>
         </div>
         <div className="form">
-          <label>{t('currencyLabel')}</label>
-          <select value={currency} onChange={onCurrencyChange}>
-            <option value="USD">USD</option>
-            <option value="MXN">MXN</option>
-            <option value="USDT">USDT</option>
-          </select>
-          {currency !== 'USDT' ? (
-            <>
-              <label>{t('bankCardLabel')}</label>
-              {bankCards.length > 0 ? (
-                <select value={bankAccount} onChange={e=>setBankAccount(e.target.value)}>
-                  {bankCards.map(it => {
-                    const m = `${it.bank_name || 'Bank'} ${String(it.bin||'').slice(0,4)}****${String(it.last4||'').slice(-4)}`;
-                    return (<option key={it.id} value={m}>{m}</option>);
-                  })}
-                </select>
-              ) : (
-                <input className="input" value={bankAccount} onChange={e=>setBankAccount(e.target.value)} placeholder={t('bankCardLabel')} />
-              )}
-            </>
+          <label>{t('bankCardLabel')}</label>
+          {bankCards.length > 0 ? (
+            <select value={bankAccount} onChange={e=>setBankAccount(e.target.value)}>
+              {bankCards.map(it => {
+                const m = `${it.bank_name || 'Bank'} ${String(it.bin||'').slice(0,4)}****${String(it.last4||'').slice(-4)}`;
+                return (<option key={it.id} value={m}>{m}</option>);
+              })}
+            </select>
           ) : (
-            <>
-              <label>{t('usdtAddressLabel')}</label>
-              {wallets.length > 0 ? (
-                <select value={usdtAddress} onChange={e=>{
-                  const addr = e.target.value; setUsdtAddress(addr);
-                  const it = wallets.find(w=>String(w.address)===addr);
-                  setUsdtNetwork(it?.network || '');
-                }}>
-                  {wallets.map(it => (<option key={it.id} value={it.address}>{it.address}</option>))}
-                </select>
-              ) : (
-                <input className="input" value={usdtAddress} onChange={e=>setUsdtAddress(e.target.value)} placeholder={t('usdtAddressLabel')} />
-              )}
-              <label>{t('networkLabel')}</label>
-              {wallets.length > 0 ? (
-                <input className="input" value={usdtNetwork} onChange={e=>setUsdtNetwork(e.target.value)} placeholder={t('networkLabel')} />
-              ) : (
-                <input className="input" value={usdtNetwork} onChange={e=>setUsdtNetwork(e.target.value)} placeholder={t('networkLabel')} />
-              )}
-            </>
+            <input className="input" value={bankAccount} onChange={e=>setBankAccount(e.target.value)} placeholder={t('bankCardLabel')} />
           )}
           <label>{t('amountLabel')}</label>
           <input className="input" type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder={t('amountLabel')} />
           <div className="desc muted" style={{ marginTop: 6 }}>
-            {t('balanceLabel') || '余额'}：{currency==='USD' ? Number(balances.usd||0).toFixed(2) : currency==='MXN' ? Number(balances.mxn||0).toFixed(2) : Number(balances.usdt||0).toFixed(2)} {currency}
+            {t('balanceLabel') || '余额'}：{Number(balances.mxn||0).toFixed(2)} MXN
           </div>
           {error ? <div className="error">{error}</div> : null}
           <div className="sub-actions" style={{ justifyContent: 'space-between' }}>

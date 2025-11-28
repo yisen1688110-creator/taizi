@@ -5,6 +5,7 @@ import { useI18n } from "../i18n.jsx";
 import { getQuotes, getCryptoQuotes, getUsdMxnRate } from "../services/marketData.js";
 import "../styles/market-tabs.css";
 import { formatMoney as fmMoney, formatNumber } from "../utils/money.js";
+import { createPortal } from "react-dom";
 
  
 
@@ -40,6 +41,14 @@ function formatVolume(n, lang) {
 
 function formatPrice(n, currency, lang) {
   return fmMoney(n, currency, lang);
+}
+function formatDateText(s, lang) {
+  try {
+    const d = new Date(String(s||'').trim());
+    if (isNaN(d.getTime())) return '';
+    const locale = lang === 'es' ? 'es-MX' : 'en-US';
+    return d.toLocaleDateString(locale, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  } catch { return ''; }
 }
 
 // Format time as YYYY-MM-DD HH:mm
@@ -91,6 +100,24 @@ export default function Market() {
   const [newsIndex, setNewsIndex] = useState(0);
   const [showNewsList, setShowNewsList] = useState(false);
   const touchRef = useRef({ x: 0, y: 0 });
+  useEffect(() => { try { if (showNews) document.body.classList.add('modal-open'); else document.body.classList.remove('modal-open'); } catch {} return () => { try { document.body.classList.remove('modal-open'); } catch {} }; }, [showNews]);
+
+  async function ensureNewsContent(idx) {
+    try {
+      const it = (news || [])[idx] || {};
+      if (!it) return;
+      const hasContent = typeof it.content === 'string' && it.content.trim().length > 0;
+      if (hasContent) return;
+      if (Number.isFinite(Number(it.id))) {
+        const r = await fetch(`/api/news/get?id=${encodeURIComponent(String(it.id))}`).then(res=>res.json()).catch(()=>null);
+        const item = r && r.item ? r.item : null;
+        if (item && item.content) {
+          setNews(prev => prev.map((n, i) => i === idx ? { ...n, content: String(item.content||'') } : n));
+        }
+      }
+    } catch {}
+  }
+  useEffect(() => { if (showNews) { try { ensureNewsContent(newsIndex); } catch {} } }, [showNews, newsIndex]);
 
   const fetchMxInvestNews = useCallback(async () => {
     try {
@@ -216,25 +243,7 @@ export default function Market() {
     }
   }, [loadingMore, hasMore, PAGE_SIZE, loadedCount, market, getAllSymbols]);
 
-  // USD→MXN 汇率（10 分钟缓存）
-  async function getUSDToMXNRate() {
-    const k = "fx:USD:MXN";
-    const raw = localStorage.getItem(k);
-    if (raw) {
-      try {
-        const obj = JSON.parse(raw);
-        if (Date.now() - (obj.ts || 0) < 10 * 60 * 1000 && obj.rate) return obj.rate;
-      } catch {}
-    }
-    try {
-      const j = await fetch("https://open.er-api.com/v6/latest/USD").then(r=>r.json());
-      const rate = Number(j?.rates?.MXN || 18.0);
-      localStorage.setItem(k, JSON.stringify({ ts: Date.now(), rate }));
-      return rate;
-    } catch {
-      return 18.0;
-    }
-  }
+  
 
   
 
@@ -459,7 +468,7 @@ export default function Market() {
         let q = (search.crypto || "").trim().toUpperCase();
         if (!q) { setSearchRow(null); return; }
         let base = q.replace(/USDT$/,"" ).replace(/\/USD$/,"" );
-        const rate = await getUSDToMXNRate();
+        const { rate } = await getUsdMxnRate();
         try {
           const list = await getCryptoQuotes({ symbols: [base] });
           const row = list[0];
@@ -697,7 +706,7 @@ export default function Market() {
               </div>
             </div>
             <div style={{ marginLeft: 8 }}>
-              <button className={`pill ${showNewsList ? 'active' : ''}`} onClick={fetchMxInvestNews} aria-busy={newsLoading}>{t('news') || (lang==='es'?'Noticias':'News')}</button>
+              <button className={`pill ${showNewsList ? 'active' : ''}`} onClick={fetchMxInvestNews} aria-busy={newsLoading}>{t('tabNews') || (lang==='es'?'Noticias':'News')}</button>
             </div>
           </div>
         </div>
@@ -891,7 +900,7 @@ export default function Market() {
       {showNewsList && (
         <div className="market-content" style={{ position:'relative' }}>
         <div className="card" style={{ marginTop: 12 }}>
-          <h2 className="title" style={{ marginTop: 0 }}>{t('news') || (lang==='es'?'Noticias':'News')}</h2>
+          <h2 className="title" style={{ marginTop: 0 }}>{t('tabNews') || (lang==='es'?'Noticias':'News')}</h2>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
             <button className="pill" onClick={()=>setShowNewsList(false)}>{t('viewOverview') || 'Back to Market'}</button>
           </div>
@@ -905,6 +914,9 @@ export default function Market() {
                 <div key={`nx-${idx}`} className="card flat" style={{ cursor:'pointer' }} onClick={()=>{ setNewsIndex(idx); setShowNews(true); }}>
                   <img src={n.img} alt={n.title} style={{ width:'100%', height:110, objectFit:'cover', borderRadius:8 }} />
                   <div style={{ fontSize:12, marginTop:6, fontWeight:700 }}>{n.title}</div>
+                  {formatDateText(n.pubDate, lang) && (
+                    <div className="desc" style={{ fontSize:12 }}>{formatDateText(n.pubDate, lang)}</div>
+                  )}
                   <div className="desc" style={{ fontSize:12 }}>{String(n.desc||'').replace(/<[^>]+>/g,'').slice(0,80)}...</div>
                 </div>
               ))}
@@ -914,15 +926,15 @@ export default function Market() {
         </div>
       )}
 
-      {showNews && (
+      {showNews && createPortal((
         <div className="modal" role="dialog" aria-modal="true" onClick={()=>setShowNews(false)}>
-          <div className="modal-card" style={{ maxWidth: 920 }} onClick={(e)=>e.stopPropagation()}
+          <div className="modal-card news-modal-card" style={{ maxWidth: 920, width: 'min(92vw, 920px)' }} onClick={(e)=>e.stopPropagation()}
             onTouchStart={(e)=>{ const t=e.touches?.[0]; if (t) touchRef.current={ x:t.clientX, y:t.clientY }; }}
-            onTouchEnd={(e)=>{ const t=e.changedTouches?.[0]; if (!t) return; const dx = t.clientX - touchRef.current.x; if (Math.abs(dx) > 40) { setNewsIndex(i => {
+            onTouchEnd={(e)=>{ const t=e.changedTouches?.[0]; if (!t) return; const dx = t.clientX - touchRef.current.x; const dy = t.clientY - touchRef.current.y; if (Math.abs(dx) > 40 && Math.abs(dy) < 20) { setNewsIndex(i => {
               if (dx < 0) return Math.min((news||[]).length-1, i+1); else return Math.max(0, i-1);
             }); } }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 8 }}>
-              <h2 className="title" style={{ margin:0 }}>{t('news') || (lang==='es'?'Noticias':'News')}</h2>
+              <h2 className="title" style={{ margin:0 }}>{t('tabNews') || (lang==='es'?'Noticias':'News')}</h2>
               <button className="pill" onClick={()=>setShowNews(false)}>×</button>
             </div>
             {news.length === 0 ? (
@@ -932,19 +944,24 @@ export default function Market() {
                 <div style={{ display:'grid', gridTemplateColumns:'1fr', justifyItems:'center' }}>
                   {(() => { const it = news[newsIndex] || {}; return (
                     <div style={{ width:'100%', display:'grid', gap:10 }}>
-                      <img src={it.img} alt={it.title} style={{ width:'100%', maxHeight:420, objectFit:'cover', borderRadius:10 }} />
+                      <img src={it.img} alt={it.title} style={{ width:'100%', maxHeight:'40vh', objectFit:'cover', borderRadius:10 }} />
                       <div style={{ fontWeight:700 }}>{it.title}</div>
-                      <div className="desc" style={{ lineHeight:1.6 }}>{it.desc?.replace(/<[^>]+>/g,'')?.slice(0,200)}...</div>
+                      {formatDateText(it.pubDate, lang) && (
+                        <div className="desc" style={{ fontSize:12 }}>{formatDateText(it.pubDate, lang)}</div>
+                      )}
+                      <div className="news-content" style={{ lineHeight:1.7, maxHeight:'56vh', overflowY:'auto', paddingRight:6 }} onWheel={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()}>
+                        {String((it.content || it.desc) || '').replace(/<[^>]+>/g,'')}
+                      </div>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <button className="pill" onClick={()=>setNewsIndex(i => Math.max(0, i-1))} disabled={newsIndex<=0}>{t('prev')||'Prev'}</button>
-                        <button className="pill" onClick={()=>setNewsIndex(i => Math.min(news.length-1, i+1))} disabled={newsIndex>=news.length-1}>{t('next')||'Next'}</button>
+                        <button className="pill" onClick={()=>{ setNewsIndex(i => Math.max(0, i-1)); }} disabled={newsIndex<=0}>{t('prev')||'Prev'}</button>
+                        <button className="pill" onClick={()=>{ setNewsIndex(i => Math.min(news.length-1, i+1)); }} disabled={newsIndex>=news.length-1}>{t('next')||'Next'}</button>
                       </div>
                     </div>
                   ); })()}
                 </div>
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:10 }}>
                   {(news||[]).map((n, idx) => (
-                    <div key={`n-${idx}`} className="card flat" style={{ cursor:'pointer' }} onClick={()=>setNewsIndex(idx)}>
+                    <div key={`n-${idx}`} className="card flat" style={{ cursor:'pointer' }} onClick={async ()=>{ try { setNewsIndex(idx); await ensureNewsContent(idx); } catch {} }}>
                       <img src={n.img} alt={n.title} style={{ width:'100%', height:100, objectFit:'cover', borderRadius:8 }} />
                       <div style={{ fontSize:12, marginTop:6 }}>{n.title}</div>
                     </div>
@@ -954,7 +971,7 @@ export default function Market() {
             )}
           </div>
         </div>
-      )}
+      ), document.body)}
 
       <BottomNav />
     </div>

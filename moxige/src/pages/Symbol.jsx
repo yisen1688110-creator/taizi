@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import BottomNav from "../components/BottomNav.jsx";
 import { useI18n } from "../i18n.jsx";
-import { getQuotes, getCryptoQuotes } from "../services/marketData.js";
+import { getQuotes, getCryptoQuotes, getUsdMxnRate } from "../services/marketData.js";
 
 export default function Symbol() {
   const { symbol } = useParams();
@@ -33,24 +33,7 @@ export default function Symbol() {
     return "crypto";
   }
 
-  async function getUSDToMXNRate() {
-    const k = "fx:USD:MXN";
-    const raw = localStorage.getItem(k);
-    if (raw) {
-      try {
-        const obj = JSON.parse(raw);
-        if (Date.now() - (obj.ts || 0) < 10 * 60 * 1000 && obj.rate) return obj.rate;
-      } catch {}
-    }
-    try {
-      const j = await fetch("https://open.er-api.com/v6/latest/USD").then(r=>r.json());
-      const rate = Number(j?.rates?.MXN || 18.0);
-      localStorage.setItem(k, JSON.stringify({ ts: Date.now(), rate }));
-      return rate;
-    } catch {
-      return 18.0;
-    }
-  }
+  
 
   useEffect(() => {
     const m = detectMarket(symbol || "");
@@ -67,7 +50,7 @@ export default function Symbol() {
           setDetail(list[0] || null);
         } else {
           const base = (symbol || "").toUpperCase().replace(/USDT$/i, "");
-          const rate = await getUSDToMXNRate();
+          const { rate } = await getUsdMxnRate();
           const list = await getCryptoQuotes({ symbols: [base] });
           const q = list[0];
           const d = {

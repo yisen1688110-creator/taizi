@@ -385,10 +385,10 @@
         const right = document.createElement('div')
         right.className = 'ci-right'
         const read = document.createElement('span')
-        const hasAgent = !!item.last_agent_ts
-        const isRead = hasAgent ? ((item.last_seen_ts || 0) >= item.last_agent_ts) : true
-        read.className = 'read-pill' + (isRead ? '' : ' unread')
-        read.textContent = isRead ? '已读' : '未读'
+        const unreadCount = Number(item.unread_count || 0)
+        const isUnread = unreadCount > 0
+        read.className = 'read-pill' + (isUnread ? ' unread' : '')
+        read.textContent = isUnread ? '未读' : '已读'
         right.appendChild(read)
         row.appendChild(left)
         row.appendChild(right)

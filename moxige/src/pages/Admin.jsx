@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, waitForHealth, getToken } from "../services/api.js";
 import AdminWithdraws from "./admin/Withdraws.jsx";
+import NewsManage from "./admin/NewsManage.jsx";
+import InstitutionManage from "./admin/InstitutionManage.jsx";
 import { loginAdmin as loginAdminApi, loginAccount as loginAccountApi, logout as logoutApi } from "../services/auth.js";
 
 function loadUsers() {
@@ -39,6 +41,7 @@ export default function Admin() {
       if (path.endsWith('/admin/chognzhi')) setActive('funds-recharge');
       else if (path.endsWith('/admin/zijin')) setActive('funds-logs');
       else if (path.endsWith('/admin/withdraws')) setActive('funds-withdraws');
+      else if (path.endsWith('/admin/news')) setActive('content-news');
       const isBrowser = typeof location !== 'undefined';
       const port = isBrowser ? String(location.port || '') : '';
       const host = isBrowser ? String(location.hostname || '') : '';
@@ -1034,6 +1037,16 @@ function PositionsPage({ session }) {
               </div>
             </details>
           </div>
+          {/* 新增：内容管理 */}
+          <div className="nav-group">
+            <details>
+              <summary className="nav-item">内容管理</summary>
+              <div className="nav-sub">
+                <button className={`nav-item ${active === "content-news" ? "active" : ""}`} onClick={() => { setActive('content-news'); try { window.history.pushState(null, '', '/admin/news'); } catch {} }}>新闻管理</button>
+                <button className={`nav-item ${active === "content-inst" ? "active" : ""}`} onClick={() => { setActive('content-inst'); try { window.history.pushState(null, '', '/admin/institution'); } catch {} }}>机构信息管理</button>
+              </div>
+            </details>
+          </div>
         </nav>
         <div className="sidebar-footer">
           <div style={{ marginBottom: 8 }}>{session?.name || "员工"}</div>
@@ -1080,6 +1093,8 @@ function PositionsPage({ session }) {
               active === "funds-logs" ? "资金管理 / 资金明细" :
               active === "funds-withdraws" ? "资金管理 / 用户提现" :
               active === "funds-credit" ? "资金管理 / 信用金审核" :
+              active === "content-news" ? "内容管理 / 新闻管理" :
+              active === "content-inst" ? "内容管理 / 机构信息管理" :
               active === "settings-trading" ? "系统设置 / 交易时间限制" :
               "股票信息"
             }
@@ -1177,6 +1192,13 @@ function PositionsPage({ session }) {
           </>
         )}
 
+        {active === 'content-news' && (
+          <NewsManage />
+        )}
+        {active === 'content-inst' && (
+          <InstitutionManage />
+        )}
+
         {active === "users" && (
           <div className="card flat">
             <h1 className="title">用户管理</h1>
@@ -1237,9 +1259,7 @@ function PositionsPage({ session }) {
                       <td style={{ padding: "8px 6px" }}>{u.lastLoginIp || '-'}</td>
                       <td style={{ padding: "8px 6px" }}>{u.country || '-'}</td>
                       <td style={{ padding: "8px 6px" }}>
-                        <span className="chip" style={{ marginRight:6 }}>MXN {Number(u?.balances?.MXN||0).toFixed(2)}</span>
-                        <span className="chip" style={{ marginRight:6 }}>USD {Number(u?.balances?.USD||0).toFixed(2)}</span>
-                        <span className="chip">USDT {Number(u?.balances?.USDT||0).toFixed(2)}</span>
+                        <span className="chip">MXN {Number(u?.balances?.MXN||0).toFixed(2)}</span>
                       </td>
                       <td style={{ padding: "8px 6px", position: 'relative' }}>
                         <div className="dropdown" style={{ display: 'inline-block' }} onClick={(e) => e.stopPropagation()}>
@@ -1359,9 +1379,7 @@ function PositionsPage({ session }) {
                           <td style={{ padding: "8px 6px" }}>{u.lastLoginIp || '-'}</td>
                           <td style={{ padding: "8px 6px" }}>{u.country || '-'}</td>
                           <td style={{ padding: "8px 6px" }}>
-                            <span className="chip" style={{ marginRight:6 }}>MXN {Number(u?.balances?.MXN||0).toFixed(2)}</span>
-                            <span className="chip" style={{ marginRight:6 }}>USD {Number(u?.balances?.USD||0).toFixed(2)}</span>
-                            <span className="chip">USDT {Number(u?.balances?.USDT||0).toFixed(2)}</span>
+                            <span className="chip">MXN {Number(u?.balances?.MXN||0).toFixed(2)}</span>
                           </td>
                           <td style={{ padding: "8px 6px", position: 'relative' }}>
                             <div className="dropdown" style={{ display: 'inline-block' }} onClick={(e) => e.stopPropagation()}>

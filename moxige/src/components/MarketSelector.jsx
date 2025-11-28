@@ -108,10 +108,18 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
     if (!stockSearchTerm) return stocks;
     
     const searchLower = stockSearchTerm.toLowerCase();
-    return stocks.filter(stock => 
+    const filtered = stocks.filter(stock => 
       stock.symbol.toLowerCase().includes(searchLower) ||
       stock.name.toLowerCase().includes(searchLower)
     );
+    if (market === 'crypto') {
+      const up = stockSearchTerm.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const base = up.endsWith('USDT') ? up.slice(0, -4) : up;
+      if (base && !filtered.find(s => String(s.symbol).toUpperCase() === base)) {
+        return [{ symbol: base, name: base, price: 0, change: 0 }, ...filtered];
+      }
+    }
+    return filtered;
   };
 
   // 处理股票选择
@@ -234,6 +242,19 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
                   placeholder={getSearchPlaceholder()}
                   value={stockSearchTerm}
                   onChange={(e) => setStockSearchTerm(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && hoveredMarket === 'crypto' && stockSearchTerm) {
+                      const up = stockSearchTerm.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      const base = up.endsWith('USDT') ? up.slice(0, -4) : up;
+                      if (base) {
+                        setSelectedMarket('crypto');
+                        setSelectedStock(base);
+                        setShowStockPanel(false);
+                        setShowMarketDropdown(false);
+                        if (onSymbolChange) onSymbolChange(`BINANCE:${base}USDT`);
+                      }
+                    }
+                  }}
                   onClick={(e) => e.stopPropagation()}
                 />
               </div>

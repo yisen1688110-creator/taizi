@@ -92,13 +92,10 @@ export default function Profile() {
           const holds = JSON.parse(localStorage.getItem(`withdraw:holds:${uid}`)||'[]');
           const activeHolds = Array.isArray(holds)?holds.filter(h=>h.status==='active'):[];
           const sumHold = (cur) => activeHolds.filter(h=>String(h.currency)===cur).reduce((s,h)=>s+Number(h.amount||0),0);
-          const debts = JSON.parse(localStorage.getItem('credit:debts')||'[]');
-          const activeDebts = Array.isArray(debts)?debts.filter(d=> (d.uid===uid || String(d.uid)===String(uid)) && d.status==='active'):[];
-          const sumDebtMXN = activeDebts.reduce((s,d)=>s+Number(d.amount||0),0);
           setFunds({
-            mxn: (Number.isFinite(map.MXN) ? map.MXN : 0) + sumDebtMXN - sumHold('MXN'),
-            usd: (Number.isFinite(map.USD) ? map.USD : 0) - sumHold('USD'),
-            usdt: (Number.isFinite(map.USDT) ? map.USDT : 0) - sumHold('USDT'),
+            mxn: (Number.isFinite(map.MXN) ? map.MXN : 0) - sumHold('MXN'),
+            usd: (Number.isFinite(map.USD) ? map.USD : 0),
+            usdt: (Number.isFinite(map.USDT) ? map.USDT : 0),
           });
         } catch {
           setFunds({
@@ -207,9 +204,7 @@ export default function Profile() {
             <div className="top-title">{lang==='es'?'Cuenta de fondos:':'Account Funds:'}</div>
             <div className="funds-and-action">
               <div className="funds-list">
-                <div className="fund-row"><span className="label">MX:</span><span className="value">{formatMXN(funds.mxn, lang)}</span></div>
-                <div className="fund-row"><span className="label">USD:</span><span className="value">{formatMoney(funds.usd, 'USD', lang)}</span></div>
-                <div className="fund-row"><span className="label">USDT:</span><span className="value">{formatUSDT(funds.usdt, lang)}</span></div>
+                <div className="fund-row"><span className="label">MX</span><span className="value">{formatMXN(funds.mxn, lang)}</span></div>
               </div>
               <button className="btn withdraw-btn" onClick={()=>nav('/me/withdraw')}>{lang==='es'?'Retirar':'Withdraw'}</button>
             </div>
@@ -226,10 +221,6 @@ export default function Profile() {
             <div className="icon-item" onClick={()=>nav('/me/cards')} aria-label="linked-bank-cards">
               <div className="icon-circle">💳</div>
               <div className="icon-label">{lang==='es'?'Tarjeta bancaria':'Linked Bank Cards'}</div>
-            </div>
-            <div className="icon-item" onClick={()=>nav('/me/wallets')}>
-              <div className="icon-circle">🔗</div>
-              <div className="icon-label">{lang==='es'?'Dirección de billetera':'Wallet Address'}</div>
             </div>
             <div className="icon-item" onClick={()=>nav('/trades')}>
               <div className="icon-circle">📜</div>
@@ -261,9 +252,8 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* 底部：广告位 + 退出登录 */}
+        {/* 底部：退出登录 */}
         <div className="card borderless-card section-card">
-          <div className="promo-block">{lang==='es'?'Espacio publicitario':'Promo Space'}</div>
           <div className="desc" style={{ textAlign:'center', opacity:.8, margin:'8px 0' }}>V1.0.1</div>
           <div className="logout-area">
             <button className="btn logout-btn" onClick={async () => {

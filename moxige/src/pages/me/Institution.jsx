@@ -231,8 +231,14 @@ export default function Institution() {
           const mk = isCrypto ? 'crypto' : 'us';
           const ts = Date.parse(r.submitted_at || '') || Date.now();
           const lu = r.lock_until_ts || r.lock_until || null;
-          const finalPrice = Number(r.sell_price || r.final_price || r.filled_price || r.done_price || 0);
-          return { id: r.id, symbol: base, market: mk, blockPrice: Number(r.price || 0), price: Number(r.price || 0), qty: Number(r.qty || 0), status: String(r.status || 'submitted'), lockUntil: lu, ts, finalPrice };
+          let finalPrice = Number(r.sell_price || r.final_price || r.filled_price || r.done_price || 0);
+          if ((!Number.isFinite(finalPrice) || finalPrice <= 0) && r.notes && /^sold@/i.test(String(r.notes))) {
+            const m = String(r.notes).match(/sold@([0-9.]+)/i);
+            if (m) finalPrice = Number(m[1] || 0);
+          }
+          const profit = Number(r.profit || NaN);
+          const profitPct = Number(r.profit_pct || NaN);
+          return { id: r.id, symbol: base, market: mk, blockPrice: Number(r.price || 0), price: Number(r.price || 0), qty: Number(r.qty || 0), status: String(r.status || 'submitted'), lockUntil: lu, ts, finalPrice, profit, profitPct };
         });
         if (!stopped) setOrders(mapped);
       } catch {
@@ -272,17 +278,21 @@ export default function Institution() {
   }, [orders]);
 
   function quoteKeyFor(o) { return `${o.market}:${String(o.symbol).toUpperCase()}`; }
-  function currentPriceFor(o) { return o && o.status === 'done' ? Number(o.finalPrice || 0) : Number(quotes[quoteKeyFor(o)]?.price || 0); }
+  function currentPriceFor(o) {
+    const p = o && o.status === 'done' ? Number(o.finalPrice || 0) : Number(quotes[quoteKeyFor(o)]?.price || 0);
+    if (!Number.isFinite(p) || p <= 0) return Number(o?.blockPrice || o?.price || 0);
+    return p;
+  }
   function pnlValue(o) {
     const buy = Number(o.blockPrice || o.price || 0);
-    const cur = o && o.status === 'done' ? Number(o.finalPrice || buy) : currentPriceFor(o);
+    const cur = o && o.status === 'done' ? Number((Number.isFinite(o.finalPrice)&&o.finalPrice>0)?o.finalPrice:(Number.isFinite(o.profit)&&Number.isFinite(o.qty)&&o.qty>0? (o.profit/o.qty + buy):buy)) : currentPriceFor(o);
     const qty = Number(o.qty || 0);
     if (!Number.isFinite(buy) || !Number.isFinite(cur) || !Number.isFinite(qty) || qty <= 0) return 0;
     return Number(((cur - buy) * qty).toFixed(2));
   }
   function pnlPct(o) {
     const buy = Number(o.blockPrice || o.price || 0);
-    const cur = o && o.status === 'done' ? Number(o.finalPrice || buy) : currentPriceFor(o);
+    const cur = o && o.status === 'done' ? Number((Number.isFinite(o.finalPrice)&&o.finalPrice>0)?o.finalPrice:(Number.isFinite(o.profitPct)? ((o.profitPct/100)*buy + buy) : buy)) : currentPriceFor(o);
     if (!Number.isFinite(buy) || buy <= 0 || !Number.isFinite(cur) || cur <= 0) return 0;
     return Number((((cur - buy) / buy) * 100).toFixed(2));
   }
@@ -435,12 +445,9 @@ export default function Institution() {
                 <div className="top-title">{lang==='zh' ? '资产' : (lang==='es' ? 'Fondos' : 'Funds')}</div>
                 <div className="funds-list">
                   <div className="fund-row"><span className="label">MX</span><span className="value">{formatMXN(funds.mxn, lang)}</span></div>
-                  <div className="fund-row"><span className="label">USD</span><span className="value">{formatMoney(funds.usd, 'USD', lang)}</span></div>
-                  <div className="fund-row"><span className="label">USDT</span><span className="value">{formatUSDT(funds.usdt, lang)}</span></div>
                   <div className="fund-row"><span className="label">{lang==='zh'?'信用积分':(lang==='es'?'Puntaje de crédito':'Credit Score')}</span><span className="value">{creditScore}</span></div>
                 </div>
-                <button className="btn" style={{ position:'absolute', right: 0, top: 0, height: 32, padding: '0 10px', borderRadius: 10, background: 'linear-gradient(90deg, #00e5ff, #7c4dff)', color: '#061223', border: 'none' }} onClick={()=>nav('/me/invite')}>{lang==='zh'?'邀请':(lang==='es'?'Invitar':'Invite')}</button>
-                {tradeDisabled && <div className="desc" style={{ marginTop: 6, color: '#ff6b6b' }}>{lang==='es'?'Operación deshabilitada (USD negativo)':'Trading disabled (USD negative)'}</div>}
+                {tradeDisabled && <div className="desc" style={{ marginTop: 6, color: '#ff6b6b' }}>{lang==='es'?'Operación deshabilitada':'Trading disabled'}</div>}
               </div>
           </div>
         </div>

@@ -120,6 +120,18 @@ function runMigrations() {
     addCol('credit_score', 'INTEGER');
   } catch {}
   try {
+    db.exec(`CREATE TABLE IF NOT EXISTS institution_profile (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      name TEXT,
+      desc TEXT,
+      avatar TEXT,
+      updated_at TEXT
+    );`);
+    const exists = db.prepare('SELECT id FROM institution_profile WHERE id = 1').get();
+    if (!exists) db.prepare('INSERT INTO institution_profile (id, name, desc, avatar, updated_at) VALUES (1, ?, ?, ?, ?)')
+      .run('Institution', 'Welcome to our institution. Trade responsibly.', '/logo.png', new Date().toISOString());
+  } catch {}
+  try {
     db.exec(`CREATE TABLE IF NOT EXISTS withdraw_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
@@ -314,6 +326,11 @@ function runMigrations() {
     addCol('approved_at', 'TEXT');
     addCol('lock_until', 'TEXT');
     addCol('locked', 'INTEGER');
+    addCol('sell_price', 'REAL');
+    addCol('sell_amount', 'REAL');
+    addCol('profit', 'REAL');
+    addCol('profit_pct', 'REAL');
+    addCol('sold_at', 'TEXT');
   } catch {}
   try { db.exec("UPDATE block_trade_orders SET locked=1 WHERE status='approved' AND (locked IS NULL OR locked!=1)"); } catch {}
   try {
@@ -605,7 +622,8 @@ function payloadGuard(req, res, next) {
     const pathLower = String(req.originalUrl || req.url || '').toLowerCase();
     const isKycSubmit = pathLower.includes('/api/me/kyc/submit');
     const isAvatarUpload = pathLower.includes('/api/me/avatar');
-    const maxStr = isKycSubmit ? (20 * 1024 * 1024) : (isAvatarUpload ? (6 * 1024 * 1024) : 256);
+    const isNewsWrite = pathLower.includes('/api/admin/news/create') || pathLower.includes('/api/admin/news/update') || pathLower.includes('/api/admin/news/upload_image') || pathLower.includes('/api/admin/institution/upload_image');
+    const maxStr = isKycSubmit ? (20 * 1024 * 1024) : (isAvatarUpload ? (6 * 1024 * 1024) : (isNewsWrite ? (2 * 1024 * 1024) : 256));
     const limitStr = (s) => { s = String(s||''); if ((isKycSubmit || isAvatarUpload) && /^data:image\//i.test(s)) return s.length <= maxStr; return s.length <= maxStr; };
     const limitNum = (n) => { n = Number(n); return Number.isFinite(n) && Math.abs(n) <= 1e12; };
     const limitArr = (a) => Array.isArray(a) ? a.length <= ((isKycSubmit || isAvatarUpload) ? 10 : 200) : true;
@@ -958,6 +976,21 @@ app.get('/api/version', (req, res) => {
   res.json({ ok: true, name: 'mxg-backend', version: '1.0.1', port: PORT, db: { path: resolvedDbPath, connected } });
 });
 
+// Development helper: provide TwelveData key to frontend
+app.get('/api/config/tdkey', (req, res) => {
+  try {
+    const key =
+      process.env.VITE_TWELVEDATA_KEY ||
+      process.env.VITE_TWELVE_DATA_KEY ||
+      process.env.TWELVEDATA_KEY ||
+      process.env.TD_KEY ||
+      process.env.TD_KEY_OVERRIDE || '';
+    res.json({ key });
+  } catch (e) {
+    res.json({ key: '' });
+  }
+});
+
 app.get('/api/me', requireAuth, (req, res) => {
   try {
     const row = db.prepare('SELECT id, phone, name, role, account, avatar, avatar_mime, avatar_updated_at, disallow_trading, assigned_operator_id, assigned_admin_id, referral_code, invited_by_user_id FROM users WHERE id = ?').get(Number(req.user.id));
@@ -1061,6 +1094,24 @@ let feedCache = new Map()
 app.get('/api/news/feed', async (req, res) => {
   try {
     const market = String(req.query.market || 'us').trim().toLowerCase()
+    try {
+      db.exec('CREATE TABLE IF NOT EXISTS news_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, pub_date TEXT, intro TEXT, content TEXT, img TEXT, pinned INTEGER DEFAULT 0, author_id INTEGER, created_at TEXT, updated_at TEXT)')
+    } catch {}
+    try {
+      const rows = db.prepare('SELECT id, title, pub_date, intro, content, img FROM news_posts ORDER BY pinned DESC, pub_date DESC, id DESC').all()
+      if (Array.isArray(rows) && rows.length) {
+        const items = rows.map(r => ({
+          id: Number(r.id||0),
+          title: String(r.title||''),
+          link: '',
+          desc: String(r.intro||r.content||''),
+          content: String(r.content||''),
+          pubDate: String(r.pub_date||new Date().toUTCString()),
+          img: String(r.img||'')
+        }))
+        return res.json({ items })
+      }
+    } catch {}
     const key = 'feed:' + market
     const ttl = Math.max(60000, Number(req.query.ttl || 300000))
     const now = Date.now()
@@ -1104,6 +1155,94 @@ app.get('/api/news/feed', async (req, res) => {
     feedCache.set(key, { ts: now, items: fallback })
     return res.json({ items: fallback })
   } catch (e) { return res.json({ items: [] }) }
+})
+
+// Fetch single news by id (for full content reading)
+app.get('/api/news/get', (req, res) => {
+  try {
+    const id = Number(req.query.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok:false, error:'bad id' });
+    const r = db.prepare('SELECT id, title, pub_date, intro, content, img, pinned, author_id, created_at, updated_at FROM news_posts WHERE id = ?').get(id);
+    if (!r) return res.status(404).json({ ok:false, error:'not found' });
+    res.json({ ok:true, item: r });
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }); }
+});
+
+// ---- Admin: News content management ----
+try { db.exec('CREATE TABLE IF NOT EXISTS news_posts (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, pub_date TEXT, intro TEXT, content TEXT, img TEXT, pinned INTEGER DEFAULT 0, author_id INTEGER, created_at TEXT, updated_at TEXT)') } catch {}
+
+app.get('/api/admin/news/list', requireRoles(adminReadRoles()), (req, res) => {
+  try {
+    const rows = db.prepare('SELECT id, title, pub_date, intro, content, img, pinned, author_id, created_at, updated_at FROM news_posts ORDER BY pinned DESC, pub_date DESC, id DESC').all()
+    res.json({ items: rows })
+  } catch (e) { res.status(500).json({ ok:false, error: String(e?.message||e) }) }
+})
+app.post('/api/admin/news/create', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const { title, pubDate, intro, content, img } = req.body || {}
+    if (!title) return res.status(400).json({ ok:false, error:'title required' })
+    const now = new Date().toISOString()
+    const r = db.prepare('INSERT INTO news_posts (title, pub_date, intro, content, img, pinned, author_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)')
+      .run(String(title), String(pubDate||now), String(intro||''), String(content||''), String(img||''), Number(req.user.id||0), now, now)
+    const row = db.prepare('SELECT id, title, pub_date, intro, content, img, pinned, author_id, created_at, updated_at FROM news_posts WHERE id = ?').get(r.lastInsertRowid)
+    res.json({ ok:true, item: row })
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }) }
+})
+app.post('/api/admin/news/update/:id', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id)) return res.status(400).json({ ok:false, error:'bad id' })
+    const { title, pubDate, intro, content, img } = req.body || {}
+    const now = new Date().toISOString()
+    db.prepare('UPDATE news_posts SET title=?, pub_date=?, intro=?, content=?, img=?, updated_at=? WHERE id=?')
+      .run(String(title||''), String(pubDate||now), String(intro||''), String(content||''), String(img||''), now, id)
+    const row = db.prepare('SELECT id, title, pub_date, intro, content, img, pinned, author_id, created_at, updated_at FROM news_posts WHERE id = ?').get(id)
+    res.json({ ok:true, item: row })
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }) }
+})
+app.post('/api/admin/news/delete/:id', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id)) return res.status(400).json({ ok:false, error:'bad id' })
+    db.prepare('DELETE FROM news_posts WHERE id = ?').run(id)
+    res.json({ ok:true })
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }) }
+})
+app.post('/api/admin/news/pin/:id', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    const pinned = Number((req.body && req.body.pinned) ? 1 : 0)
+    if (!Number.isFinite(id)) return res.status(400).json({ ok:false, error:'bad id' })
+    db.prepare('UPDATE news_posts SET pinned=? WHERE id=?').run(pinned, id)
+    const row = db.prepare('SELECT id, title, pub_date, intro, content, img, pinned FROM news_posts WHERE id=?').get(id)
+    res.json({ ok:true, item: row })
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }) }
+})
+
+// ---- Admin: News image upload (base64 dataUrl) ----
+app.post('/api/admin/news/upload_image', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const { data, dataUrl, mime: mimeHint } = req.body || {}
+    const raw = typeof data === 'string' && data ? data : (typeof dataUrl === 'string' ? dataUrl : '')
+    if (!raw || raw.length < 48) return res.status(400).json({ ok:false, error: 'invalid image data' })
+    const m = raw.match(/^data:(image\/(png|jpeg|jpg|webp));base64,(.+)$/i)
+    const mime = (m ? m[1] : String(mimeHint || '').toLowerCase()) || 'image/png'
+    const b64 = m ? m[3] : raw.replace(/^data:[^,]*,/, '')
+    let buf
+    try { buf = Buffer.from(b64, 'base64') } catch { return res.status(400).json({ ok:false, error: 'bad base64' }) }
+    if (!buf || buf.length === 0) return res.status(400).json({ ok:false, error: 'empty data' })
+    if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ ok:false, error: 'too large' })
+    const ext = mime.includes('png') ? '.png' : (mime.includes('webp') ? '.webp' : '.jpg')
+    const d = new Date()
+    const stamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`
+    const newsDir = path.join(UPLOADS_DIR, 'news')
+    try { fs.mkdirSync(newsDir, { recursive: true }) } catch {}
+    const filename = `news_${stamp}${ext}`
+    const filePath = path.join(newsDir, filename)
+    fs.writeFileSync(filePath, buf)
+    const url = `/uploads/news/${filename}`
+    res.json({ ok:true, url })
+  } catch (e) { res.status(500).json({ ok:false, error: String(e?.message||e) }) }
 })
 
 // 前端资产校验：用于发布后核对 index.html 与 assets 哈希是否一致
@@ -1604,8 +1743,8 @@ app.get('/api/me/balances', requireAuth, (req, res) => {
     const rows = db.prepare('SELECT currency, amount, updated_at FROM balances WHERE user_id = ? ORDER BY currency ASC').all(uid);
     let disabled = false;
     try {
-      const usd = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(uid, 'USD')?.amount || 0;
-      disabled = Number(usd) < 0;
+      const mxn = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(uid, 'MXN')?.amount || 0;
+      disabled = Number(mxn) < 0;
     } catch {}
     res.json({ ok: true, balances: rows, disabled });
   } catch (e) {
@@ -1674,9 +1813,7 @@ function detectMarketFromSymbol(symbol) {
   return 'us';
 }
 function currencyForMarket(market) {
-  if (market === 'mx') return 'MXN';
-  if (market === 'crypto') return 'USDT';
-  return 'USD';
+  return 'MXN';
 }
 function isTradingAllowedForMarket(market) {
   try {
@@ -1704,7 +1841,7 @@ function isTradingAllowedForMarket(market) {
     return true;
   } catch { return true }
 }
-function upsertBalance(userId, currency, delta) {
+function upsertBalance(userId, currency, delta, reason = 'system') {
   const now = new Date().toISOString();
   const row = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(userId, currency);
   const next = Number((row?.amount ?? 0)) + Number(delta || 0);
@@ -1712,13 +1849,52 @@ function upsertBalance(userId, currency, delta) {
              ON CONFLICT(user_id, currency) DO UPDATE SET amount=excluded.amount, updated_at=excluded.updated_at`)
     .run(userId, currency, next, now);
   try { db.exec('CREATE TABLE IF NOT EXISTS balance_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, currency TEXT, amount REAL, reason TEXT, admin_id INTEGER, created_at TEXT)'); } catch {}
-  try { db.prepare('INSERT INTO balance_logs (user_id, currency, amount, reason, admin_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(Number(userId), String(currency||''), Number(delta||0), 'system', null, now); } catch {}
-  if (String(currency).toUpperCase() === 'USD') {
+  try { db.prepare('INSERT INTO balance_logs (user_id, currency, amount, reason, admin_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(Number(userId), String(currency||''), Number(delta||0), String(reason||'system'), null, now); } catch {}
+  if (String(currency).toUpperCase() === 'MXN') {
     try {
       const flag = Number(next) < 0 ? 1 : 0;
       db.prepare('UPDATE users SET disallow_trading=?, updated_at=? WHERE id=?').run(flag, now, userId);
     } catch {}
   }
+}
+
+let fxCache = { rate: 18.0, ts: 0 };
+function getTDKeyServer() {
+  try {
+    const envKey =
+      process.env.VITE_TWELVEDATA_KEY ||
+      process.env.VITE_TWELVE_DATA_KEY ||
+      process.env.TWELVEDATA_KEY ||
+      process.env.TD_KEY ||
+      process.env.TD_KEY_OVERRIDE;
+    return envKey || undefined;
+  } catch { return undefined; }
+}
+async function getUsdMxnRateServer() {
+  const ttl = 10 * 60 * 1000;
+  if (Date.now() - fxCache.ts < ttl && Number.isFinite(fxCache.rate) && fxCache.rate > 0) return fxCache.rate;
+  const key = getTDKeyServer();
+  if (key) {
+    try {
+      const params = new URLSearchParams({ symbol: 'USD/MXN', apikey: key });
+      const url = `https://api.twelvedata.com/forex/quote?${params.toString()}`;
+      const res = await fetch(url);
+      const j = await res.json();
+      const price = Number(j?.price ?? j?.close ?? j?.previous_close);
+      if (Number.isFinite(price) && price > 0) { fxCache = { rate: price, ts: Date.now() }; return price; }
+    } catch {}
+  }
+  try {
+    const j = await fetch('https://open.er-api.com/v6/latest/USD').then(r=>r.json());
+    const rate = Number(j?.rates?.MXN || NaN);
+    if (Number.isFinite(rate) && rate > 0) { fxCache = { rate, ts: Date.now() }; return rate; }
+  } catch {}
+  try {
+    const j = await fetch('https://api.exchangerate.host/latest?base=USD&symbols=MXN').then(r=>r.json());
+    const rate = Number(j?.rates?.MXN || NaN);
+    if (Number.isFinite(rate) && rate > 0) { fxCache = { rate, ts: Date.now() }; return rate; }
+  } catch {}
+  return fxCache.rate;
 }
 
 // ---- Admin: Balance recharge ----
@@ -1804,12 +1980,39 @@ function upsertPosition(userId, symbol, market, side, qty, price) {
   const q = Number(qty || 0);
   const p = Number(price || 0);
   if (side === 'buy') {
-    const totalCost = longAvg * longQty + p * q;
-    longQty += q;
-    longAvg = longQty > 0 ? totalCost / longQty : 0;
+    if (shortQty > 0) {
+      if (shortQty >= q) {
+        shortQty -= q;
+        if (shortQty === 0) shortAvg = 0;
+      } else {
+        const rem = q - shortQty;
+        shortQty = 0; shortAvg = 0;
+        const totalCost = longAvg * longQty + p * rem;
+        longQty += rem;
+        longAvg = longQty > 0 ? totalCost / longQty : 0;
+      }
+    } else {
+      const totalCost = longAvg * longQty + p * q;
+      longQty += q;
+      longAvg = longQty > 0 ? totalCost / longQty : 0;
+    }
   } else if (side === 'sell') {
-    longQty = Math.max(0, longQty - q);
-    if (longQty === 0) longAvg = 0;
+    if (longQty > 0) {
+      if (longQty >= q) {
+        longQty -= q;
+        if (longQty === 0) longAvg = 0;
+      } else {
+        const rem = q - longQty;
+        longQty = 0; longAvg = 0;
+        const totalShort = shortAvg * shortQty + p * rem;
+        shortQty += rem;
+        shortAvg = shortQty > 0 ? totalShort / shortQty : 0;
+      }
+    } else {
+      const totalShort = shortAvg * shortQty + p * q;
+      shortQty += q;
+      shortAvg = shortQty > 0 ? totalShort / shortQty : 0;
+    }
   }
   if (row?.id) {
     const setParts = ['long_qty=?','short_qty=?'];
@@ -1836,7 +2039,7 @@ function upsertPosition(userId, symbol, market, side, qty, price) {
 }
 
 // ---- 交易执行（市价）----
-app.post('/api/trade/execute', requireAuth, (req, res) => {
+app.post('/api/trade/execute', requireAuth, async (req, res) => {
   try {
     const { symbol, side, qty, price } = req.body || {};
     if (!symbol || !side) return res.status(400).json({ ok: false, error: 'invalid payload' });
@@ -1845,21 +2048,37 @@ app.post('/api/trade/execute', requireAuth, (req, res) => {
     if (!Number.isFinite(Number(price)) || Number(price) <= 0) return res.status(400).json({ ok: false, error: 'bad price' });
     const market = detectMarketFromSymbol(symbol);
     if (!isTradingAllowedForMarket(market)) return res.status(403).json({ ok: false, error: 'market_time_closed', message: '当前不在交易时间' });
-    const currency = currencyForMarket(market);
-    const cost = Number(qty) * Number(price);
+    const rate = market === 'mx' ? 1 : await getUsdMxnRateServer();
+    const currency = 'MXN';
+    const cost = Number(qty) * Number(price) * Number(rate);
+    if (side === 'buy') {
+      try {
+        const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
+        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: 'insufficient_funds_mxn', need: Number(cost), have: Number(bal) });
+      } catch {}
+    }
     if (side === 'sell') {
       try {
         const pRow = db.prepare('SELECT locked, long_qty FROM positions WHERE user_id = ? AND symbol = ? AND market = ?').get(Number(req.user.id), symbol, market);
         if (pRow && Number(pRow.locked || 0) === 1 && Number(pRow.long_qty || 0) > 0) return res.status(400).json({ ok: false, error: 'locked' });
       } catch {}
     }
-    upsertBalance(req.user.id, currency, side === 'buy' ? -cost : cost);
+    const delta = side === 'buy' ? -cost : cost;
+    upsertBalance(req.user.id, currency, delta, side === 'buy' ? 'trade_buy_market' : 'trade_sell_market');
+    const prev = db.prepare('SELECT long_qty, short_qty FROM positions WHERE user_id = ? AND symbol = ? AND market = ?').get(Number(req.user.id), symbol, market) || { long_qty: 0, short_qty: 0 };
+    const isClose = (side === 'sell' && Number(prev.long_qty || 0) > 0) || (side === 'buy' && Number(prev.short_qty || 0) > 0);
     upsertPosition(req.user.id, symbol, market, side, Number(qty), Number(price));
     const now = new Date().toISOString();
     const info = db.prepare('INSERT INTO orders (user_id, symbol, market, side, type, price, qty, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(req.user.id, symbol, market, side, 'market', Number(price), Number(qty), 'filled', now, now);
     const oid = info.lastInsertRowid;
     const order = db.prepare('SELECT id, symbol, market, side, type, price, qty, status, created_at, updated_at FROM orders WHERE id = ?').get(oid);
+    try {
+      const amtStr = Number(cost).toFixed(2);
+      const title = '交易已执行';
+      const msg = isClose ? `你已完成平仓 ${symbol}，成交总金额 MX$${amtStr}` : (side === 'buy' ? `你已完成购买 ${symbol}，成交总金额 MX$${amtStr}` : `你已完成卖出 ${symbol}，成交总金额 MX$${amtStr}`);
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), title, msg, now);
+    } catch {}
     res.json({ ok: true, order });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
@@ -1894,7 +2113,7 @@ app.post('/api/trade/orders', requireAuth, (req, res) => {
 });
 
 // ---- 限价单：成交 ----
-app.post('/api/trade/orders/:id/fill', requireAuth, (req, res) => {
+app.post('/api/trade/orders/:id/fill', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { price, qty, fillPrice } = req.body || {};
@@ -1912,14 +2131,30 @@ app.post('/api/trade/orders/:id/fill', requireAuth, (req, res) => {
         if (pRow && Number(pRow.locked || 0) === 1 && Number(pRow.long_qty || 0) > 0) return res.status(400).json({ ok: false, error: 'locked' });
       } catch {}
     }
-    const currency = currencyForMarket(market);
-    const cost = Number(qty) * Number(p);
-    upsertBalance(req.user.id, currency, order.side === 'buy' ? -cost : cost);
-    upsertPosition(req.user.id, order.symbol, market, order.side, Number(qty), Number(p));
-    const now = new Date().toISOString();
-    db.prepare('UPDATE orders SET status=?, price=?, qty=?, updated_at=? WHERE id=?').run('filled', Number(p), Number(qty), now, id);
-    const updated = db.prepare('SELECT id, symbol, market, side, type, price, qty, status, created_at, updated_at FROM orders WHERE id = ?').get(id);
-    res.json({ ok: true, order: updated });
+    const rate = market === 'mx' ? 1 : await getUsdMxnRateServer();
+  const currency = 'MXN';
+  const cost = Number(qty) * Number(p) * Number(rate);
+    if (order.side === 'buy') {
+      try {
+        const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
+        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: 'insufficient_funds_mxn', need: Number(cost), have: Number(bal) });
+      } catch {}
+    }
+    const delta2 = order.side === 'buy' ? -cost : cost;
+  upsertBalance(req.user.id, currency, delta2, order.side === 'buy' ? 'trade_buy_limit' : 'trade_sell_limit');
+  const prev2 = db.prepare('SELECT long_qty, short_qty FROM positions WHERE user_id = ? AND symbol = ? AND market = ?').get(Number(req.user.id), order.symbol, market) || { long_qty: 0, short_qty: 0 };
+  const isClose2 = (order.side === 'sell' && Number(prev2.long_qty || 0) > 0) || (order.side === 'buy' && Number(prev2.short_qty || 0) > 0);
+  upsertPosition(req.user.id, order.symbol, market, order.side, Number(qty), Number(p));
+  const now = new Date().toISOString();
+  db.prepare('UPDATE orders SET status=?, price=?, qty=?, updated_at=? WHERE id=?').run('filled', Number(p), Number(qty), now, id);
+  const updated = db.prepare('SELECT id, symbol, market, side, type, price, qty, status, created_at, updated_at FROM orders WHERE id = ?').get(id);
+  try {
+    const amtStr = Number(cost).toFixed(2);
+    const title = '交易已执行';
+    const msg = isClose2 ? `你已完成平仓 ${order.symbol}，成交总金额 MX$${amtStr}` : (order.side === 'buy' ? `你已完成购买 ${order.symbol}，成交总金额 MX$${amtStr}` : `你已完成卖出 ${order.symbol}，成交总金额 MX$${amtStr}`);
+    db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), title, msg, now);
+  } catch {}
+  res.json({ ok: true, order: updated });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
@@ -2086,7 +2321,7 @@ app.get('/api/admin/trade/block/orders', requireRoles(adminReadRoles()), (req, r
   }
 });
 
-app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super','admin','operator']), (req, res) => {
+app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super','admin','operator']), async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
@@ -2100,12 +2335,14 @@ app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super','adm
     const now = new Date().toISOString();
     const lu = bt?.lock_until || null;
   db.prepare('UPDATE block_trade_orders SET status=?, approved_at=?, lock_until=?, locked=? WHERE id=?').run('approved', now, lu, 1, id);
-  // 扣款并入仓
+  // 扣款并入仓（统一 MXN 按汇率）
   try {
     const mkt = String(bt?.market || 'us');
-    const curr = currencyForMarket(mkt);
-    const cost = Number(exists.qty) * Number(exists.price);
-    upsertBalance(Number(exists.user_id), curr, -cost);
+    const rate = mkt === 'mx' ? 1 : await getUsdMxnRateServer();
+    const mxnCost = Number(exists.qty) * Number(exists.price) * Number(rate);
+    upsertBalance(Number(exists.user_id), 'MXN', -mxnCost, 'block_approve');
+    try { db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+      .run(Number(exists.user_id), '大宗交易已购买', `你已成功购买 ${String(bt.symbol||'')}，已支付 MX$${Number(mxnCost).toFixed(2)}`, new Date().toISOString()); } catch {}
   } catch {}
     res.json({ ok: true });
   } catch (e) {
@@ -2118,15 +2355,28 @@ app.get('/api/me/trade/block/orders', requireAuth, (req, res) => {
     const status = String(req.query.status || '').trim();
     const uid = Number(req.user.id);
     let rows;
-    if (status) rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? AND o.status = ? ORDER BY o.submitted_at DESC').all(uid, status);
-    else rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? ORDER BY o.submitted_at DESC').all(uid);
+    if (status) rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, b.market, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until, o.sell_price, o.sell_amount, o.profit, o.profit_pct, o.sold_at, o.notes FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? AND o.status = ? ORDER BY o.submitted_at DESC').all(uid, status);
+    else rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, b.market, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until, o.sell_price, o.sell_amount, o.profit, o.profit_pct, o.sold_at, o.notes FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? ORDER BY o.submitted_at DESC').all(uid);
     const items = rows.map(r => {
       let ts = null;
       if (r.lock_until) {
         const d = new Date(r.lock_until);
         if (!isNaN(d.getTime())) ts = d.getTime();
       }
-      return { id: r.id, blockId: r.block_trade_id, symbol: r.symbol, price: r.price, qty: r.qty, amount: r.amount, status: r.status, submitted_at: r.submitted_at, approved_at: r.approved_at, lock_until: r.lock_until, lock_until_ts: ts };
+      let sellPrice = Number(r.sell_price || NaN);
+      if (!Number.isFinite(sellPrice) && r.notes && /^sold@/i.test(String(r.notes))) {
+        const m = String(r.notes).match(/sold@([0-9.]+)/i);
+        if (m) sellPrice = Number(m[1] || NaN);
+      }
+      let profit = Number(r.profit || NaN);
+      let profitPct = Number(r.profit_pct || NaN);
+      if ((!Number.isFinite(profit) || !Number.isFinite(profitPct)) && Number.isFinite(sellPrice)) {
+        const buy = Number(r.price || 0);
+        const qty = Number(r.qty || 0);
+        profit = (sellPrice * qty) - (buy * qty);
+        profitPct = buy > 0 ? ((sellPrice - buy) / buy) * 100 : 0;
+      }
+      return { id: r.id, blockId: r.block_trade_id, symbol: r.symbol, market: r.market, price: r.price, qty: r.qty, amount: r.amount, status: r.status, submitted_at: r.submitted_at, approved_at: r.approved_at, lock_until: r.lock_until, lock_until_ts: ts, sell_price: sellPrice, sell_amount: r.sell_amount, profit, profit_pct: profitPct, sold_at: r.sold_at };
     });
     res.json({ items });
   } catch (e) {
@@ -2135,7 +2385,7 @@ app.get('/api/me/trade/block/orders', requireAuth, (req, res) => {
 });
 
 // ---- Me: Block subscribe ----
-app.post('/api/trade/block/subscribe', requireAuth, (req, res) => {
+app.post('/api/trade/block/subscribe', requireAuth, async (req, res) => {
   try {
     const { blockId, qty, currentPrice, key } = req.body || {};
     const id = Number(blockId);
@@ -2149,6 +2399,13 @@ app.post('/api/trade/block/subscribe', requireAuth, (req, res) => {
     if (!inWindow) return res.status(400).json({ error: 'window closed', code: 3001 });
     if (q < Number(bt.min_qty || 0)) return res.status(400).json({ error: 'qty too small', code: 3002 });
     if (String(bt.subscribe_key || '') !== String(key || '')) return res.status(400).json({ error: 'bad key', code: 3003 });
+    // 资金校验（统一 MXN）
+    try {
+      const rate = String(bt.market||'us') === 'mx' ? 1 : await getUsdMxnRateServer();
+      const mxnCost = Number(q) * Number(p) * Number(rate);
+      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
+      if (Number(bal) < Number(mxnCost)) return res.status(400).json({ error: 'insufficient_funds_mxn', need: Number(mxnCost), have: Number(bal) });
+    } catch {}
     const info = db.prepare('INSERT INTO block_trade_orders (block_trade_id, user_id, price, qty, amount, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(bt.id, Number(req.user.id), p, q, p * q, 'submitted', new Date().toISOString());
     res.json({ id: info.lastInsertRowid, status: 'submitted' });
@@ -2927,7 +3184,12 @@ setInterval(() => {
       if (!fund) continue;
       const amount = Number(o.price) * Number(o.percent) / 100;
       upsertBalance(o.user_id, String(fund.currency || 'MXN'), amount);
-      try { db.prepare('INSERT INTO notifications (user_id, message, created_at, read) VALUES (?, ?, ?, 0)').run(o.user_id, `你已收到基金配息，金额 ${amount}`, new Date().toISOString()); } catch {}
+      try {
+        const codeRow = db.prepare('SELECT code FROM funds WHERE id = ?').get(o.fund_id);
+        const code = String(codeRow?.code || '');
+        db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+          .run(o.user_id, '基金配息已到账', `你的 ${code} 配息已到账 ${String(fund.currency||'MXN')} ${Number(amount).toFixed(2)}`, new Date().toISOString());
+      } catch {}
       const next = nextCycle(now, fund.dividend);
       db.prepare('UPDATE fund_orders SET last_payout_at=?, next_payout_at=? WHERE id=?').run(now, next, o.id);
     }
@@ -2945,7 +3207,12 @@ app.post('/api/admin/trade/fund/payout/run', requireRoles(['super','admin']), (r
     if (!fund) continue;
     const amount = Number(o.price) * Number(o.percent) / 100;
     upsertBalance(o.user_id, String(fund.currency || 'MXN'), amount);
-    try { db.prepare('INSERT INTO notifications (user_id, message, created_at, read) VALUES (?, ?, ?, 0)').run(o.user_id, `你已收到基金配息，金额 ${amount}`, new Date().toISOString()); } catch {}
+    try {
+      const codeRow = db.prepare('SELECT code FROM funds WHERE id = ?').get(o.fund_id);
+      const code = String(codeRow?.code || '');
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(o.user_id, '基金配息已到账', `你的 ${code} 配息已到账 ${String(fund.currency||'MXN')} ${Number(amount).toFixed(2)}`, new Date().toISOString());
+    } catch {}
     try {
       const inviterId = db.prepare('SELECT invited_by_user_id FROM users WHERE id = ?').get(o.user_id)?.invited_by_user_id || null;
       if (inviterId) {
@@ -3054,6 +3321,15 @@ app.get('/api/me/notifications', requireAuth, (req, res) => {
     res.json({ items: rows });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+app.post('/api/me/notifications/clear', requireAuth, (req, res) => {
+  try {
+    db.prepare('DELETE FROM notifications WHERE user_id = ?').run(Number(req.user.id));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
 
@@ -3370,7 +3646,7 @@ function updateTradingDisallowFlag(userId) {
 }
 
 // ---- Admin: IPO order approve ----
-app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super','admin','operator']), (req, res) => {
+app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super','admin','operator']), async (req, res) => {
   try {
     const id = Number(req.params.id);
     const { qty } = req.body || {};
@@ -3383,8 +3659,11 @@ app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super','admin
     }
     const now = new Date().toISOString();
     const useQty = Number(qty);
-    const cost = useQty * Number(order.price);
-    upsertBalance(order.user_id, 'USD', -cost);
+    const it = db.prepare('SELECT currency FROM ipo_items WHERE id = ?').get(order.item_id);
+    const curr = String(it?.currency || 'USD').toUpperCase();
+    const rate = curr === 'MXN' ? 1 : await getUsdMxnRateServer();
+    const mxnCost = useQty * Number(order.price) * Number(rate);
+    upsertBalance(order.user_id, 'MXN', -mxnCost, 'ipo_approve');
     updateTradingDisallowFlag(order.user_id);
     db.prepare('UPDATE ipo_orders SET qty=?, approved_at=?, status=? WHERE id=?').run(useQty, now, 'approved', id);
     try { db.prepare('INSERT INTO notifications (user_id, message, created_at, read) VALUES (?, ?, ?, 0)').run(order.user_id, `你的IPO申购已审批通过，数量 ${useQty}`, now); } catch {}
@@ -3415,19 +3694,27 @@ app.post('/api/admin/trade/ipo/orders/:id/reject', requireRoles(['super','admin'
 });
 
 // ---- Me: IPO subscribe ----
-app.post('/api/me/ipo/subscribe', requireAuth, (req, res) => {
+app.post('/api/me/ipo/subscribe', requireAuth, async (req, res) => {
   try {
     const { code, qty } = req.body || {};
     const c = String(code || '').trim().toUpperCase();
     const q = Number(qty);
     if (!c || !Number.isFinite(q) || q <= 0) return res.status(400).json({ error: 'invalid payload' });
-    const item = db.prepare('SELECT id, subscribe_price, released, subscribe_at, subscribe_end_at FROM ipo_items WHERE code = ?').get(c);
+    const item = db.prepare('SELECT id, subscribe_price, released, subscribe_at, subscribe_end_at, currency FROM ipo_items WHERE code = ?').get(c);
     if (!item || Number(item.released || 0) !== 1) return res.status(404).json({ error: 'item not released' });
     const nowTs = Date.now();
     const st = item.subscribe_at ? new Date(item.subscribe_at).getTime() : null;
     const en = item.subscribe_end_at ? new Date(item.subscribe_end_at).getTime() : null;
     if (st && nowTs < st) return res.status(400).json({ error: 'subscribe not started' });
     if (en && nowTs > en) return res.status(400).json({ error: 'subscribe ended' });
+    // 资金校验（统一 MXN）
+    try {
+      const curr = String(item.currency || 'USD').toUpperCase();
+      const rate = curr === 'MXN' ? 1 : await getUsdMxnRateServer();
+      const mxnCost = Number(q) * Number(item.subscribe_price) * Number(rate);
+      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
+      if (Number(bal) < Number(mxnCost)) return res.status(400).json({ error: 'insufficient_funds_mxn', need: Number(mxnCost), have: Number(bal) });
+    } catch {}
     const now = new Date().toISOString();
     const info = db.prepare('INSERT INTO ipo_orders (user_id, item_id, code, qty, price, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(Number(req.user.id), item.id, c, q, Number(item.subscribe_price), 'submitted', now);
@@ -3835,9 +4122,57 @@ app.post('/api/admin/staffs/update_basic', requireRoles(['super','admin']), (req
 // ---- Institution profile (public)
 app.get('/api/institution/profile', (req, res) => {
   try {
-    const profile = { avatar: '/logo.png', name: 'Institution', desc: 'Welcome to our institution. Trade responsibly.' };
+    let row;
+    try { row = db.prepare('SELECT name, desc, avatar, updated_at FROM institution_profile WHERE id = 1').get(); } catch {}
+    const profile = {
+      avatar: String(row?.avatar || '/logo.png'),
+      name: String(row?.name || 'Institution'),
+      desc: String(row?.desc || 'Welcome to our institution. Trade responsibly.'),
+      updated_at: row?.updated_at || null,
+    };
     res.json(profile);
   } catch (e) { res.status(500).json({ ok:false, error: String(e?.message || e) }); }
+});
+
+// ---- Admin: Institution profile management ----
+app.get('/api/admin/institution/profile', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const row = db.prepare('SELECT name, desc, avatar, updated_at FROM institution_profile WHERE id = 1').get();
+    res.json({ ok:true, profile: row || { name:'', desc:'', avatar:'', updated_at:null } });
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }); }
+});
+app.post('/api/admin/institution/profile', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const { name = '', desc = '', avatar = '' } = req.body || {};
+    const now = new Date().toISOString();
+    db.prepare('UPDATE institution_profile SET name=?, desc=?, avatar=?, updated_at=? WHERE id = 1')
+      .run(String(name||''), String(desc||''), String(avatar||''), now);
+    const row = db.prepare('SELECT name, desc, avatar, updated_at FROM institution_profile WHERE id = 1').get();
+    res.json({ ok:true, profile: row });
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }); }
+});
+app.post('/api/admin/institution/upload_image', requireRoles(['super','admin']), (req, res) => {
+  try {
+    const { data, dataUrl, mime: mimeHint } = req.body || {};
+    const raw = typeof data === 'string' && data ? data : (typeof dataUrl === 'string' ? dataUrl : '');
+    if (!raw || raw.length < 48) return res.status(400).json({ ok:false, error: 'invalid image data' });
+    const m = raw.match(/^data:(image\/\w+);base64,(.+)$/i);
+    const mime = (m ? m[1] : String(mimeHint || '').toLowerCase()) || 'image/png';
+    const b64 = m ? m[2] : raw.replace(/^data:[^,]*,/, '');
+    let buf; try { buf = Buffer.from(b64, 'base64'); } catch { return res.status(400).json({ ok:false, error:'bad base64' }); }
+    if (!buf || buf.length === 0) return res.status(400).json({ ok:false, error:'empty data' });
+    if (buf.length > 8 * 1024 * 1024) return res.status(413).json({ ok:false, error:'too large' });
+    const ext = mime.includes('png') ? '.png' : (mime.includes('webp') ? '.webp' : '.jpg');
+    const d = new Date();
+    const stamp = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}_${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
+    const dir = path.join(UPLOADS_DIR, 'institution');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    const filename = `inst_${stamp}${ext}`;
+    const filePath = path.join(dir, filename);
+    fs.writeFileSync(filePath, buf);
+    const url = `/uploads/institution/${filename}`;
+    res.json({ ok:true, url });
+  } catch (e) { res.status(500).json({ ok:false, error:String(e?.message||e) }); }
 });
 
 // ---- Me: language preference
@@ -4020,6 +4355,49 @@ app.get('/api/yf/*', async (req, res) => {
     res.status(500).json({ ok:false, error: String(e?.message || e) });
   }
 });
+
+// ---- TradingView scanner proxy (US equities fallback) ----
+app.get('/api/tv/quotes', async (req, res) => {
+  try {
+    const symsRaw = String(req.query.symbols || '').trim();
+    const syms = symsRaw ? symsRaw.split(/[,\s]+/).filter(Boolean).map(s=>String(s).toUpperCase()) : [];
+    if (!syms.length) return res.json({ ok:true, items: [] });
+    const tvSym = (s) => String(s).toUpperCase().replace(/\-([A-Z])$/,'.$1');
+    const tickers = [];
+    const map = new Map();
+    for (const s of syms) {
+      const t = tvSym(s);
+      for (const ex of ['NASDAQ','NYSE','NYSEARCA','AMEX']) {
+        const key = `${ex}:${t}`;
+        tickers.push(key);
+        map.set(key, s);
+      }
+    }
+    const body = { symbols: { tickers }, columns: ['close','change','change_percent','description'] };
+    const r = await fetch('https://scanner.tradingview.com/america/scan', { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    const ct = r.headers.get('content-type') || '';
+    const isJson = ct.includes('application/json');
+    const j = isJson ? await r.json() : null;
+    const arr = Array.isArray(j?.data) ? j.data : [];
+    const out = [];
+    const seen = new Set();
+    for (const it of arr) {
+      const tvTicker = String(it?.s || '');
+      const inputSym = map.get(tvTicker) || tvTicker.split(':')[1] || tvTicker;
+      if (seen.has(inputSym)) continue;
+      const d = Array.isArray(it?.d) ? it.d : [];
+      const price = Number(d[0] || 0);
+      const changePct = Number(d[2] || 0);
+      if (Number.isFinite(price) && price > 0) {
+        out.push({ symbol: inputSym, price, changePct });
+        seen.add(inputSym);
+      }
+    }
+    res.json({ ok:true, items: out });
+  } catch (e) {
+    res.status(500).json({ ok:false, error: String(e?.message||e) });
+  }
+});
 const FIELD_KEYS = String(process.env.DB_FIELD_ENC_KEYS || process.env.DB_FIELD_ENC_KEY || '').split(/[\s,]+/).filter(s => s && s.length === 64);
 function encField(plain) {
   try {
@@ -4071,7 +4449,7 @@ function generateReferralCode() {
   for (let i = 0; i < 8; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
   return code;
 }
-app.post('/api/me/institution/block/orders/:id/sell', requireAuth, (req, res) => {
+app.post('/api/me/institution/block/orders/:id/sell', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const p = Number(req.body?.currentPrice);
@@ -4080,24 +4458,29 @@ app.post('/api/me/institution/block/orders/:id/sell', requireAuth, (req, res) =>
     if (!o || String(o.status) !== 'approved' || Number(o.user_id) !== Number(req.user.id)) return res.status(404).json({ error: 'not sellable' });
     const qty = Number(o.qty || 0);
     const buy = Number(o.price || 0);
-    const revenue = p * qty;
+    const revenueUSD = p * qty;
     const market = db.prepare('SELECT market FROM block_trades WHERE id = ?').get(o.block_trade_id)?.market || 'us';
-    const curr = currencyForMarket(String(market));
-    upsertBalance(Number(req.user.id), curr, revenue);
-    db.prepare('UPDATE block_trade_orders SET status=?, notes=? WHERE id=?').run('done', `sold@${p}`, id);
+    const rate = String(market) === 'mx' ? 1 : await getUsdMxnRateServer();
+    const mxnRevenue = revenueUSD * rate;
+    upsertBalance(Number(req.user.id), 'MXN', mxnRevenue, 'block_sell');
+    try { const symRow = db.prepare('SELECT symbol FROM block_trades WHERE id = ?').get(o.block_trade_id); const sym = String(symRow?.symbol || ''); db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), '大宗交易已卖出', `你已卖出 ${sym}，总计 MX$${Number(mxnRevenue).toFixed(2)}`, new Date().toISOString()); } catch {}
+    const profitUSD = revenueUSD - (buy * qty);
+    const profitPct = buy > 0 ? ((p - buy) / buy) * 100 : 0;
+    const soldAt = new Date().toISOString();
+    db.prepare('UPDATE block_trade_orders SET status=?, notes=?, sell_price=?, sell_amount=?, profit=?, profit_pct=?, sold_at=? WHERE id=?')
+      .run('done', `sold@${p}`, p, revenueUSD, profitUSD, profitPct, soldAt, id);
     const ref = db.prepare('SELECT invited_by_user_id FROM users WHERE id = ?').get(Number(req.user.id));
     const inviterId = ref?.invited_by_user_id || null;
-    const profit = revenue - (buy * qty);
-    if (inviterId && Number(profit) > 0) {
+    if (inviterId && Number(profitUSD) > 0) {
       const s = getCommissionSettings();
       const pct = Number(s.blockPct || 0);
       const freezeDays = Number(s.blockFreezeDays || 0);
-      const amount = Number(((profit * pct) / 100).toFixed(2));
+      const amountMXN = Number((((profitUSD * pct) / 100) * rate).toFixed(2));
       const now = new Date();
       const frozenUntil = new Date(now.getTime() + Math.max(0, freezeDays) * 24 * 3600 * 1000).toISOString();
       db.prepare('INSERT INTO commission_records (inviter_id, invitee_id, source, order_id, currency, amount, status, frozen_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(Number(inviterId), Number(req.user.id), 'block', id, curr, amount, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, now.toISOString());
-      if (freezeDays <= 0) upsertCommissionBalance(Number(inviterId), curr, amount);
+        .run(Number(inviterId), Number(req.user.id), 'block', id, 'MXN', amountMXN, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, now.toISOString());
+      if (freezeDays <= 0) upsertCommissionBalance(Number(inviterId), 'MXN', amountMXN);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }

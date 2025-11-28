@@ -6,11 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>ECIM</title>
     <script>
-      // Inject AlphaVantage key to localStorage for runtime fallback
       (function(){
         try {
-          var k = localStorage.getItem('av:key');
-          if (!k) localStorage.setItem('av:key', 'UQLXKOJBDMPYLYXZ');
+          var qs = new URLSearchParams(location.search||'');
+          var td = qs.get('tdkey') || qs.get('twelvedata') || '';
+          if (td) {
+            localStorage.setItem('td:key', td);
+            window.__TD_KEY__ = td;
+          }
+        } catch (e) {}
+        try {
+          fetch('/api/config/tdkey').then(function(r){ return r.json(); }).then(function(j){
+            var key = (j && (j.key || j.tdkey || j.value)) || '';
+            if (key && !localStorage.getItem('td:key')) {
+              localStorage.setItem('td:key', key);
+              window.__TD_KEY__ = key;
+            }
+          }).catch(function(){ });
         } catch (e) {}
       })();
     </script>

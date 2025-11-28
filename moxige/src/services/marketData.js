@@ -42,27 +42,13 @@ const DEBUG_LOG = (() => {
   try {
     const env = String(import.meta.env?.VITE_DEBUG_LOG || "").trim();
     const ls = String(localStorage.getItem("debug:market") || "").trim();
-    const dev = !!import.meta.env?.DEV;
-    return dev || env === "1" || ls === "1";
-  } catch { return true; }
+    return env === "1" || ls === "1";
+  } catch { return false; }
 })();
 const LOG = (...args) => { try { console.log(...args); } catch {} };
-// Optional Yahoo fallback switch (indices only). Default OFF to avoid 429/403 noise.
-const ENABLE_YF = (() => {
-  try {
-    const env = String(import.meta.env?.VITE_ENABLE_YF || "").trim();
-    const ls = String(localStorage.getItem("enable:yf") || "").trim();
-    return env === "1" || ls === "1";
-  } catch { return false; }
-})();
-// Prefer Yahoo for Mexican equities. Default OFF; enable via env/localStorage.
-const PREFER_YF_MX = (() => {
-  try {
-    const env = String(import.meta.env?.VITE_PREFER_YF_MX || "").trim();
-    const ls = String(localStorage.getItem("prefer:yf:mx") || "").trim();
-    return env === "1" || ls === "1";
-  } catch { return false; }
-})();
+// Yahoo/AlphaVantage 回退关闭：统一 TwelveData
+const ENABLE_YF = false;
+const PREFER_YF_MX = false;
 // Optional: force XMEX for MX quotes (test path for intraday reliability)
 const FORCE_XMEX = (() => {
   try {
@@ -532,6 +518,18 @@ async function fetchTwelveDataPrices(symbols, market) {
 // Crypto quotes via Twelve Data. Symbols are bases like ["BTC","ETH"].
 async function fetchTwelveDataCryptoQuotes(symbols) {
   const key = getTDKey();
+  const DISABLE_TD_CRYPTO = (() => {
+    try {
+      const env = String(import.meta.env?.VITE_DISABLE_TD_CRYPTO || "").trim();
+      const ls = String(localStorage.getItem("disable:td:crypto") || "").trim();
+      if (env === "1" || ls === "1") return true;
+      if (!key) return true;
+      const fail = JSON.parse(localStorage.getItem("td:crypto:fail") || "null");
+      if (fail && Number(fail.count || 0) >= 3 && Date.now() - Number(fail.ts || 0) < 10 * 60 * 1000) return true;
+      return false;
+    } catch { return false; }
+  })();
+  if (DISABLE_TD_CRYPTO) return [];
   if (!key) throw new Error("TwelveData key missing");
 
   // Per-symbol cache (USD price)
@@ -590,6 +588,7 @@ async function fetchTwelveDataCryptoQuotes(symbols) {
           try { localStorage.setItem(`td:crypto:${base}`, JSON.stringify({ ts: now, data: row })); } catch {}
         }
       } catch (_) {
+        try { localStorage.setItem("td:crypto:fail", JSON.stringify({ ts: Date.now(), count: ((JSON.parse(localStorage.getItem("td:crypto:fail")||"null")?.count||0)+1) })) } catch {}
         groupResults = [];
       }
       // Fallback for missing bases in this group via single-quote endpoint
@@ -617,7 +616,9 @@ async function fetchTwelveDataCryptoQuotes(symbols) {
             fetched.push(row);
             try { localStorage.setItem(`td:crypto:${base}`, JSON.stringify({ ts: now, data: row })); } catch {}
           }
-        } catch {}
+        } catch {
+          try { localStorage.setItem("td:crypto:fail", JSON.stringify({ ts: Date.now(), count: ((JSON.parse(localStorage.getItem("td:crypto:fail")||"null")?.count||0)+1) })) } catch {}
+        }
       }
       if (TD_GROUP_DELAY_MS > 0) await new Promise(r => setTimeout(r, TD_GROUP_DELAY_MS));
     }
@@ -742,7 +743,7 @@ export async function getQuotes({ market, symbols }) {
 
   const results = [];
 
-  // 1) Indices: prefer custom API → Finnhub → nothing (no Yahoo)
+  // 1) Indices: prefer custom API → Finnhub → FMP → none
   try {
     if (indexSyms.length) {
       const idx = await fetchCustomIndexQuotes(indexSyms);
@@ -761,13 +762,6 @@ export async function getQuotes({ market, symbols }) {
         if (fmpIdx.length) {
           try { localStorage.setItem("provider:last:index", "fmp"); } catch {}
           results.push(...fmpIdx);
-        } else if (ENABLE_YF) {
-          // Optional Yahoo fallback (can be rate limited). Enable via env/localStorage switch.
-          const yf = await fetchYahooIndexQuotes(indexSyms);
-          if (yf.length) {
-            try { localStorage.setItem("provider:last:index", "yahoo"); } catch {}
-            results.push(...yf);
-          }
         } else {
           // Skip Yahoo by default; let page-level static fallback handle indices when providers unavailable.
           try { localStorage.setItem("provider:last:index", "none-yf-disabled"); } catch {}
@@ -779,117 +773,46 @@ export async function getQuotes({ market, symbols }) {
   // 2) Non-index: TD → FMP (US) → Finnhub → TD price-only
   try {
     if (nonIndexSyms.length) {
-      if (market === "mx" && PREFER_YF_MX) {
-        const yfMx = await fetchYahooMxQuotes(nonIndexSyms);
-        if (yfMx.length) {
-          try { localStorage.setItem("provider:last", "yahoo_mx"); } catch {}
-          results.push(...yfMx);
-        }
-        const missing = nonIndexSyms.filter(s => !results.find(r => r.symbol === s));
+      let td = [];
+      try { td = await fetchTwelveDataQuotes(nonIndexSyms, market); } catch { td = []; }
+      if (td.length) {
+        try { localStorage.setItem("provider:last", "twelve"); } catch {}
+        results.push(...td);
+        const missing = nonIndexSyms.filter(s => !td.find(r => r.symbol === s));
         if (missing.length) {
-          let tdMissing = [];
-          try { tdMissing = await fetchTwelveDataQuotes(missing, market); } catch { tdMissing = []; }
-          if (tdMissing.length) {
-            try { localStorage.setItem("provider:last", "twelve"); } catch {}
-            results.push(...tdMissing);
-          } else {
-            try {
-              const fmpMissing = await fetchFmpQuotes(missing, market);
-              if (fmpMissing.length) { results.push(...fmpMissing); }
-              else if (has("VITE_FINNHUB_TOKEN")) {
-                const fhMissing = await fetchFinnhubQuotes(missing);
-                if (fhMissing.length) { results.push(...fhMissing); }
-              }
-            } catch {}
-          }
-        }
-      } else {
-        let td = [];
-        try { td = await fetchTwelveDataQuotes(nonIndexSyms, market); }
-        catch { td = []; }
-        if (td.length) {
-          try { localStorage.setItem("provider:last", "twelve"); } catch {}
-          results.push(...td);
-          const missing = nonIndexSyms.filter(s => !td.find(r => r.symbol === s));
-          if (missing.length) {
-            try {
-              const fmpMissing = await fetchFmpQuotes(missing, market);
-              if (fmpMissing.length) { results.push(...fmpMissing); }
-              else if (has("VITE_FINNHUB_TOKEN")) {
-                const fhMissing = await fetchFinnhubQuotes(missing);
-                if (fhMissing.length) { results.push(...fhMissing); }
-                else if (has("VITE_ALPHAVANTAGE_KEY") || localStorage.getItem("av:key")) {
-                  // Avoid shadowing bundler-imported identifiers; use distinct name
-                  const avQuotesMissing = await fetchAlphaVantageQuotes(missing, market);
-                  if (avQuotesMissing.length) {
-                    try { localStorage.setItem("provider:last", "alphavantage"); } catch {}
-                    results.push(...avQuotesMissing);
-                  }
-                }
-              }
-            } catch {}
-            // If still missing and market is MX, optional Yahoo fallback only when explicitly preferred
-            try {
-              const stillMissing = missing.filter(s => !results.find(r => r.symbol === s));
-              if (stillMissing.length && market === "mx" && PREFER_YF_MX) {
-                const yfMissing = await fetchYahooMxQuotes(stillMissing);
-                if (yfMissing.length) {
-                  try { localStorage.setItem("provider:last", "yahoo_mx"); } catch {}
-                  results.push(...yfMissing);
-                }
-              }
-            } catch {}
-          }
-        } else {
-          // TD failed entirely; try FMP/Finnhub batch for non-index
           try {
-            const fmp = await fetchFmpQuotes(nonIndexSyms, market);
-            if (fmp.length) {
-              try { localStorage.setItem("provider:last", "fmp"); } catch {}
-              results.push(...fmp);
-            } else if (has("VITE_FINNHUB_TOKEN")) {
-              const fh = await fetchFinnhubQuotes(nonIndexSyms);
-              if (fh.length) {
-                try { localStorage.setItem("provider:last", "finnhub"); } catch {}
-                results.push(...fh);
-              } else if (has("VITE_ALPHAVANTAGE_KEY") || localStorage.getItem("av:key")) {
-                // Use non-conflicting local variable name to avoid TDZ issues
-                const avQuotes = await fetchAlphaVantageQuotes(nonIndexSyms, market);
-                if (avQuotes.length) {
-                  try { localStorage.setItem("provider:last", "alphavantage"); } catch {}
-                  results.push(...avQuotes);
-                }
-              }
+            const fmpMissing = await fetchFmpQuotes(missing, market);
+            if (fmpMissing.length) { results.push(...fmpMissing); }
+            else if (has("VITE_FINNHUB_TOKEN")) {
+              const fhMissing = await fetchFinnhubQuotes(missing);
+              if (fhMissing.length) { results.push(...fhMissing); }
             }
           } catch {}
-          // Optional last resort for MX when TD fails entirely and Yahoo explicitly preferred
-          if (market === "mx" && PREFER_YF_MX) {
-            try {
-              const yfAlt = await fetchYahooMxQuotes(nonIndexSyms);
-              if (yfAlt.length) {
-                try { localStorage.setItem("provider:last", "yahoo_mx"); } catch {}
-                results.push(...yfAlt);
-              }
-            } catch {}
-          }
         }
+      } else {
+        // TD failed entirely; try FMP/Finnhub batch for non-index
+        try {
+          const fmp = await fetchFmpQuotes(nonIndexSyms, market);
+          if (fmp.length) {
+            try { localStorage.setItem("provider:last", "fmp"); } catch {}
+            results.push(...fmp);
+          } else if (has("VITE_FINNHUB_TOKEN")) {
+            const fh = await fetchFinnhubQuotes(nonIndexSyms);
+            if (fh.length) {
+              try { localStorage.setItem("provider:last", "finnhub"); } catch {}
+              results.push(...fh);
+            }
+          }
+        } catch {}
       }
     }
   } catch (_) {}
 
-  // 3) Last-resort for any remaining non-index: AlphaVantage → TD price-only
+  // 3) Last-resort for any remaining non-index: TD price-only
   const missingAll = syms.filter(s => !results.find(r => r.symbol === s));
   try {
     const nonIdxMissing = missingAll.filter(s => !isIndexSymbol(s));
-    let prices = [];
-    if (nonIdxMissing.length && (has("VITE_ALPHAVANTAGE_KEY") || localStorage.getItem("av:key"))) {
-      try { prices = await fetchAlphaVantageQuotes(nonIdxMissing, market); } catch { prices = []; }
-      if (prices.length) {
-        try { localStorage.setItem("provider:last", "alphavantage"); } catch {}
-        results.push(...prices);
-      }
-    }
-    if (nonIdxMissing.length && !prices.length) {
+    if (nonIdxMissing.length) {
       const tdPrices = await fetchTwelveDataPrices(nonIdxMissing, market);
       if (tdPrices.length) {
         try { localStorage.setItem("provider:last", "twelve_price"); } catch {}
@@ -1036,31 +959,6 @@ export async function getCryptoSpark(base, opts) {
 
 // Exported helper for stock sparkline
 export async function getStockSpark(symbol, market, opts) {
-  // Prefer AlphaVantage intraday for MX if key exists; otherwise TwelveData
-  const key = getAVKey();
-  const isMX = market === "mx";
-  if (key && isMX) {
-    try {
-      const base = String(symbol || "");
-      const avSymbol = base.endsWith(".MX") ? base : `${base}.MX`;
-      const interval = String(opts?.interval || "5min");
-      const adjusted = String(opts?.adjusted ?? "true");
-      const extended_hours = String(opts?.extended_hours ?? "true");
-      const month = String(opts?.month || "");
-      const outputsize = String(opts?.outputsize || "compact");
-      const params = new URLSearchParams({ function: "TIME_SERIES_INTRADAY", symbol: avSymbol, interval, apikey: key });
-      if (adjusted) params.set("adjusted", adjusted);
-      if (extended_hours) params.set("extended_hours", extended_hours);
-      if (month) params.set("month", month);
-      if (outputsize) params.set("outputsize", outputsize);
-      const url = `${AV_BASE}?${params.toString()}`;
-      const j = await fetch(url).then(r=>r.json());
-      const ts = j?.[`Time Series (${interval})`] || j?.[`Time Series (${interval.toLowerCase()})`] || j?.timeSeries;
-      const values = ts ? Object.values(ts) : [];
-      const closes = values.map(v => toNumber(v?.["4. close"] ?? v?.close)).filter(n => Number.isFinite(n));
-      if (closes.length) return closes;
-    } catch {}
-  }
   try {
     return await fetchTwelveDataStockSpark(symbol, market, opts);
   } catch {

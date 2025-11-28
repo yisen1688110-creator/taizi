@@ -7,7 +7,6 @@ import { formatMoney, formatUSDT } from "../../utils/money.js";
 import { formatMinute } from "../../utils/date.js";
 import { toMs } from "../../utils/time.js";
 import { getQuotes, getCryptoQuotes, getStockSpark } from "../../services/marketData.js";
-import yf from "../../services/yahooFinanceService.js";
 import "../../styles/settings.css";
 
 // 机构 - 大宗交易列表页
@@ -85,37 +84,15 @@ export default function InstitutionBlocks() {
             next[`crypto:${r.symbol}`] = { price: Number(r.priceUSD || r.price || 0), changePct: Number(r.changePct || 0) };
           }
           const missingCrypto = cryptoSymbols.filter(s => !(next[`crypto:${s}`]?.price > 0));
-          if (missingCrypto.length) {
+          for (const base of missingCrypto) {
             try {
-              const yfSyms = missingCrypto.map(b => `${String(b).toUpperCase()}-USD`);
-              const arr = await yf.getMultipleStocks(yfSyms);
-              for (const r of arr) {
-                const base = String(r.symbol || '').replace(/-USD$/i, '').toUpperCase();
-                const p = Number(r.price || 0);
-                if (p > 0) next[`crypto:${base}`] = { price: p, changePct: Number(r.changePercent || 0) };
-              }
+              const pair = `${String(base).toUpperCase()}USDT`;
+              const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
+              const j = await fetch(url).then(r=>r.json()).catch(()=>null);
+              const p = Number(j?.lastPrice ?? j?.weightedAvgPrice ?? j?.prevClosePrice ?? 0);
+              const ch = Number(j?.priceChangePercent ?? 0);
+              if (p > 0) next[`crypto:${String(base).toUpperCase()}`] = { price: p, changePct: ch };
             } catch {}
-            try {
-              const joined = encodeURIComponent(missingCrypto.map(b => `${String(b).toUpperCase()}-USD`).join(','));
-              const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${joined}`;
-              const j = await fetch(url, { headers: { 'Accept': 'application/json' } }).then(r=>r.json()).catch(()=>null);
-              const arr2 = Array.isArray(j?.quoteResponse?.result) ? j.quoteResponse.result : [];
-              for (const r of arr2) {
-                const base = String(r.symbol || '').replace(/-USD$/i, '').toUpperCase();
-                const p = Number(r.regularMarketPrice ?? r.postMarketPrice ?? r.preMarketPrice ?? r.previousClose ?? 0);
-                if (p > 0) next[`crypto:${base}`] = { price: p, changePct: Number(r.regularMarketChangePercent || 0) };
-              }
-            } catch {}
-            for (const base of missingCrypto) {
-              try {
-                const pair = `${String(base).toUpperCase()}USDT`;
-                const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
-                const j = await fetch(url).then(r=>r.json()).catch(()=>null);
-                const p = Number(j?.lastPrice ?? j?.weightedAvgPrice ?? j?.prevClosePrice ?? 0);
-                const ch = Number(j?.priceChangePercent ?? 0);
-                if (p > 0) next[`crypto:${String(base).toUpperCase()}`] = { price: p, changePct: ch };
-              } catch {}
-            }
           }
         }
       } catch {
@@ -158,19 +135,6 @@ export default function InstitutionBlocks() {
                   const raw = JSON.parse(localStorage.getItem(`td:us:${s}`) || 'null');
                   const p = Number(raw?.data?.price || 0);
                   if (p > 0) next[`us:${s}`] = { price: p, changePct: Number(raw?.data?.changePct || 0) };
-                  else {
-                    const arr = await yf.getMultipleStocks([String(s).toUpperCase()]);
-                    const r = Array.isArray(arr) ? arr.find(x => String(x.symbol).toUpperCase() === String(s).toUpperCase()) : null;
-                    const p2 = Number(r?.price || 0);
-                    if (p2 > 0) next[`us:${s}`] = { price: p2, changePct: Number(r?.changePercent || 0) };
-                    else {
-                      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(String(s).toUpperCase())}`;
-                      const j = await fetch(url, { headers: { 'Accept': 'application/json' } }).then(r=>r.json()).catch(()=>null);
-                      const rr = Array.isArray(j?.quoteResponse?.result) ? j.quoteResponse.result[0] : null;
-                      const p3 = Number(rr?.regularMarketPrice ?? rr?.postMarketPrice ?? rr?.preMarketPrice ?? rr?.previousClose ?? 0);
-                      if (p3 > 0) next[`us:${s}`] = { price: p3, changePct: Number(rr?.regularMarketChangePercent || 0) };
-                    }
-                  }
                 } catch {}
               }
             } catch {}
@@ -247,10 +211,10 @@ export default function InstitutionBlocks() {
 
         <div className="inst-card">
           {loading && (<div className="desc">{lang==='zh' ? '加载中...' : (lang==='es' ? 'Cargando...' : 'Loading...')}</div>)}
-          {!loading && items.length === 0 && (<div className="desc">{lang==='zh' ? '暂无数据' : (lang==='es' ? 'Sin datos' : 'No data')}</div>)}
-          {!loading && items.length > 0 && (
+          {!loading && (() => items.filter(inWindow).length === 0)() && (<div className="desc">{lang==='zh' ? '暂无数据' : (lang==='es' ? 'Sin datos' : 'No data')}</div>)}
+          {!loading && items.filter(inWindow).length > 0 && (
             <div style={{ display: 'grid', gap: 12 }}>
-              {items.map(it => {
+              {items.filter(inWindow).map(it => {
                 const market = String(it.market);
                 const origSymbol = String(it.symbol).toUpperCase();
                 const baseSymbol = market === 'crypto' ? toCryptoBase(origSymbol) : origSymbol;
@@ -258,7 +222,8 @@ export default function InstitutionBlocks() {
                 const minQty = Number(it.min_qty || it.minQty || 1);
                 const qk = `${market}:${baseSymbol}`;
                 const quote = quotes[qk];
-                const currentPrice = Number(quote?.price || 0);
+                const currentPriceRaw = Number(quote?.price || 0);
+                const currentPrice = currentPriceRaw > 0 ? currentPriceRaw : blockPrice;
                 const currency = market === 'crypto' ? 'USDT' : 'USD';
                 const total = (blockPrice * Number(qtyMap[it.id] || 0)) || 0;
                 const unitProfit = currentPrice && blockPrice ? (currentPrice - blockPrice) : 0;
@@ -273,7 +238,7 @@ export default function InstitutionBlocks() {
                       <div className="tag" style={{ background: market==='crypto' ? '#2a3b56' : '#2a5640', transform:'scale(0.92)', whiteSpace:'normal', overflow:'hidden', textOverflow:'ellipsis', maxWidth:'60%' }}>{labels.type}: {market==='crypto' ? labels.typeCrypto : labels.typeUS}</div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <div className="desc">{labels.currentPrice}: {currentPrice ? (market==='crypto' ? formatUSDT(currentPrice, lang) : formatMoney(currentPrice, 'USD', lang)) : '-'}</div>
+                      <div className="desc">{labels.currentPrice}: {(market==='crypto' ? formatUSDT(currentPrice, lang) : formatMoney(currentPrice, 'USD', lang))}</div>
                       <div className="desc">{labels.blockPrice}: {market==='crypto' ? formatUSDT(blockPrice, lang) : formatMoney(blockPrice, 'USD', lang)}</div>
                       <div className="desc">{labels.window}: {formatMinute(it.start_at || it.startAt)} ~ {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{lang==='zh'?'截至购买':'Deadline'}: {formatMinute(it.end_at || it.endAt)}</div>

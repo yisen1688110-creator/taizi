@@ -7,7 +7,6 @@ import Home from "./pages/Home.jsx";
 import Market from "./pages/Market.jsx";
 import Symbol from "./pages/Symbol.jsx";
 import Swap from "./pages/Swap.jsx";
-import Exchange from "./pages/Exchange.jsx";
 import Trades from "./pages/Trades.jsx";
 import Notifications from "./pages/Notifications.jsx";
 import Profile from "./pages/Profile.jsx";
@@ -170,7 +169,6 @@ export default function App() {
                 <Route path="/market/:symbol" element={<Symbol />} />
                 {/* 交易页允许未登录访问（仅前端展示；服务端仍校验下单权限） */}
                 <Route path="/swap" element={<Swap />} />
-                <Route path="/exchange" element={<Exchange />} />
                 <Route path="/trades" element={<Trades />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/bridge" element={<Bridge />} />

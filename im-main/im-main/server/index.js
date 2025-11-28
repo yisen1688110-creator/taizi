@@ -645,6 +645,21 @@ io.on('connection', socket => {
   })
 })
 
+function recomputeOnlinePhones() {
+  try {
+    const counts = new Map()
+    for (const s of io.sockets.sockets.values()) {
+      const d = s.data || {}
+      if (d.role === 'customer' && d.phone) {
+        counts.set(d.phone, (counts.get(d.phone) || 0) + 1)
+      }
+    }
+    onlinePhones.clear()
+    for (const [k, v] of counts.entries()) onlinePhones.set(k, v)
+  } catch {}
+}
+try { setInterval(recomputeOnlinePhones, 30000) } catch {}
+
 const port = process.env.PORT || 3000
 server.listen(port, () => {})
 function encryptSnapshot() {
