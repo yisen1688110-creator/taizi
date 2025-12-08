@@ -809,12 +809,16 @@
     <div class="sidebar">
       <div class="sidebar-top">
         <input id="searchPhone" class="sidebar-search" placeholder="搜索手机号或姓名" />
-        <button id="loadBtn" class="sidebar-btn">搜索</button>
+        <button id="searchBtn" class="sidebar-btn search-btn">搜索</button>
+        <button id="testAudioBtn" class="sidebar-btn" style="background:none;color:#666;font-size:12px;padding:4px"
+          title="测试声音">🔊</button>
       </div>
       <div id="conversationList" class="conversation-list"></div>
     </div>
     <div class="main">
       <div class="header">
+        <audio id="notifyAudio"
+          src="data:audio/wav;base64,UklGRl9vT1d7AABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUjbDwAA"></audio>
         <div class="user">
           <img id="avatar" class="avatar" />
           <div>
@@ -933,12 +937,16 @@
         socket = makeSocket()
       } catch { }
     })
+    socket.on('connect', () => {
+      socket.emit('join', { phone: '', role: 'agent' })
+      if (currentPhone) socket.emit('join', { phone: currentPhone, role: 'agent' })
+    })
     const messagesEl = document.getElementById('messages')
     const sendBtn = document.getElementById('sendBtn')
     const messageInput = document.getElementById('messageInput')
     const composerEl = document.querySelector('.composer')
     const searchPhone = document.getElementById('searchPhone')
-    const loadBtn = document.getElementById('loadBtn')
+    const searchBtn = document.getElementById('searchBtn')
     const phoneEl = document.getElementById('phone')
     const nameEl = document.getElementById('name')
     const avatarEl = document.getElementById('avatar')
@@ -1168,6 +1176,7 @@
     function renderList(data) {
       listEl.innerHTML = ''
       const arr = Array.isArray(data) ? data : []
+      let totalUnread = 0
       arr.forEach(item => {
         const row = document.createElement('div')
         row.className = 'conversation-item'
@@ -1188,9 +1197,10 @@
         right.className = 'ci-right'
         const read = document.createElement('span')
         const unreadCount = Number(item.unread_count || 0)
+        totalUnread += unreadCount
         const isUnread = unreadCount > 0
         read.className = 'read-pill' + (isUnread ? ' unread' : '')
-        read.textContent = isUnread ? '未读' : '已读'
+        read.textContent = isUnread ? (unreadCount > 99 ? '99+' : String(unreadCount)) : '已读'
         right.appendChild(read)
         row.appendChild(left)
         row.appendChild(right)
@@ -1198,6 +1208,13 @@
         listEl.appendChild(row)
       })
       try { localStorage.setItem('im:conv', JSON.stringify(conversations)) } catch { }
+      updateBadge(totalUnread)
+    }
+
+    function updateBadge(count) {
+      try { if (window.electronAPI) window.electronAPI.updateBadge(count) } catch { }
+      try { if (navigator.setAppBadge) navigator.setAppBadge(count); } catch { }
+      document.title = (count > 0 ? `(${count}) ` : '') + '客服控制台'
     }
 
     function loadCachedConversations() {
@@ -1268,12 +1285,27 @@
       const conv = conversations.find(x => x.phone === phone)
       const seenTs = conv && conv.last_seen_ts ? conv.last_seen_ts : 0
       setReadStatus(lastAgent ? lastAgent.ts <= seenTs : false)
+      const idx = conversations.findIndex(x => x.phone === phone)
+      if (idx >= 0) {
+        conversations[idx].unread_count = 0
+        renderList(conversations)
+      }
     }
 
-    loadBtn.onclick = () => {
+    searchBtn.onclick = () => {
       const phone = searchPhone.value.trim()
       if (!phone) return
       loadConversation(phone)
+    }
+
+    const testAudioBtn = document.getElementById('testAudioBtn')
+    if (testAudioBtn) {
+      testAudioBtn.onclick = () => {
+        const a = document.getElementById('notifyAudio')
+        if (a) { a.currentTime = 0; a.play().catch(e => console.error(e)) }
+        if (window.electronAPI) window.electronAPI.showNotification('测试通知', '这是一条测试用的系统通知')
+        else if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') Notification.requestPermission()
+      }
     }
 
     function doSend() {
@@ -1439,7 +1471,35 @@
           if (last && autoScroll) last.scrollIntoView({ block: 'end' })
         }
       }
+      if (m.sender === 'customer') notifyNewMessage(m)
     })
+    function notifyNewMessage(m) {
+      try {
+        if (!m || m.sender !== 'customer') return
+        const a = document.getElementById('notifyAudio')
+        if (a) { a.currentTime = 0; a.play().catch(e => console.error(e)) }
+
+        const tx = m.type === 'image' ? '[图片]' : (m.content || '')
+        if (window.electronAPI) {
+          window.electronAPI.showNotification('新消息: ' + (m.phone || '未知'), tx)
+        } else if (typeof Notification !== 'undefined') {
+          if (Notification.permission === 'granted') {
+            const n = new Notification('新消息: ' + (m.phone || '未知'), { body: tx, icon: '/im-api/tiny.png', silent: true })
+            n.onclick = () => { window.focus(); loadConversation(m.phone) }
+          } else if (Notification.permission !== 'denied') {
+            Notification.requestPermission()
+          }
+        }
+      } catch (e) { console.error(e) }
+    }
+    document.addEventListener('click', () => {
+      if (_audioCtx && _audioCtx.state === 'suspended') _audioCtx.resume()
+    }, { once: false })
+
+    if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+      try { Notification.requestPermission() } catch { }
+    }
+
     socket.on('message_feed', m => {
       if (!Array.isArray(conversations)) conversations = []
       const i = conversations.findIndex(x => x.phone === m.phone)
@@ -1452,6 +1512,7 @@
       } else {
         refreshConversations()
       }
+      if (m.sender === 'customer') notifyNewMessage(m)
     })
     socket.on('recalled', r => {
       if (!currentPhone || r.phone !== currentPhone) return

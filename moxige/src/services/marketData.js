@@ -21,13 +21,13 @@ const INDEX_NAME_MAP = {
 };
 const TD_CACHE_TTL_MS = (() => {
   const env = Number(import.meta.env?.VITE_TD_CACHE_TTL_MS || "");
-  // 默认 1 秒缓存，以匹配 Market 页 1 秒刷新需求
-  return Number.isFinite(env) && env > 0 ? env : 1 * 1000;
+  // Default 15s cache to avoid 8 req/min limit on free tier
+  return Number.isFinite(env) && env > 0 ? env : 15 * 1000;
 })();
 const TD_CACHE_TTL_MX_MS = (() => {
   const env = Number(import.meta.env?.VITE_TD_CACHE_TTL_MX_MS || "");
-  // 缩短墨股缓存TTL到1秒，以配合前端1秒轮询，避免静止
-  return Number.isFinite(env) && env > 0 ? env : 1 * 1000;
+  // Default 15s cache for MX as well
+  return Number.isFinite(env) && env > 0 ? env : 15 * 1000;
 })();
 const TD_BATCH_SIZE = (() => {
   const v = Number(import.meta.env.VITE_TD_BATCH_SIZE || 10);
@@ -260,7 +260,14 @@ async function fetchTwelveDataQuotes(symbols, market) {
         if (DEBUG_LOG) LOG("[TD] batch quote error", { market, code: json?.code, status: json?.status, message: json?.message });
         return { error: json };
       }
-      const arr = Array.isArray(json?.data) ? json.data : (json ? [json] : []);
+      let arr = [];
+      if (Array.isArray(json?.data)) {
+        arr = json.data;
+      } else if (json && typeof json === 'object') {
+        // Handle /quote batch response (Map of symbol -> quote) or single quote
+        if (json.symbol) arr = [json];
+        else arr = Object.values(json);
+      }
       const map = new Map();
       for (const item of arr) {
         const k = toBatchKey(item?.symbol);
@@ -403,7 +410,7 @@ async function fetchTwelveDataQuotes(symbols, market) {
           const closed = isOpen === false || String(isOpen).toLowerCase() === "false";
           const price = (isMX && finalXmex)
             ? (j.price ?? j.close ?? j.previous_close)
-            : (closed ? (j.previous_close ?? j.close ?? j.price) : (j.price ?? j.close ?? j.previous_close));
+            : (closed ? (j.close ?? j.price ?? j.previous_close) : (j.price ?? j.close ?? j.previous_close));
 
           if (DEBUG_LOG) LOG("[TD] quote done", { market, orig, tdSymbol, exchange: finalSource, is_open: j?.is_market_open, price, usedAltSymbol });
 
@@ -563,13 +570,19 @@ async function fetchTwelveDataCryptoQuotes(symbols) {
     for (const group of chunks) {
       const tdSymbols = group.map(b => `${b}/USD`);
       const params = new URLSearchParams({ apikey: key });
-      params.set("symbols", tdSymbols.join(","));
-      const url = `${TD_BASE}/quotes?${params.toString()}`;
+      params.set("symbol", tdSymbols.join(","));
+      const url = `${TD_BASE}/quote?${params.toString()}`;
       let groupResults = [];
       try {
         const res = await fetch(url);
         const json = await res.json();
-        const arr = Array.isArray(json?.data) ? json.data : [];
+        let arr = [];
+        if (Array.isArray(json?.data)) {
+          arr = json.data;
+        } else if (json && typeof json === 'object') {
+          if (json.symbol) arr = [json];
+          else arr = Object.values(json);
+        }
         for (const j of arr) {
           if (!j || j.code) continue;
           const base = String(j.symbol || "").replace(/\/USD$/i, "");

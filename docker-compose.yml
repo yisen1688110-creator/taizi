@@ -8,7 +8,7 @@ services:
     environment:
       - PORT=5210
       - NODE_ENV=production
-      - CORS_ORIGIN=https://xg.kudafn.com,https://super.kudafn.com,http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174
+      - CORS_ORIGIN=https://xg.kudafn.com,https://super.kudafn.com,http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174,http://ecimapp.net,http://decim.org,https://ecimapp.net,https://decim.org
       - COOKIE_SECURE=0
       - COOKIE_SAMESITE=Lax
       - ENABLE_LOGIN_RATE_LIMIT=0
@@ -22,7 +22,7 @@ services:
       - UPLOAD_SCAN_URL=${UPLOAD_SCAN_URL}
       - VITE_TWELVEDATA_KEY=4adb66b600ef448ab803a3ae0590fcdc
     ports:
-      - "5210:5210" # primary API port for local dev
+      - "5211:5210" # primary API port for local dev
     volumes:
       - ./server/data:/app/data
     networks:
@@ -39,6 +39,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  nginx:
+    image: nginx:alpine
+    container_name: mxg-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./moxige/dist:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+    networks:
+      - mxg-net
+    restart: unless-stopped
 
   # Database is SQLite; we mount a volume for the DB file
   # If you later adopt Postgres/MySQL, replace this service accordingly.

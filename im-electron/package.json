@@ -1,0 +1,35 @@
+{
+    "name": "ecim-agent-desktop",
+    "version": "1.0.0",
+    "description": "ECIM Agent Desktop Client",
+    "main": "main.js",
+    "author": "MXG",
+    "scripts": {
+        "start": "electron .",
+        "pack": "electron-builder --dir",
+        "dist": "electron-builder -w"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.1"
+    },
+    "build": {
+        "appId": "com.ecim.agent",
+        "productName": "ECIM Agent",
+        "mac": {
+            "target": null
+        },
+        "linux": {
+            "target": null
+        },
+        "win": {
+            "target": "nsis",
+            "icon": "icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true
+        }
+    }
+}

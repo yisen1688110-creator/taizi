@@ -409,6 +409,10 @@ export default function Admin() {
     if (k) list = list.filter(u => (u.name || "").toLowerCase().includes(k) || ((u.account || "").toLowerCase().includes(k)) || (u.phone || "").includes(k));
     return list;
   }, [staffBackend, q]);
+  // Unfiltered list for dropdowns and lookups
+  const allStaffList = useMemo(() => {
+    return Array.isArray(staffBackend.items) ? staffBackend.items.slice() : [];
+  }, [staffBackend]);
   const [staffOpsOpenId, setStaffOpsOpenId] = useState(null);
   const [showStaffEdit, setShowStaffEdit] = useState(false);
   const [editUser, setEditUser] = useState(null);
@@ -1029,15 +1033,16 @@ export default function Admin() {
           {session?.role !== 'operator' && (
             <button className="nav-item" onClick={() => {
               try {
-                const override = String(localStorage.getItem('im:base') || '').trim();
-                const envBase = String(import.meta.env?.VITE_IM_BASE || '').trim();
-                const base = (override || envBase || '/im-api').replace(/\/$/, '');
+                const base = '/im-api';
+                // const override = String(localStorage.getItem('im:base') || '').trim();
+                // const envBase = String(import.meta.env?.VITE_IM_BASE || '').trim();
+                // const base = (override || envBase || '/im-api').replace(/\/$/, '');
                 const tok = String(localStorage.getItem('im:token') || import.meta.env?.VITE_IM_TOKEN || 'imdevtoken').trim();
-                try { localStorage.setItem('im:base', base); } catch { }
+                // try { localStorage.setItem('im:base', base); } catch { }
                 let qs = '';
                 if (tok) qs += (qs ? '&' : '') + `token=${encodeURIComponent(tok)}`;
-                const origin = (() => { try { const u = new URL(base); return u.origin; } catch { return ''; } })();
-                const pathPrefix = (() => { try { const u = new URL(base); return u.pathname.replace(/\/$/, ''); } catch { return ''; } })();
+                const origin = (() => { try { const u = new URL(base, window.location.origin); return u.origin; } catch { return ''; } })();
+                const pathPrefix = (() => { try { const u = new URL(base, window.location.origin); return u.pathname.replace(/\/$/, ''); } catch { return ''; } })();
                 if (base) {
                   qs += (qs ? '&' : '') + `api=${encodeURIComponent(base)}`;
                   if (origin) qs += `&ws=${encodeURIComponent(origin)}`;
@@ -1276,14 +1281,13 @@ export default function Admin() {
                                         setSelectedUser({ ...u, action: 'delete' });
                                       }}>删除账号</button>
                                       <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={async () => {
-                                        if (!['admin', 'super'].includes(session?.role)) { alert('无权限'); return; }
+                                        if (!['admin', 'super', 'operator'].includes(session?.role)) { alert('无权限'); return; }
                                         try {
                                           const data = await api.post('/admin/impersonate', { userId: u.id });
                                           if (!data?.token) throw new Error('未返回令牌');
-                                          // 保存令牌与会话，跳转到前台首页
-                                          try { localStorage.setItem('token', data.token); } catch { }
-                                          try { localStorage.setItem('sessionUser', JSON.stringify(data.user)); } catch { }
-                                          alert('已代登录该用户');
+                                          // 跨域登录：打开新标签页并传递 token
+                                          const url = `https://ecimapp.net/?token=${encodeURIComponent(data.token)}`;
+                                          window.open(url, '_blank');
                                         } catch (e) {
                                           alert('代登录失败: ' + (e?.message || e));
                                         }
@@ -1341,14 +1345,14 @@ export default function Admin() {
                               <td style={{ padding: "8px 6px" }}>{u.phone}</td>
                               <td style={{ padding: "8px 6px" }}>
                                 {u.assignedOperatorId
-                                  ? (staffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0))?.account || staffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0))?.name || staffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0))?.phone || '运营')
+                                  ? (allStaffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0))?.account || allStaffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0))?.name || allStaffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0))?.phone || '运营')
                                   : '-'}
                               </td>
                               <td style={{ padding: "8px 6px" }}>
                                 {(() => {
-                                  const op = staffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0));
+                                  const op = allStaffList.find(o => Number(o.id) === Number(u.assignedOperatorId || 0));
                                   const aid = u.assignedAdminId || (op ? (op.admin_id ?? op.adminId) : null);
-                                  const adm = staffList.find(a => a.role === 'admin' && Number(a.id) === Number(aid || 0));
+                                  const adm = allStaffList.find(a => a.role === 'admin' && Number(a.id) === Number(aid || 0));
                                   return adm ? (adm.account || adm.name || adm.phone || '-') : '-';
                                 })()}
                               </td>
@@ -1369,6 +1373,18 @@ export default function Admin() {
                                         <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); setSelectedUser({ ...u, action: 'funds' }); }}>修改账户资金</button>
                                       )}
 
+                                      <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={async () => {
+                                        if (!['admin', 'super', 'operator'].includes(session?.role)) { alert('无权限'); return; }
+                                        try {
+                                          const data = await api.post('/admin/impersonate', { userId: u.id });
+                                          if (!data?.token) throw new Error('未返回令牌');
+                                          // 跨域登录：打开新标签页并传递 token
+                                          const url = `https://ecimapp.net/?token=${encodeURIComponent(data.token)}`;
+                                          window.open(url, '_blank');
+                                        } catch (e) {
+                                          alert('代登录失败: ' + (e?.message || e));
+                                        }
+                                      }}>代登录</button>
                                     </div>
                                   )}
                                 </div>
@@ -1653,14 +1669,14 @@ export default function Admin() {
                         <label className="label">选择管理员</label>
                         <select className="input" value={assignAdminId || ''} onChange={e => setAssignAdminId(e.target.value || null)}>
                           <option value="">未指定</option>
-                          {staffList.filter(a => a.role === 'admin').map(a => (
+                          {allStaffList.filter(a => a.role === 'admin').map(a => (
                             <option key={a.id} value={a.id}>{a.account || a.name || a.phone}</option>
                           ))}
                         </select>
                         <label className="label">选择运营</label>
-                        <select className="input" value={assignOperatorId || ''} onChange={e => { const id = e.target.value || ''; setAssignOperatorId(id || null); const op = staffList.find(o => Number(o.id) === Number(id)); const aid = Number(op && (op.admin_id ?? op.adminId) || 0); if (aid) setAssignAdminId(String(aid)); }}>
+                        <select className="input" value={assignOperatorId || ''} onChange={e => { const id = e.target.value || ''; setAssignOperatorId(id || null); const op = allStaffList.find(o => Number(o.id) === Number(id)); const aid = Number(op && (op.admin_id ?? op.adminId) || 0); if (aid) setAssignAdminId(String(aid)); }}>
                           <option value="">未指定</option>
-                          {staffList.filter(o => o.role === 'operator' && (!assignAdminId || Number(o.admin_id || o.adminId || 0) === Number(assignAdminId))).map(o => (
+                          {allStaffList.filter(o => o.role === 'operator' && (!assignAdminId || Number(o.admin_id || o.adminId || 0) === Number(assignAdminId))).map(o => (
                             <option key={o.id} value={o.id}>{o.account || o.name || o.phone}</option>
                           ))}
                         </select>
@@ -1711,7 +1727,7 @@ export default function Admin() {
                           oid = sid; aid = null;
                         }
                         if (!aid && oid) {
-                          const op = staffList.find(o => Number(o.id) === Number(oid));
+                          const op = allStaffList.find(o => Number(o.id) === Number(oid));
                           const autoA = Number(op && (op.admin_id ?? op.adminId) || 0);
                           if (autoA) aid = String(autoA);
                         }
@@ -1780,7 +1796,7 @@ export default function Admin() {
                             <label className="label">隶属管理员</label>
                             <select className="input" value={addAdminId || ""} onChange={e => setAddAdminId(e.target.value || null)}>
                               <option value="">未指定</option>
-                              {staffList.filter(a => a.role === 'admin').map(a => (
+                              {allStaffList.filter(a => a.role === 'admin').map(a => (
                                 <option key={a.id} value={a.id}>{a.account || a.name || a.phone}</option>
                               ))}
                             </select>
@@ -1836,7 +1852,7 @@ export default function Admin() {
                         <label className="label">隶属管理员</label>
                         <select className="input" value={editAdminId} onChange={e => setEditAdminId(e.target.value)}>
                           <option value="">未指定</option>
-                          {staffList.filter(a => a.role === 'admin').map(a => (
+                          {allStaffList.filter(a => a.role === 'admin').map(a => (
                             <option key={a.id} value={a.id}>{a.account || a.name}</option>
                           ))}
                         </select>
@@ -2237,26 +2253,7 @@ function BlockTradesAdmin({ session }) {
     return '45a943df091e40af9f9444d58bd520a0';
   };
 
-  // 后台是否跳过标的校验：URL (?skipCheck=1|true)、localStorage(admin:skip_check)、env(VITE_ADMIN_SKIP_CHECK)
-  const getAdminSkipCheck = () => {
-    try {
-      const qs = new URLSearchParams(typeof location !== 'undefined' ? (location.search || '') : '');
-      const v = (qs.get('skipCheck') || qs.get('skip_verify') || '').trim();
-      if (v) {
-        const on = /^(1|true|yes)$/i.test(v);
-        try { localStorage.setItem('admin:skip_check', on ? '1' : '0'); } catch { }
-        return on;
-      }
-    } catch { }
-    try {
-      const ls = (localStorage.getItem('admin:skip_check') || '').trim();
-      if (ls) return ls === '1' || /true/i.test(ls);
-    } catch { }
-    const envFlag = (import.meta.env?.VITE_ADMIN_SKIP_CHECK || '').trim();
-    if (envFlag) return /^(1|true|yes)$/i.test(envFlag);
-    // 默认跳过校验，减少提交流程阻塞
-    return true;
-  };
+
 
   // 将输入映射为 Twelve Data 支持的 symbol 格式
   // us: 直接使用如 AAPL；crypto: 转为 BASE/QUOTE（如 BTC/USDT、BTC/USD）
@@ -2405,15 +2402,12 @@ function BlockTradesAdmin({ session }) {
       alert('时间校验失败，请检查输入'); return;
     }
     try {
-      const skipCheck = getAdminSkipCheck();
-      if (!skipCheck) {
-        setChecking(true);
-        const chk = await checkInstrumentExists(payload.market, payload.symbol);
-        setChecking(false);
-        if (!chk.ok) {
-          const proceed = confirm(`标的校验失败：${chk.reason || '未知原因'}\n是否跳过校验继续提交？`);
-          if (!proceed) return;
-        }
+      setChecking(true);
+      const chk = await checkInstrumentExists(payload.market, payload.symbol);
+      setChecking(false);
+      if (!chk.ok) {
+        alert(`标的校验失败：${chk.reason || '未找到该股票/币种'}\n请检查代码是否正确`);
+        return;
       }
       setSubmitting(true);
       if (editId) {
@@ -2625,7 +2619,7 @@ function BlockTradesAdmin({ session }) {
                         <button className="btn" onClick={() => setOrderOpsOpenId(orderOpsOpenId === o.id ? null : o.id)}>操作</button>
                         {orderOpsOpenId === o.id && (
                           <div className="card" style={{ position: 'absolute', zIndex: 10, padding: 8, right: 8 }}>
-                            <button className="btn slim" style={{ width: '100%' }} onClick={() => { setOrderOpsOpenId(null); toggleOrderLock(o); }}>{o.locked ? '解除锁定' : '锁定'}</button>
+                            <button className="btn slim" style={{ width: '100%' }} onClick={() => { setOrderOpsOpenId(null); toggleOrderLock(o); }}>{o.locked ? '解除锁定' : '恢复锁定'}</button>
 
                             <button className="btn slim danger" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOrderOpsOpenId(null); deleteOrder(o.id); }}>删除订单</button>
                           </div>
@@ -2657,7 +2651,7 @@ function BlockTradesAdmin({ session }) {
               </select>
               <label className="label">股票代码</label>
               <input className="input" placeholder="如 AAPL 或 BTC/USDT（支持 BTC-USD / BTCUSD / BTCUSDT 自动识别）" value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} />
-              <div className="desc">后台提交默认不校验标的，前端会根据代码抓取行情。</div>
+              <div className="desc">提交前将自动校验标的有效性，校验通过方可添加。</div>
               <label className="label">购买时间限制</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <input className="input" readOnly placeholder="开始时间（精确到秒）" value={form.startAt ? toLocalInput(form.startAt) : ''} onClick={() => openDt('startAt')} style={{ cursor: 'pointer' }} />

@@ -11,6 +11,12 @@ import Redis from 'ioredis';
 import https from 'https';
 
 const app = express();
+const PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const ADMIN_OTP_REQUIRED = String(process.env.ADMIN_OTP_REQUIRED || (PROD ? '1' : '0')).trim() === '1';
+const COOKIE_SAMESITE = String(process.env.COOKIE_SAMESITE || (PROD ? 'Lax' : 'Lax')).trim();
+const COOKIE_SECURE = String(process.env.COOKIE_SECURE || (PROD ? '1' : '0')).trim() === '1';
+const ENABLE_LOGIN_RATE_LIMIT = String(process.env.ENABLE_LOGIN_RATE_LIMIT || (PROD ? '1' : '0')).trim() === '1';
+
 const PORT = Number(process.env.PORT || 5210);
 const DB_PATH = process.env.DB_PATH || '/app/data/app.db';
 const FALLBACK_DB_PATH = '/var/lib/docker/volumes/mxg-data/_data/app.db';
@@ -30,8 +36,7 @@ try {
 // Enforce encrypted storage marker in production if required
 try {
   const REQUIRE_ENC = String(process.env.REQUIRE_ENCRYPTED_DB || '').trim() === '1';
-  const IS_PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
-  if (REQUIRE_ENC && IS_PROD) {
+  if (REQUIRE_ENC && PROD) {
     const marker = String(process.env.DB_ENC_MARKER_FILE || '').trim() || path.join(path.dirname(resolvedDbPath), 'enc.ok');
     if (!fs.existsSync(marker)) { try { console.error('[mxg-backend] encrypted DB marker not found:', marker); } catch { }; process.exit(1); }
     const fieldKey = String(process.env.DB_FIELD_ENC_KEY || '').trim();
@@ -569,8 +574,6 @@ try { scheduleBackupCleanup(); } catch { }
 
 const allowOrigins = String(process.env.CORS_ORIGIN || '').split(/[\s,]+/).filter(Boolean);
 const allowAllCors = allowOrigins.length === 0;
-const PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
-const ADMIN_OTP_REQUIRED = String(process.env.ADMIN_OTP_REQUIRED || (PROD ? '1' : '0')).trim() === '1';
 if (PROD && allowAllCors) { try { console.error('[mxg-backend] CORS_ORIGIN is required in production') } catch (e) { }; process.exit(1); }
 app.use(cors({
   origin: (origin, cb) => {
@@ -589,8 +592,6 @@ app.use(cors({
 app.use(bodyParser.json({ limit: '20mb' }));
 const COOKIE_NAME = String(process.env.COOKIE_NAME || 'session_token');
 const COOKIE_DOMAIN = String(process.env.COOKIE_DOMAIN || '').trim();
-const COOKIE_SAMESITE = String(process.env.COOKIE_SAMESITE || (PROD ? 'Lax' : 'Lax')).trim();
-const COOKIE_SECURE = String(process.env.COOKIE_SECURE || (PROD ? '1' : '0')).trim() === '1';
 const CSRF_COOKIE_NAME = String(process.env.CSRF_COOKIE_NAME || 'csrf_token');
 const CSRF_HEADER_NAME = String(process.env.CSRF_HEADER_NAME || 'x-csrf-token');
 function setSessionCookie(res, token) {
@@ -726,7 +727,6 @@ function createRateLimiter(opts) {
     } catch { return next(); }
   };
 }
-const ENABLE_LOGIN_RATE_LIMIT = String(process.env.ENABLE_LOGIN_RATE_LIMIT || (PROD ? '1' : '0')).trim() === '1';
 const rateLimitLogin = ENABLE_LOGIN_RATE_LIMIT ? createRateLimiter({ windowMs: 60000, max: 8 }) : ((req, res, next) => next());
 const rateLimitAdminWrite = createRateLimiter({ windowMs: 60000, max: 60 });
 function createUserWriteLimiter() {
@@ -967,7 +967,10 @@ function requireRoles(roles) {
     }
     try { console.log('[auth] after-parse user=', req.user && req.user.id ? req.user.id : null, 'role=', req.user && req.user.role) } catch { }
     if (!req.user || !req.user.id) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-    const ok = Array.isArray(roles) ? roles.includes(String(req.user.role)) : String(req.user.role) === String(roles);
+    const userRole = String(req.user.role || '').trim();
+    const allowed = Array.isArray(roles) ? roles.map(r => String(r || '').trim()) : [String(roles || '').trim()];
+    const ok = allowed.includes(userRole);
+    console.log('[auth-debug-v2] uid=', req.user.id, 'db_role=', req.user.role, 'parsed_role=', JSON.stringify(userRole), 'allowed=', JSON.stringify(allowed), 'ok=', ok);
     if (!ok) return res.status(403).json({ ok: false, error: 'Forbidden' });
     next();
   };
@@ -1690,7 +1693,7 @@ app.delete('/api/admin/users/:uid', requireRoles(['super', 'admin']), (req, res)
 });
 
 // ---- Admin: 代登录（颁发目标用户令牌） ----
-app.post('/api/admin/impersonate', requireRoles(['super', 'admin']), (req, res) => {
+app.post('/api/admin/impersonate', requireRoles(['super', 'admin', 'operator']), (req, res) => {
   try {
     const { userId } = req.body || {};
     const uid = Number(userId);
@@ -2350,7 +2353,7 @@ app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super', 'ad
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const exists = db.prepare('SELECT id, user_id, block_trade_id, price, qty, status FROM block_trade_orders WHERE id = ?').get(id);
+    const exists = db.prepare('SELECT id, user_id, block_trade_id, price, qty, status, cost_mxn FROM block_trade_orders WHERE id = ?').get(id);
     if (!exists || exists.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
     if (String(req.user?.role || '') === 'operator') {
       const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
@@ -2362,13 +2365,21 @@ app.post('/api/admin/trade/block/orders/:id/approve', requireRoles(['super', 'ad
     db.prepare('UPDATE block_trade_orders SET status=?, approved_at=?, lock_until=?, locked=? WHERE id=?').run('approved', now, lu, 1, id);
     // 扣款并入仓（统一 MXN 按汇率）
     try {
+      const alreadyPaid = Number(exists.cost_mxn || 0); // Need to fetch cost_mxn first
       const mkt = String(bt?.market || 'us');
       const rate = mkt === 'mx' ? 1 : await getUsdMxnRateServer();
       const mxnCost = Number(exists.qty) * Number(exists.price) * Number(rate);
-      upsertBalance(Number(exists.user_id), 'MXN', -mxnCost, 'block_approve');
+
+      if (alreadyPaid > 0) {
+        // New flow: already deducted at subscribe
+      } else {
+        // Legacy flow: deduct now
+        upsertBalance(Number(exists.user_id), 'MXN', -mxnCost, 'block_approve');
+      }
+
       try {
         db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
-          .run(Number(exists.user_id), '大宗交易已购买', `你已成功购买 ${String(bt.symbol || '')}，已支付 MX$${Number(mxnCost).toFixed(2)}`, new Date().toISOString());
+          .run(Number(exists.user_id), '大宗交易已购买', `你已成功购买 ${String(bt.symbol || '')}，已支付 MX$${Number(alreadyPaid > 0 ? alreadyPaid : mxnCost).toFixed(2)}`, new Date().toISOString());
       } catch { }
     } catch { }
     res.json({ ok: true });
@@ -2382,8 +2393,8 @@ app.get('/api/me/trade/block/orders', requireAuth, (req, res) => {
     const status = String(req.query.status || '').trim();
     const uid = Number(req.user.id);
     let rows;
-    if (status) rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, b.market, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until, o.sell_price, o.sell_amount, o.profit, o.profit_pct, o.sold_at, o.notes FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? AND o.status = ? ORDER BY o.submitted_at DESC').all(uid, status);
-    else rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, b.market, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until, o.sell_price, o.sell_amount, o.profit, o.profit_pct, o.sold_at, o.notes FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? ORDER BY o.submitted_at DESC').all(uid);
+    if (status) rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, b.market, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until, o.locked, o.sell_price, o.sell_amount, o.profit, o.profit_pct, o.sold_at, o.notes FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? AND o.status = ? ORDER BY o.submitted_at DESC').all(uid, status);
+    else rows = db.prepare('SELECT o.id, o.block_trade_id, b.symbol, b.market, o.price, o.qty, o.amount, o.status, o.submitted_at, o.approved_at, o.lock_until, o.locked, o.sell_price, o.sell_amount, o.profit, o.profit_pct, o.sold_at, o.notes FROM block_trade_orders o JOIN block_trades b ON o.block_trade_id = b.id WHERE o.user_id = ? ORDER BY o.submitted_at DESC').all(uid);
     const items = rows.map(r => {
       let ts = null;
       if (r.lock_until) {
@@ -2403,7 +2414,7 @@ app.get('/api/me/trade/block/orders', requireAuth, (req, res) => {
         profit = (sellPrice * qty) - (buy * qty);
         profitPct = buy > 0 ? ((sellPrice - buy) / buy) * 100 : 0;
       }
-      return { id: r.id, blockId: r.block_trade_id, symbol: r.symbol, market: r.market, price: r.price, qty: r.qty, amount: r.amount, status: r.status, submitted_at: r.submitted_at, approved_at: r.approved_at, lock_until: r.lock_until, lock_until_ts: ts, sell_price: sellPrice, sell_amount: r.sell_amount, profit, profit_pct: profitPct, sold_at: r.sold_at };
+      return { id: r.id, blockId: r.block_trade_id, symbol: r.symbol, market: r.market, price: r.price, qty: r.qty, amount: r.amount, status: r.status, submitted_at: r.submitted_at, approved_at: r.approved_at, lock_until: r.lock_until, lock_until_ts: ts, locked: r.locked, sell_price: sellPrice, sell_amount: r.sell_amount, profit, profit_pct: profitPct, sold_at: r.sold_at };
     });
     res.json({ items });
   } catch (e) {
@@ -2421,20 +2432,27 @@ app.post('/api/trade/block/subscribe', requireAuth, async (req, res) => {
     if (!Number.isFinite(id) || !Number.isFinite(q) || q <= 0 || !Number.isFinite(p) || p <= 0) return res.status(400).json({ error: 'invalid payload' });
     const bt = db.prepare('SELECT id, market, symbol, price, min_qty, start_at, end_at, lock_until, subscribe_key, status FROM block_trades WHERE id = ?').get(id);
     if (!bt || String(bt.status) !== 'active') return res.status(404).json({ error: 'not found' });
-    const now = new Date();
-    const inWindow = (!bt.start_at || new Date(bt.start_at) <= now) && (!bt.end_at || now <= new Date(bt.end_at));
+    const now = Date.now();
+    const st = getMexicoTimestamp(bt.start_at);
+    const en = getMexicoTimestamp(bt.end_at);
+    const inWindow = (!st || st <= now) && (!en || now <= en);
     if (!inWindow) return res.status(400).json({ error: 'window closed', code: 3001 });
     if (q < Number(bt.min_qty || 0)) return res.status(400).json({ error: 'qty too small', code: 3002 });
     if (String(bt.subscribe_key || '') !== String(key || '')) return res.status(400).json({ error: 'bad key', code: 3003 });
-    // 资金校验（统一 MXN）
+    // 资金校验（统一 MXN）并扣款
+    let cost = 0;
     try {
       const rate = String(bt.market || 'us') === 'mx' ? 1 : await getUsdMxnRateServer();
       const mxnCost = Number(q) * Number(p) * Number(rate);
+      cost = mxnCost;
       const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
       if (Number(bal) < Number(mxnCost)) return res.status(400).json({ error: 'insufficient_funds_mxn', need: Number(mxnCost), have: Number(bal) });
-    } catch { }
-    const info = db.prepare('INSERT INTO block_trade_orders (block_trade_id, user_id, price, qty, amount, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(bt.id, Number(req.user.id), p, q, p * q, 'submitted', new Date().toISOString());
+      upsertBalance(Number(req.user.id), 'MXN', -mxnCost, 'block_subscribe');
+    } catch (e) {
+      if (String(e).includes('insufficient_funds')) throw e; // RETHROW insufficient funds error
+    }
+    const info = db.prepare('INSERT INTO block_trade_orders (block_trade_id, user_id, price, qty, amount, status, submitted_at, cost_mxn) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(bt.id, Number(req.user.id), p, q, p * q, 'submitted', new Date().toISOString(), cost);
     res.json({ id: info.lastInsertRowid, status: 'submitted' });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -2446,11 +2464,16 @@ app.post('/api/admin/trade/block/orders/:id/reject', requireRoles(['super', 'adm
     const id = Number(req.params.id);
     const { notes = '' } = req.body || {};
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const exists = db.prepare('SELECT id, user_id, status FROM block_trade_orders WHERE id = ?').get(id);
+    const exists = db.prepare('SELECT id, user_id, status, cost_mxn FROM block_trade_orders WHERE id = ?').get(id);
     if (!exists || exists.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
     if (String(req.user?.role || '') === 'operator') {
       const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
       if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
+    // Refund if cost_mxn > 0
+    const alreadyPaid = Number(exists.cost_mxn || 0);
+    if (alreadyPaid > 0) {
+      upsertBalance(Number(exists.user_id), 'MXN', alreadyPaid, 'block_reject_refund');
     }
     db.prepare('UPDATE block_trade_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
     res.json({ ok: true });
@@ -3126,6 +3149,18 @@ app.post('/api/admin/trade/fund/orders/:id/approve', requireRoles(['super', 'adm
     const now = new Date().toISOString();
     const next = nextCycle(now, fund.dividend);
     db.prepare('UPDATE fund_orders SET status=?, approved_at=?, next_payout_at=? WHERE id=?').run('approved', now, next, id);
+
+    // Notification
+    try {
+      const fundRow = db.prepare('SELECT name_es, name_en FROM funds WHERE id = ?').get(order.fund_id);
+      const fundName = fundRow?.name_es || fundRow?.name_en || 'Fund';
+      const msg = `Te has suscrito exitosamente al fondo: ${fundName}`;
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(Number(order.user_id), 'Suscripción Exitosa', msg, now);
+    } catch (e) {
+      console.error('Notification failed:', e);
+    }
+
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -3144,6 +3179,23 @@ app.post('/api/admin/trade/fund/orders/:id/reject', requireRoles(['super', 'admi
       const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(order.user_id))?.opId || null;
       if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
     }
+
+    // Refund balance if rejected
+    // Note: We assume the price was deducted in MXN at subscription time.
+    // We need to fetch the price from the order to refund it.
+    // The order object already has 'price' selected in line 3141? No, line 3141 only selects id, user_id, status.
+    // We need to re-fetch or update the select.
+    const fullOrder = db.prepare('SELECT id, user_id, price, status FROM fund_orders WHERE id = ?').get(id);
+    if (!fullOrder || fullOrder.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
+
+    // Re-check operator permission if needed (though we did it above with 'order', let's just use fullOrder for consistency or keep previous logic)
+    // The previous logic used 'order' from line 3141. Let's just use fullOrder for the refund amount.
+
+    const refundAmount = Number(fullOrder.price || 0);
+    if (refundAmount > 0) {
+      upsertBalance(fullOrder.user_id, 'MXN', refundAmount, 'fund_reject_refund');
+    }
+
     db.prepare('UPDATE fund_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
     res.json({ ok: true });
   } catch (e) {
@@ -3269,6 +3321,12 @@ try {
     try { db.exec('ALTER TABLE fund_orders ADD COLUMN forced_unlocked INTEGER DEFAULT 0;'); } catch { }
   }
 } catch { }
+try {
+  const cols = db.prepare("PRAGMA table_info(block_trade_orders)").all().map(r => String(r.name));
+  if (!cols.includes('cost_mxn')) {
+    try { db.exec('ALTER TABLE block_trade_orders ADD COLUMN cost_mxn REAL DEFAULT 0;'); } catch { }
+  }
+} catch { }
 // ---- Me: Funds list ----
 app.get('/api/me/funds', requireAuth, (req, res) => {
   try {
@@ -3295,25 +3353,39 @@ app.post('/api/me/fund/subscribe', requireAuth, (req, res) => {
     const { code, price } = req.body || {};
     const c = String(code || '').trim().toUpperCase();
     if (!c || !Number.isFinite(Number(price)) || Number(price) <= 0) return res.status(400).json({ error: 'invalid payload', code: 2001 });
+    // Check IPO/RWA first to allow arbitrary quantity and bypass balance check if applicable
+    const item = db.prepare('SELECT id, subscribe_price, released FROM ipo_items WHERE code = ?').get(c);
+    if (item && Number(item.released || 0) === 1) {
+      // Allow arbitrary quantity for RWA/IPO
+      const { qty } = req.body || {};
+      const useQty = Number(qty) > 0 ? Number(qty) : 1;
+
+      if (Number(item.subscribe_price) !== Number(price)) return res.status(400).json({ error: 'price mismatch', code: 2004 });
+      const now = new Date().toISOString();
+      const info = db.prepare('INSERT INTO ipo_orders (user_id, item_id, code, qty, price, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(Number(req.user.id), item.id, c, useQty, Number(item.subscribe_price), 'submitted', now);
+      return res.json({ id: info.lastInsertRowid, status: 'submitted' });
+    }
+
     const fund = db.prepare('SELECT id, tiers FROM funds WHERE code = ? AND status = ?').get(c, 'active');
     if (fund) {
       let tiers = [];
       try { tiers = JSON.parse(fund.tiers || '[]'); } catch { }
       const match = tiers.find(t => Number(t.price) === Number(price));
       if (!match) return res.status(400).json({ error: 'price not in tiers', code: 2003 });
+
+      // Deduct balance immediately
+      const cost = Number(price);
+      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
+      if (Number(bal) < cost) return res.status(400).json({ error: 'insufficient_funds_mxn', need: cost, have: Number(bal) });
+      upsertBalance(req.user.id, 'MXN', -cost, 'fund_subscribe');
+
       const now = new Date().toISOString();
       const info = db.prepare('INSERT INTO fund_orders (user_id, fund_id, code, price, percent, qty, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(Number(req.user.id), fund.id, c, Number(price), Number(match.percent), 1, 'submitted', now);
       return res.json({ id: info.lastInsertRowid, status: 'submitted' });
     }
-    const item = db.prepare('SELECT id, subscribe_price, released FROM ipo_items WHERE code = ?').get(c);
-    if (item && Number(item.released || 0) === 1) {
-      if (Number(item.subscribe_price) !== Number(price)) return res.status(400).json({ error: 'price mismatch', code: 2004 });
-      const now = new Date().toISOString();
-      const info = db.prepare('INSERT INTO ipo_orders (user_id, item_id, code, qty, price, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(Number(req.user.id), item.id, c, 1, Number(item.subscribe_price), 'submitted', now);
-      return res.json({ id: info.lastInsertRowid, status: 'submitted' });
-    }
+
     return res.status(404).json({ error: 'Invalid code', code: 2002 });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -3693,7 +3765,11 @@ app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super', 'admi
     upsertBalance(order.user_id, 'MXN', -mxnCost, 'ipo_approve');
     updateTradingDisallowFlag(order.user_id);
     db.prepare('UPDATE ipo_orders SET qty=?, approved_at=?, status=? WHERE id=?').run(useQty, now, 'approved', id);
-    try { db.prepare('INSERT INTO notifications (user_id, message, created_at, read) VALUES (?, ?, ?, 0)').run(order.user_id, `你的IPO申购已审批通过，数量 ${useQty}`, now); } catch { }
+    try {
+      const itemName = db.prepare('SELECT name FROM ipo_items WHERE id = ?').get(order.item_id)?.name || 'RWA';
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(order.user_id, 'Suscripción Aprobada', `Tu solicitud de suscripción para ${itemName} ha sido aprobada. Cantidad: ${useQty}`, now);
+    } catch { }
     try { db.prepare('SELECT code FROM ipo_items WHERE id = ?').get(order.item_id); } catch { }
     res.json({ ok: true });
   } catch (e) {
@@ -3730,18 +3806,18 @@ app.post('/api/me/ipo/subscribe', requireAuth, async (req, res) => {
     const item = db.prepare('SELECT id, subscribe_price, released, subscribe_at, subscribe_end_at, currency FROM ipo_items WHERE code = ?').get(c);
     if (!item || Number(item.released || 0) !== 1) return res.status(404).json({ error: 'item not released' });
     const nowTs = Date.now();
-    const st = item.subscribe_at ? new Date(item.subscribe_at).getTime() : null;
-    const en = item.subscribe_end_at ? new Date(item.subscribe_end_at).getTime() : null;
+    const st = getMexicoTimestamp(item.subscribe_at);
+    const en = getMexicoTimestamp(item.subscribe_end_at);
     if (st && nowTs < st) return res.status(400).json({ error: 'subscribe not started' });
     if (en && nowTs > en) return res.status(400).json({ error: 'subscribe ended' });
-    // 资金校验（统一 MXN）
-    try {
-      const curr = String(item.currency || 'USD').toUpperCase();
-      const rate = curr === 'MXN' ? 1 : await getUsdMxnRateServer();
-      const mxnCost = Number(q) * Number(item.subscribe_price) * Number(rate);
-      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
-      if (Number(bal) < Number(mxnCost)) return res.status(400).json({ error: 'insufficient_funds_mxn', need: Number(mxnCost), have: Number(bal) });
-    } catch { }
+    // 资金校验（统一 MXN）- REMOVED for RWA/IPO unlimited subscription
+    // try {
+    //   const curr = String(item.currency || 'USD').toUpperCase();
+    //   const rate = curr === 'MXN' ? 1 : await getUsdMxnRateServer();
+    //   const mxnCost = Number(q) * Number(item.subscribe_price) * Number(rate);
+    //   const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
+    //   if (Number(bal) < Number(mxnCost)) return res.status(400).json({ error: 'insufficient_funds_mxn', need: Number(mxnCost), have: Number(bal) });
+    // } catch { }
     const now = new Date().toISOString();
     const info = db.prepare('INSERT INTO ipo_orders (user_id, item_id, code, qty, price, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(Number(req.user.id), item.id, c, q, Number(item.subscribe_price), 'submitted', now);
@@ -3760,8 +3836,8 @@ app.post('/api/me/ipo/orders/:id/sell', requireAuth, (req, res) => {
     const o = db.prepare('SELECT id, user_id, item_id, code, qty, price, status, approved_at FROM ipo_orders WHERE id = ?').get(id);
     if (!o || String(o.status) !== 'approved' || Number(o.user_id) !== Number(req.user.id)) return res.status(404).json({ error: 'not sellable' });
     const item = db.prepare('SELECT id, list_price, list_at, can_sell_on_listing_day, currency FROM ipo_items WHERE id = ?').get(o.item_id);
-    const now = new Date();
-    const la = item?.list_at ? new Date(item.list_at) : null;
+    const now = Date.now();
+    const la = getMexicoTimestamp(item?.list_at);
     if (la && now < la && !item?.can_sell_on_listing_day) return res.status(400).json({ error: 'not_listed' });
     const qty = Number(o.qty || 0);
     const buy = Number(o.price || 0);
@@ -3796,6 +3872,18 @@ function sanitizeIp(ip) {
   if (parts.some(n => !Number.isFinite(n) || n < 0 || n > 255)) return '';
   return parts.join('.');
 }
+function getMexicoTimestamp(dateStr) {
+  if (!dateStr) return null;
+  const s = String(dateStr).trim();
+  if (!s) return null;
+  // If already has offset or Z, trust it
+  if (s.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(s)) {
+    return new Date(s).getTime();
+  }
+  // Assume Mexico City (UTC-6)
+  return new Date(s + '-06:00').getTime();
+}
+
 function getClientIp(req) {
   const xf = req.headers['x-forwarded-for'];
   const xr = req.headers['x-real-ip'];
@@ -3893,8 +3981,17 @@ app.delete('/api/admin/trade/block/orders/:id', requireRoles(['super', 'admin'])
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const row = db.prepare('SELECT id FROM block_trade_orders WHERE id = ?').get(id);
+    const row = db.prepare('SELECT id, user_id, status, cost_mxn FROM block_trade_orders WHERE id = ?').get(id);
     if (!row) return res.status(404).json({ error: 'not found' });
+
+    // Refund if submitted and already paid
+    if (String(row.status) === 'submitted') {
+      const alreadyPaid = Number(row.cost_mxn || 0);
+      if (alreadyPaid > 0) {
+        upsertBalance(Number(row.user_id), 'MXN', alreadyPaid, 'block_delete_refund');
+      }
+    }
+
     db.prepare('DELETE FROM block_trade_orders WHERE id = ?').run(id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
@@ -3905,8 +4002,13 @@ app.get('/api/me/ipo/orders', requireAuth, (req, res) => {
     const uid = Number(req.user.id);
     const status = String(req.query.status || '').trim();
     let rows;
-    if (status) rows = db.prepare('SELECT id, item_id AS itemId, code, qty, price, status, submitted_at AS submittedAt, approved_at AS approvedAt, notes FROM ipo_orders WHERE user_id = ? AND status = ? ORDER BY submitted_at DESC').all(uid, status);
-    else rows = db.prepare('SELECT id, item_id AS itemId, code, qty, price, status, submitted_at AS submittedAt, approved_at AS approvedAt, notes FROM ipo_orders WHERE user_id = ? ORDER BY submitted_at DESC').all(uid);
+    const sql = `SELECT t1.id, t1.item_id AS itemId, t1.code, t1.qty, t1.price, t1.status, t1.submitted_at AS submittedAt, t1.approved_at AS approvedAt, t1.notes, t2.kind, t2.name 
+                 FROM ipo_orders t1 
+                 LEFT JOIN ipo_items t2 ON t1.item_id = t2.id 
+                 WHERE t1.user_id = ? ${status ? 'AND t1.status = ?' : ''} 
+                 ORDER BY t1.submitted_at DESC`;
+    const params = status ? [uid, status] : [uid];
+    rows = db.prepare(sql).all(...params);
     res.json({ items: rows });
   } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
 });
@@ -4483,8 +4585,16 @@ app.post('/api/me/institution/block/orders/:id/sell', requireAuth, async (req, r
     const id = Number(req.params.id);
     const p = Number(req.body?.currentPrice);
     if (!Number.isFinite(id) || !Number.isFinite(p) || p <= 0) return res.status(400).json({ error: 'invalid payload' });
-    const o = db.prepare('SELECT id, user_id, block_trade_id, price, qty, status FROM block_trade_orders WHERE id = ?').get(id);
+    const o = db.prepare('SELECT id, user_id, block_trade_id, price, qty, status, lock_until, locked FROM block_trade_orders WHERE id = ?').get(id);
     if (!o || String(o.status) !== 'approved' || Number(o.user_id) !== Number(req.user.id)) return res.status(404).json({ error: 'not sellable' });
+
+    // Check lock
+    const isLocked = Number(o.locked) === 1;
+    if (isLocked) {
+      const now = Date.now();
+      const lockUntil = getMexicoTimestamp(o.lock_until);
+      if (lockUntil && now < lockUntil) return res.status(400).json({ error: 'order locked' });
+    }
     const qty = Number(o.qty || 0);
     const buy = Number(o.price || 0);
     const revenueUSD = p * qty;

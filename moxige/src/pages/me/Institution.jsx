@@ -5,7 +5,8 @@ import { useI18n } from "../../i18n.jsx";
 import { api } from "../../services/api.js";
 import { formatMoney, formatMXN, formatUSDT } from "../../utils/money.js";
 import { formatMinute } from "../../utils/date.js";
-import { getQuotes, getCryptoQuotes, getStockSpark } from "../../services/marketData.js";
+
+import { getQuotes, getCryptoQuotes, getStockSpark, getUsdMxnRate } from "../../services/marketData.js";
 import "../../styles/profile.css";
 
 // 机构账户页（按原型布局实现，保留占位与接口钩子）
@@ -49,6 +50,7 @@ export default function Institution() {
   const [inviteError, setInviteError] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [refCode, setRefCode] = useState('');
+  const [usdToMxnRate, setUsdToMxnRate] = useState(18.0);
 
   // labels（国际化）
   const labels = useMemo(() => ({
@@ -146,6 +148,11 @@ export default function Institution() {
       } catch (_) {
         // 后端不可用时维持 0 值占位
       } finally { if (!stopped) setLoading(false); }
+
+      try {
+        const { rate } = await getUsdMxnRate();
+        if (rate > 0 && !stopped) setUsdToMxnRate(rate);
+      } catch { }
     }
     fetchBalances();
     return () => { stopped = true; };
@@ -238,7 +245,7 @@ export default function Institution() {
           }
           const profit = Number(r.profit || NaN);
           const profitPct = Number(r.profit_pct || NaN);
-          return { id: r.id, symbol: base, market: mk, blockPrice: Number(r.price || 0), price: Number(r.price || 0), qty: Number(r.qty || 0), status: String(r.status || 'submitted'), lockUntil: lu, ts, finalPrice, profit, profitPct };
+          return { id: r.id, symbol: base, market: mk, blockPrice: Number(r.price || 0), price: Number(r.price || 0), qty: Number(r.qty || 0), status: String(r.status || 'submitted'), lockUntil: lu, ts, finalPrice, profit, profitPct, locked: r.locked };
         });
         if (!stopped) setOrders(mapped);
       } catch {
@@ -291,8 +298,9 @@ export default function Institution() {
                 // Last resort: try localStorage cache from previous successful fetches
                 try {
                   const raw = JSON.parse(localStorage.getItem(`td:us:${s}`) || 'null');
-                  const p = Number(raw?.data?.price || 0);
-                  if (p > 0) next[`us:${s}`] = { price: p, changePct: Number(raw?.data?.changePct || 0) };
+                  const d = raw?.data;
+                  const p = Number(d?.price ?? d?.close ?? d?.previous_close ?? 0);
+                  if (p > 0) next[`us:${s}`] = { price: p, changePct: Number(d?.changePct ?? d?.percent_change ?? 0) };
                 } catch { }
               }
             } catch (e) {
@@ -304,7 +312,7 @@ export default function Institution() {
       if (!stopped) setQuotes(next);
     }
     refreshQuotes();
-    const iv = setInterval(refreshQuotes, 2000);
+    const iv = setInterval(refreshQuotes, 30000);
     return () => { stopped = true; clearInterval(iv); };
   }, [orders]);
 
@@ -352,6 +360,7 @@ export default function Institution() {
     return (lang === 'zh' ? '待审核' : (lang === 'es' ? 'Pendiente' : 'Pending'));
   }
   function isLocked(o) {
+    if (o.locked === false) return false;
     const lu = o.lockUntil || o.lock_until;
     const ts = typeof lu === 'number' ? lu : Date.parse(lu || '');
     return Number.isFinite(ts) && Date.now() < ts;
@@ -531,16 +540,16 @@ export default function Institution() {
                 <div style={{ display: 'grid', gap: 4, minWidth: 0, wordBreak: 'break-word' }}>
                   <div style={{ fontWeight: 700 }}>{String(o.market).toUpperCase()} · {String(o.symbol).toUpperCase()}</div>
                   <div className="desc">
-                    {lang === 'zh' ? '价格' : (lang === 'es' ? 'Precio' : 'Price')}: {formatMoney(Number(o.blockPrice || o.price || 0), 'USD', lang)}
+                    {lang === 'zh' ? '价格' : (lang === 'es' ? 'Precio' : 'Price')}: {o.market === 'crypto' ? formatUSDT(Number(o.blockPrice || o.price || 0), lang) : `${formatMoney(Number(o.blockPrice || o.price || 0), 'USD', lang)} / ${formatMoney(Number(o.blockPrice || o.price || 0) * usdToMxnRate, 'MXN', lang)}`}
                     {' · '}
                     {lang === 'zh' ? '数量' : (lang === 'es' ? 'Cantidad' : 'Qty')}: {Number(o.qty || 0)}
                     {' · '}
-                    {lang === 'zh' ? '总额' : (lang === 'es' ? 'Total' : 'Total')}: {formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), 'USD', lang)}
+                    {lang === 'zh' ? '总额' : (lang === 'es' ? 'Total' : 'Total')}: {o.market === 'crypto' ? formatUSDT(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), lang) : `${formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), 'USD', lang)} / ${formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)) * usdToMxnRate, 'MXN', lang)}`}
                   </div>
                   <div className="desc">
-                    {lang === 'zh' ? '锁定至' : (lang === 'es' ? 'Bloqueado hasta' : 'Lock Until')}: {formatMinute(o.lockUntil || o.lock_until)}
+                    {lang === 'zh' ? '锁定至' : (lang === 'es' ? 'Bloqueado hasta' : 'Lock Until')}: {o.locked === false ? (lang === 'zh' ? '已解锁' : (lang === 'es' ? 'Desbloqueado' : 'Unlocked')) : formatMinute(o.lockUntil || o.lock_until)}
                     {tab === 'current' ? (
-                      <> {' · '} {lang === 'zh' ? '当前价' : (lang === 'es' ? 'Precio actual' : 'Current')}: {formatMoney(currentPriceFor(o) || 0, 'USD', lang)} </>
+                      <> {' · '} {lang === 'zh' ? '当前价' : (lang === 'es' ? 'Precio actual' : 'Current')}: {o.market === 'crypto' ? formatUSDT(currentPriceFor(o) || 0, lang) : `${formatMoney(currentPriceFor(o) || 0, 'USD', lang)} / ${formatMoney((currentPriceFor(o) || 0) * usdToMxnRate, 'MXN', lang)}`} </>
                     ) : null}
                   </div>
                   <div className="desc">
@@ -550,7 +559,7 @@ export default function Institution() {
                 <div style={{ display: 'grid', justifyItems: (isMobile ? 'start' : 'end'), alignContent: 'start', gap: 6, minWidth: 0, paddingRight: (isMobile ? 0 : 6), paddingTop: (isMobile ? 8 : 0) }}>
                   <span className="tag" style={{ background: statusColor(o.status) }}>{statusLabel(o.status)}</span>
                   <div style={{ fontSize: 18, fontWeight: 700, color: profitColor(o) }}>{pnlPct(o)}%</div>
-                  <div style={{ fontSize: 14, color: profitColor(o) }}>{Number(pnlValue(o)).toFixed(2)}</div>
+                  <div style={{ fontSize: 14, color: profitColor(o) }}>{o.market === 'crypto' ? formatUSDT(pnlValue(o), lang) : formatMoney(Number(pnlValue(o)) * usdToMxnRate, 'MXN', lang)}</div>
                   {tab === 'current' && (
                     <button className="btn primary slim" disabled={tradeDisabled || o.status !== 'approved'} onClick={() => sell(o)}>
                       {lang === 'zh' ? '卖出' : (lang === 'es' ? 'Vender' : 'Sell')}

@@ -1118,6 +1118,9 @@
       previewOverlay._send.textContent = isEsLang ? 'Enviar foto' : (isEnLang ? 'Send photo' : '发送图片')
     } catch { }
 
+    const labelImage = isEsLang ? 'Imagen' : (isEnLang ? 'Image' : '图片')
+    const labelQuote = isEsLang ? 'Citar' : (isEnLang ? 'Quote' : '引用消息')
+
     function renderMessage(m) {
       try {
         if (m && m.sender === 'customer') {
@@ -1134,7 +1137,7 @@
         rp.className = 'reply'
         const qt = getQuoteText(m.reply_to)
         if (qt) {
-          if (qt === '图片') {
+          if (qt === '图片' || qt === 'Image' || qt === 'Imagen') {
             const imgEl = messagesEl.querySelector('[data-id="' + m.reply_to + '"] .msg-image')
             if (imgEl) {
               const t = document.createElement('img')
@@ -1142,16 +1145,16 @@
               t.src = imgEl.src
               rp.appendChild(t)
               const s = document.createElement('span')
-              s.textContent = '图片'
+              s.textContent = labelImage
               rp.appendChild(s)
             } else {
-              rp.textContent = '图片'
+              rp.textContent = labelImage
             }
           } else {
             rp.textContent = qt
           }
         } else {
-          rp.textContent = '引用消息'
+          rp.textContent = labelQuote
           fetch('/api/message/' + encodeURIComponent(m.reply_to)).then(r => r.ok ? r.json() : null).then(row => {
             if (!row) return
             if (row.type === 'image') {
@@ -1161,7 +1164,7 @@
               t.src = row.content
               rp.appendChild(t)
               const s = document.createElement('span')
-              s.textContent = '图片'
+              s.textContent = labelImage
               rp.appendChild(s)
             } else {
               rp.textContent = row.content || ''
@@ -1323,14 +1326,15 @@
     replyText.className = 'reply-preview-text'
     replyCancel = document.createElement('button')
     replyCancel.className = 'reply-preview-cancel'
-    replyCancel.textContent = '取消引用'
+    const labelCancelQuote = isEsLang ? 'Cancelar cita' : (isEnLang ? 'Cancel Quote' : '取消引用')
+    replyCancel.textContent = labelCancelQuote
     replyPreview.appendChild(replyText)
     replyPreview.appendChild(replyCancel)
     composerEl.insertBefore(replyPreview, messageInput)
     replyCancel.onclick = () => { replyToId = null; replyPreview.classList.add('hidden'); replyText.textContent = ''; scrollChatToBottom() }
     function setReply(m) {
       replyToId = m.id || null
-      replyText.textContent = m.type === 'image' ? '图片' : (m.content || '')
+      replyText.textContent = m.type === 'image' ? labelImage : (m.content || '')
       replyPreview.classList.remove('hidden')
       scrollChatToBottom()
     }

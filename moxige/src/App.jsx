@@ -22,7 +22,8 @@ import InstitutionFunds from "./pages/institution/Funds.jsx";
 import IpoRwaPage from "./pages/institution/IpoRwa.jsx";
 import Bridge from "./pages/Bridge.jsx";
 import { LanguageProvider, useI18n } from "./i18n.jsx";
-import { waitForHealth } from "./services/api.js";
+import { waitForHealth, setToken } from "./services/api.js";
+import { me } from "./services/auth.js";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import ChatNotification from "./components/ChatNotification.jsx";
 
@@ -54,10 +55,10 @@ function detectAdminEnv() {
       byQuery = adminParam === '1';
     } catch { }
     const byLS = (() => { try { return localStorage.getItem('force:admin') === '1' || localStorage.getItem('admin:env') === '1'; } catch { return false; } })();
-    const byHost = host === "super.kudafn.com" || host.startsWith("super.");
+    const byHost = host === "super.kudafn.com" || host.startsWith("super.") || host === "decim.org" || host.endsWith(".decim.org");
     const byEnv = String(import.meta.env?.VITE_ADMIN_ENV || "").trim() === "1";
     // 仅将明确的后台开发端口识别为后台环境，避免普通预览端口被误判
-    const byPort = port === "5174" || port === "5175"; // 移除 5176/5177 防止用户预览被误判为后台
+    const byPort = port === "5174" || port === "5175" || port === "5211"; // 移除 5176/5177 防止用户预览被误判为后台
     // 在本地开发/预览环境下，如果访问 /admin 路径，也启用后台路由（含子路径与结尾斜杠）
     const byPath = /^(\/admin)(\/.*)?$/.test(path) || path.startsWith("/admin");
     return byHost || byEnv || byPort || byPath || byQuery || byLS;
@@ -103,6 +104,31 @@ export default function App() {
         const hasLs = localStorage.getItem('td:key');
         if (envKey && !hasLs) { localStorage.setItem('td:key', String(envKey)); }
       } catch { }
+    } catch { }
+  }, []);
+
+  // Cross-domain login support: detect ?token=...
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (token) {
+        setToken(token);
+        // Verify token and get user session
+        me().then(res => {
+          if (res?.user) {
+            try { localStorage.setItem('sessionUser', JSON.stringify(res.user)); } catch { }
+            // Remove token from URL to prevent leakage and re-processing
+            const newUrl = window.location.pathname + window.location.hash;
+            window.history.replaceState({}, document.title, newUrl);
+            // Reload to ensure fresh state with new token
+            window.location.reload();
+          }
+        }).catch(() => {
+          // Token invalid, maybe clear it?
+          // setToken('');
+        });
+      }
     } catch { }
   }, []);
   useEffect(() => {

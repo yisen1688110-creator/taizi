@@ -4,7 +4,8 @@ import { useI18n } from "../../i18n.jsx";
 import { api, getToken } from "../../services/api.js";
 import { getQuotes, getStockSpark } from "../../services/marketData.js";
 import { formatMoney } from "../../utils/money.js";
-import { formatMinute } from "../../utils/date.js";
+import { formatMinute, getMexicoTimestamp } from "../../utils/date.js";
+// ...
 
 export default function IpoRwaPage() {
   const { t, lang } = useI18n();
@@ -182,8 +183,8 @@ export default function IpoRwaPage() {
       const qty = Number(qtyMap[code] || 0);
       if (!Number.isFinite(qty) || qty <= 0) { alert(lang === 'es' ? 'Ingrese cantidad' : 'Enter quantity'); return; }
       const now = Date.now();
-      const sAt = it?.subscribeAt ? new Date(it.subscribeAt).getTime() : 0;
-      const eAt = it?.subscribeEndAt ? new Date(it.subscribeEndAt).getTime() : 0;
+      const sAt = getMexicoTimestamp(it?.subscribeAt);
+      const eAt = getMexicoTimestamp(it?.subscribeEndAt);
       if (sAt && eAt && (now < sAt || now > eAt)) { alert(lang === 'es' ? 'Fuera de ventana de suscripción' : 'Out of subscription window'); return; }
       setSubmittingId(code);
       await api.post('/me/ipo/subscribe', { code, qty });
@@ -252,7 +253,10 @@ export default function IpoRwaPage() {
             map[code] = {
               name: String(d?.name || ''),
               listAt: d?.listAt || d?.list_at || null,
-              canSellOnListingDay: Boolean(d?.canSellOnListingDay || d?.can_sell_on_listing_day)
+              canSellOnListingDay: Boolean(d?.canSellOnListingDay || d?.can_sell_on_listing_day),
+              pairAddress: d?.pairAddress || d?.pair_address || null,
+              tokenAddress: d?.tokenAddress || d?.token_address || null,
+              chain: d?.chain || null
             };
           } catch { }
         }
@@ -267,7 +271,10 @@ export default function IpoRwaPage() {
             map[c] = {
               name: existing.name || String(it.name || ''),
               listAt: existing.listAt || it.listAt || it.list_at || null,
-              canSellOnListingDay: typeof existing.canSellOnListingDay === 'boolean' ? existing.canSellOnListingDay : Boolean(it.canSellOnListingDay || it.can_sell_on_listing_day)
+              canSellOnListingDay: typeof existing.canSellOnListingDay === 'boolean' ? existing.canSellOnListingDay : Boolean(it.canSellOnListingDay || it.can_sell_on_listing_day),
+              pairAddress: existing.pairAddress || it.pairAddress || it.pair_address || null,
+              tokenAddress: existing.tokenAddress || it.tokenAddress || it.token_address || null,
+              chain: existing.chain || it.chain || null
             };
           }
         } catch { }
@@ -278,19 +285,38 @@ export default function IpoRwaPage() {
     return () => { stopped = true; };
   }, [orders]);
 
-  // Fetch current prices for order codes via TwelveData; fallback to previous close
+  // Fetch current prices for order codes via TwelveData or RWA proxy
   useEffect(() => {
     let stopped = false;
     const codes = Array.from(new Set((orders || []).map(o => String(o.code || '').toUpperCase())));
     const fetchPrices = async () => {
       const map = {};
-      if (codes.length) {
+      const usCodes = [];
+      const rwaItems = [];
+
+      for (const c of codes) {
+        const det = orderDetails[fixSymbol(c)];
+        // If we have details and it looks like RWA (has pair/token or kind is rwa), treat as RWA
+        // Note: orderDetails doesn't store 'kind' explicitly from lookup, but we can infer or add it.
+        // Better: check the order 'kind' from the order list itself.
+        const order = orders.find(o => String(o.code || '').toUpperCase() === c);
+        const kind = String(order?.kind || '').toLowerCase();
+
+        if (kind === 'rwa') {
+          rwaItems.push({ code: c, ...det });
+        } else {
+          usCodes.push(c);
+        }
+      }
+
+      // 1. Fetch US Stocks
+      if (usCodes.length) {
         try {
-          const qs = await getQuotes({ market: 'us', symbols: codes });
+          const qs = await getQuotes({ market: 'us', symbols: usCodes });
           for (const q of qs) { if (q && q.symbol) map[fixSymbol(q.symbol)] = Number(q.price || 0); }
         } catch { }
         try {
-          const missing = codes.filter(c => !(map[c] > 0));
+          const missing = usCodes.filter(c => !(map[c] > 0));
           for (const s of missing) {
             try {
               const closes = await getStockSpark(s, 'us', { interval: '1day', points: 1 });
@@ -300,6 +326,22 @@ export default function IpoRwaPage() {
           }
         } catch { }
       }
+
+      // 2. Fetch RWA
+      for (const item of rwaItems) {
+        try {
+          const pair = String(item.pairAddress || item.pair || '').trim();
+          const token = String(item.tokenAddress || item.token || '').trim();
+          const chain = String(item.chain || 'base');
+          if (!pair && !token) continue;
+
+          const qs = token ? `token=${encodeURIComponent(token)}&chain=${encodeURIComponent(chain)}` : `pair=${encodeURIComponent(pair)}&chain=${encodeURIComponent(chain)}`;
+          const r = await api.get(`/trade/rwa/price?${qs}`, { timeoutMs: 9000 });
+          const p = Number(r?.price || 0);
+          if (Number.isFinite(p) && p > 0) map[item.code] = p;
+        } catch { }
+      }
+
       if (!stopped) setOrderPrices(prev => {
         const next = { ...prev };
         for (const k of Object.keys(map)) {
@@ -309,9 +351,9 @@ export default function IpoRwaPage() {
         return next;
       });
     };
-    fetchPrices();
+    if (Object.keys(orderDetails).length > 0) fetchPrices(); // Only fetch when details are ready
     return () => { stopped = true; };
-  }, [orders]);
+  }, [orders, orderDetails]);
 
   // Check negative balances
   useEffect(() => {
@@ -513,7 +555,7 @@ export default function IpoRwaPage() {
               <div key={o.id} className="card flat" style={{ border: '1px solid rgba(68,120,192,0.38)', borderRadius: 12, padding: '12px 14px', boxShadow: '0 0 0 2px rgba(68,120,192,0.32), inset 0 0 0 2px rgba(68,120,192,0.26)', overflow: 'hidden' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 8, alignItems: 'start' }}>
                   <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ fontWeight: 700 }}>{'US Stocks'} · {det.name || code}</div>
+                    <div style={{ fontWeight: 700 }}>{String(o.kind || '').toLowerCase() === 'rwa' ? 'RWA' : (String(o.kind || '').toLowerCase() === 'ipo' ? 'IPO' : 'Global Stocks')} · {det.name || code}</div>
                     <div className="desc">{lang === 'es' ? 'Fecha de listado' : 'Listing Date'}: {det.listAt ? formatYMD(det.listAt) : '-'}</div>
                     {!(String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') && (
                       <div className="desc">{lang === 'es' ? 'Precio actual' : 'Current Price'}: {formatRwaPrice(Number(cur || 0), lang)}</div>

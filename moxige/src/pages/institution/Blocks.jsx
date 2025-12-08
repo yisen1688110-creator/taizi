@@ -4,9 +4,11 @@ import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api } from "../../services/api.js";
 import { formatMoney, formatUSDT } from "../../utils/money.js";
-import { formatMinute } from "../../utils/date.js";
+import { formatMinute, getMexicoTimestamp } from "../../utils/date.js";
+// ...
 import { toMs } from "../../utils/time.js";
-import { getQuotes, getCryptoQuotes, getStockSpark } from "../../services/marketData.js";
+import { getQuotes, getCryptoQuotes, getStockSpark, getUsdMxnRate } from "../../services/marketData.js";
+import "../../styles/settings.css";
 import "../../styles/settings.css";
 
 // 机构 - 大宗交易列表页
@@ -17,7 +19,10 @@ export default function InstitutionBlocks() {
   const [loading, setLoading] = useState(false);
   const [quotes, setQuotes] = useState({}); // { key: { price, changePct } }
   const [qtyMap, setQtyMap] = useState({}); // { id: qty }
+  const [sliderMap, setSliderMap] = useState({}); // { id: 0-100 }
   const [keyMap, setKeyMap] = useState({}); // { id: subscribeKey }
+  const [balances, setBalances] = useState({ MXN: 0, USD: 0, USDT: 0 });
+  const [usdToMxnRate, setUsdToMxnRate] = useState(18.0);
   const [submittingId, setSubmittingId] = useState(null);
   const [toast, setToast] = useState({ show: false, type: 'ok', text: '' });
   const showToast = (text, type = 'ok') => { setToast({ show: true, type, text }); setTimeout(() => setToast({ show: false, type, text: '' }), 1000); };
@@ -48,7 +53,23 @@ export default function InstitutionBlocks() {
     consume: lang === 'zh' ? '消耗资金' : (lang === 'es' ? 'Consumir fondos' : 'Consume'),
   }), [t, lang]);
 
-  useEffect(() => { fetchList(); }, []);
+  useEffect(() => {
+    fetchList();
+    fetchBalances();
+  }, []);
+
+  async function fetchBalances() {
+    try {
+      const res = await api.get('/me/balances');
+      const arr = Array.isArray(res?.balances) ? res.balances : [];
+      const map = { MXN: 0, USD: 0, USDT: 0 };
+      arr.forEach(b => { map[String(b.currency).toUpperCase()] = Number(b.amount || 0); });
+      setBalances(map);
+
+      const { rate } = await getUsdMxnRate();
+      if (rate > 0) setUsdToMxnRate(rate);
+    } catch (e) { console.warn('fetch balances/rate failed', e); }
+  }
 
   function toCryptoBase(s) {
     const u = String(s || '').toUpperCase();
@@ -133,8 +154,9 @@ export default function InstitutionBlocks() {
               } else {
                 try {
                   const raw = JSON.parse(localStorage.getItem(`td:us:${s}`) || 'null');
-                  const p = Number(raw?.data?.price || 0);
-                  if (p > 0) next[`us:${s}`] = { price: p, changePct: Number(raw?.data?.changePct || 0) };
+                  const d = raw?.data;
+                  const p = Number(d?.price ?? d?.close ?? d?.previous_close ?? 0);
+                  if (p > 0) next[`us:${s}`] = { price: p, changePct: Number(d?.changePct ?? d?.percent_change ?? 0) };
                 } catch { }
               }
             } catch { }
@@ -144,14 +166,14 @@ export default function InstitutionBlocks() {
       if (!stopped) setQuotes(prev => ({ ...prev, ...next }));
     }
     refreshQuotes();
-    const iv = setInterval(refreshQuotes, 2000);
+    const iv = setInterval(refreshQuotes, 30000);
     return () => { stopped = true; clearInterval(iv); };
   }, [items]);
 
   function nowMs() { return Date.now(); }
   function inWindow(it) {
-    const s = toMs(it.start_at || it.startAt || '');
-    const e = toMs(it.end_at || it.endAt || '');
+    const s = getMexicoTimestamp(it.start_at || it.startAt || '');
+    const e = getMexicoTimestamp(it.end_at || it.endAt || '');
     const n = nowMs();
     return Number.isFinite(s) && Number.isFinite(e) && n >= s && n <= e;
   }
@@ -200,6 +222,33 @@ export default function InstitutionBlocks() {
     } finally { setSubmittingId(null); }
   }
 
+  const handleSliderChange = (it, percent, currentPrice) => {
+    const id = it.id;
+    setSliderMap(prev => ({ ...prev, [id]: percent }));
+
+    const market = String(it.market);
+    const isCrypto = market === 'crypto';
+    const balance = isCrypto ? (balances.USDT || 0) : (balances.MXN || 0);
+    const price = Number(it.price || 0); // Block price in USD/USDT
+
+    if (price <= 0) return;
+
+    // Calculate max qty affordable
+    // Crypto: balanceUSDT / priceUSDT
+    // US: balanceMXN / (priceUSD * rate)
+    const costPerUnit = isCrypto ? price : (price * usdToMxnRate);
+    const maxQty = Math.floor(balance / costPerUnit);
+    const minQty = Number(it.min_qty || it.minQty || 1);
+
+    if (maxQty < minQty) {
+      if (percent === 100) setQtyMap(prev => ({ ...prev, [id]: maxQty > 0 ? maxQty : '' }));
+      return;
+    }
+
+    const targetQty = Math.floor(maxQty * (percent / 100));
+    setQtyMap(prev => ({ ...prev, [id]: targetQty > 0 ? targetQty : '' }));
+  };
+
   return (
     <div className="screen top-align" style={{ paddingTop: 6 }}>
       <button className="back-btn" onClick={() => nav(-1)} aria-label="back" style={{ transform: 'scale(0.9)', left: 8, top: 8 }}><span className="back-icon"></span></button>
@@ -239,15 +288,15 @@ export default function InstitutionBlocks() {
                       <div className="tag" style={{ background: market === 'crypto' ? '#2a3b56' : '#2a5640', transform: 'scale(0.92)', whiteSpace: 'normal', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{labels.type}: {market === 'crypto' ? labels.typeCrypto : labels.typeUS}</div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <div className="desc">{labels.currentPrice}: {(market === 'crypto' ? formatUSDT(currentPrice, lang) : formatMoney(currentPrice, 'USD', lang))}</div>
-                      <div className="desc">{labels.blockPrice}: {market === 'crypto' ? formatUSDT(blockPrice, lang) : formatMoney(blockPrice, 'USD', lang)}</div>
+                      <div className="desc">{labels.currentPrice}: {(market === 'crypto' ? formatUSDT(currentPrice, lang) : `${formatMoney(currentPrice, 'USD', lang)} / ${formatMoney(currentPrice * usdToMxnRate, 'MXN', lang)}`)}</div>
+                      <div className="desc">{labels.blockPrice}: {market === 'crypto' ? formatUSDT(blockPrice, lang) : `${formatMoney(blockPrice, 'USD', lang)} / ${formatMoney(blockPrice * usdToMxnRate, 'MXN', lang)}`}</div>
                       <div className="desc">{labels.window}: {formatMinute(it.start_at || it.startAt)} ~ {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{lang === 'zh' ? '截至购买' : 'Deadline'}: {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{labels.lockedUntil}: {formatMinute(it.lock_until || it.lockUntil)}</div>
                       <div className="desc">{labels.minQty}: {minQty}</div>
                       <div className="desc">{labels.consume}: {currency === 'USDT' ? formatUSDT(total, lang) : formatMoney(total, 'USD', lang)}</div>
                       <div className="desc" style={{ color: unitProfit >= 0 ? '#5cff9b' : '#ff5c7a' }}>
-                        {(lang === 'zh' ? '预计收益' : 'Est. Profit')}: {(currency === 'USDT' ? formatUSDT(totalProfit || unitProfit, lang) : formatMoney(totalProfit || unitProfit, 'USD', lang))} ({unitPct.toFixed(2)}%)
+                        {(lang === 'zh' ? '预计收益' : 'Est. Profit')}: {(currency === 'USDT' ? formatUSDT(totalProfit || unitProfit, lang) : formatMoney((totalProfit || unitProfit) * usdToMxnRate, 'MXN', lang))} ({unitPct.toFixed(2)}%)
                       </div>
                     </div>
                     <div className="form admin-form-compact" style={{ marginTop: 4 }}>
@@ -262,7 +311,27 @@ export default function InstitutionBlocks() {
                         style={{ WebkitTextSecurity: 'disc', maxWidth: 320 }}
                       />
                       <label className="label">{labels.qty}</label>
-                      <input className="input" type="number" min={minQty} step="1" placeholder={String(minQty)} value={qtyMap[it.id] || ''} onChange={e => setQtyMap(p => ({ ...p, [it.id]: e.target.value }))} style={{ maxWidth: 240 }} />
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#8aa0bd', marginBottom: 4 }}>
+                          <span>{lang === 'zh' ? '可用余额' : (lang === 'es' ? 'Saldo disponible' : 'Available Balance')}: {market === 'crypto' ? formatUSDT(balances.USDT || 0, lang) : formatMoney(balances.MXN || 0, 'MXN', lang)}</span>
+                          <span>{sliderMap[it.id] || 0}%</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={sliderMap[it.id] || 0}
+                          onChange={e => handleSliderChange(it, Number(e.target.value), currentPrice)}
+                          style={{ width: '100%', cursor: 'pointer' }}
+                        />
+                      </div>
+                      <input className="input" type="number" min={minQty} step="1" placeholder={String(minQty)} value={qtyMap[it.id] || ''} onChange={e => {
+                        const v = e.target.value;
+                        setQtyMap(p => ({ ...p, [it.id]: v }));
+                        // Reset slider if manual input (or calculate reverse percentage if desired, but reset is simpler)
+                        setSliderMap(p => ({ ...p, [it.id]: 0 }));
+                      }} style={{ maxWidth: 240 }} />
                       <div className="sub-actions" style={{ justifyContent: 'flex-end' }}>
                         <button className="btn primary" disabled={submittingId === it.id} onClick={() => submit(it)}>
                           {submittingId === it.id ? labels.submitting : labels.btnSubmit}
