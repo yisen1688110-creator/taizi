@@ -1,9 +1,25 @@
-/* 交易页面样式 */
+/* 交易页面样式 - 简约商业风 */
 .trading-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-  padding-bottom: 100px; /* 为底部导航留出空间 */
+  background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%);
+  padding: 12px;
+  padding-bottom: 100px;
+}
+
+/* 移动端Swap页面全宽适配 */
+@media (max-width: 768px) {
+  .trading-page {
+    padding: 8px;
+    padding-bottom: 100px;
+  }
+  .trading-page .chart-section,
+  .trading-page .trading-card,
+  .trading-page .price-ticker,
+  .trading-page .market-selector-section {
+    margin-left: 0;
+    margin-right: 0;
+    border-radius: var(--radius);
+  }
 }
 
 .trading-header {
@@ -12,16 +28,15 @@
 }
 
 .trading-header h1 {
-  color: white;
-  font-size: 28px;
-  font-weight: 600;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 700;
   margin: 0;
-  text-shadow: 0 2px 4px rgba(0,0,0,0.3);
 }
 
 .trading-header p {
-  color: rgba(255,255,255,0.9);
-  font-size: 16px;
+  color: var(--muted);
+  font-size: 15px;
   margin: 8px 0 0 0;
 }
 
@@ -167,25 +182,27 @@
   max-width: var(--card-w);
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 10px;
 }
 .wallet-compact .wallet-item {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: #152035;
-  border: 1px solid #2a3441;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
 }
 .wallet-compact .wallet-item .label {
-  color: #8aa1c7;
-  font-size: 12px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
 }
 .wallet-compact .wallet-item .amount {
-  color: #e2e8f0;
-  font-weight: 600;
-  font-size: clamp(12px, 2.6vw, 16px);
+  color: var(--text);
+  font-weight: 700;
+  font-size: clamp(13px, 2.6vw, 16px);
 }
 
 @media (max-width: 520px) {
@@ -194,10 +211,56 @@
   }
 }
 
-/* 成交记录页面：让整体靠左对齐并提供页面栅格（提高优先级覆盖 .screen 默认居中） */
+/* 成交记录页面：让整体铺满（提高优先级覆盖 .screen 默认居中） */
 .screen.trading-screen {
-  align-items: flex-start !important;
+  align-items: stretch !important;
   justify-content: flex-start !important;
+  padding: 8px !important;
+  padding-bottom: 80px !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 交易页面全宽布局 */
+.trading-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* 移动端Swap页面全宽 */
+@media (max-width: 768px) {
+  .screen.trading-screen {
+    padding: 6px !important;
+    padding-bottom: 80px !important;
+  }
+  .trading-main {
+    padding: 0 !important;
+    gap: 8px !important;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .chart-section {
+    border-radius: var(--radius-sm);
+    width: 100%;
+    margin: 0;
+  }
+  .trading-card {
+    border-radius: var(--radius-sm);
+    width: 100%;
+  }
+  .price-ticker {
+    border-radius: var(--radius-sm);
+    width: 100%;
+  }
+  .market-selector-section {
+    width: 100%;
+  }
 }
 
 .trades-page-header {
@@ -236,17 +299,17 @@
 }
 
 .deal-header {
-  color: #718096;
+  color: var(--muted);
   font-size: 12px;
   padding: 8px 10px;
-  border-bottom: 1px solid #2a3441;
+  border-bottom: 1px solid var(--card-border);
 }
 
 .deal-row {
   padding: 10px;
-  border-radius: 8px;
-  background: #152035;
-  border: 1px solid #2a3441;
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
 }
 
 /* 市场选择器区域 */
@@ -272,11 +335,12 @@
   width: 100%;
   height: auto;
   min-height: 400px;
-  background: #0d1421;
-  border-radius: 8px;
+  background: var(--card-bg);
+  border-radius: var(--radius);
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow);
   margin-bottom: 16px;
+  border: 1px solid var(--card-border);
 }
 
 /* TradingView Widget 容器 */
@@ -292,18 +356,18 @@
 
 /* TradingChart 组件样式 */
 .trading-chart-widget {
-  background: linear-gradient(135deg, #1e2139 0%, #2a2d3a 100%);
-  border-radius: 12px;
+  background: var(--card-bg);
+  border-radius: var(--radius);
   padding: 20px;
   margin-bottom: 20px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  border: 1px solid #404040;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--card-border);
 }
 
 .trading-chart-widget.professional {
-  background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%);
-  border: 1px solid #2d3748;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-lg);
 }
 
 .chart-header {
@@ -312,7 +376,7 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 15px;
-  border-bottom: 1px solid #404040;
+  border-bottom: 1px solid var(--card-border);
 }
 
 /* 市场选择器样式 */
@@ -333,14 +397,14 @@
 }
 
 .market-selector:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--accent-light);
 }
 
 .market-name {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text);
 }
 
 .dropdown-arrow {
@@ -359,20 +423,20 @@
 }
 
 .market-dropdown {
-  background: #1a1a2e;
-  border: 1px solid #333;
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   min-width: 280px;
 }
 
 .market-option {
   padding: 12px 16px;
-  color: #ffffff;
+  color: var(--text);
   cursor: pointer;
   transition: all 0.2s ease;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--card-border);
 }
 
 .market-option:last-child {
@@ -380,20 +444,20 @@
 }
 
 .market-option:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--accent-light);
 }
 
 .market-option.active {
-  background: rgba(102, 126, 234, 0.2);
-  color: #667eea;
+  background: var(--accent-light);
+  color: var(--accent);
 }
 
 /* 股票选择面板样式 */
 .stock-panel {
-  background: #1a1a2e;
-  border: 1px solid #333;
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
   margin-left: 0; /* 移除左边距 */
   width: 400px;
   max-height: 500px;
@@ -404,24 +468,24 @@
 
 .stock-panel-header {
   padding: 16px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--card-border);
 }
 
 .stock-search {
   width: 100%;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid #444;
-  border-radius: 6px;
-  color: #ffffff;
+  background: #f8fafc;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
   font-size: 14px;
   outline: none;
   transition: all 0.2s ease;
 }
 
 .stock-search:focus {
-  border-color: #667eea;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--accent);
+  background: #ffffff;
 }
 
 .stock-search::placeholder {
@@ -586,8 +650,8 @@
 .chart-container.professional {
   height: auto;
   min-height: 400px;
-  background: linear-gradient(135deg, #0a0e1a 0%, #1a1f2e 100%);
-  border: 1px solid #2d3748;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
 }
 
 .professional-chart {
@@ -757,10 +821,10 @@
 
 /* K线图容器 */
 .trading-chart-container {
-  background: #1a1f2e;
-  border-radius: 12px;
+  background: var(--card-bg);
+  border-radius: var(--radius);
   padding: 20px;
-  border: 1px solid #2a3441;
+  border: 1px solid var(--card-border);
 }
 
 .chart-placeholder {
@@ -773,14 +837,14 @@
   align-items: center;
   justify-content: center;
   min-height: 300px;
-  background: #0f1419;
-  border-radius: 8px;
-  border: 2px dashed #2a3441;
+  background: #f8fafc;
+  border-radius: var(--radius-sm);
+  border: 2px dashed var(--card-border);
 }
 
 .chart-mock {
   font-size: 48px;
-  color: #4a5568;
+  color: var(--muted);
   margin-bottom: 16px;
 }
 
@@ -797,50 +861,65 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(21,32,53,0.6);
-  border: 1px solid #2a3441;
-  border-radius: 10px;
-  padding: 10px 14px;
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
 }
 .ticker-left { display: flex; align-items: center; gap: 8px; }
-.ticker-symbol { color: #a8b3cf; font-weight: 600; }
+.ticker-symbol { color: var(--text); font-weight: 700; }
 .ticker-right { display: flex; align-items: baseline; gap: 10px; }
-.ticker-price { color: #ffffff; font-size: 18px; font-weight: 700; transition: color 0.2s ease; }
-.ticker-price.up { color: #5cff9b; }
-.ticker-price.down { color: #ff5c7a; }
+.ticker-price { color: var(--text); font-size: 20px; font-weight: 700; transition: color 0.2s ease; }
+.ticker-price.up { color: var(--success); }
+.ticker-price.down { color: var(--error); }
 .ticker-arrow { margin-left: 6px; font-size: 14px; line-height: 1; }
-.ticker-arrow.up { color: #5cff9b; }
-.ticker-arrow.down { color: #ff5c7a; }
-.ticker-change { font-size: 12px; }
-.ticker-change.up { color: #5cff9b; }
-.ticker-change.down { color: #ff5c7a; }
+.ticker-arrow.up { color: var(--success); }
+.ticker-arrow.down { color: var(--error); }
+.ticker-change { font-size: 13px; font-weight: 500; }
+.ticker-change.up { color: var(--success); }
+.ticker-change.down { color: var(--error); }
 
 /* 交易记录入口图标 */
 .trades-icon {
-  width: 24px; height: 24px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.06); color: #e5e5e5; cursor: pointer;
+  width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--card-border);
+  background: var(--card-bg); color: var(--text); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
+  transition: all 0.2s ease;
 }
-.trades-icon:hover { background: rgba(255,255,255,0.12); color: #ffffff; }
+.trades-icon:hover { 
+  background: rgba(59, 130, 246, 0.1); 
+  border-color: var(--accent);
+  color: var(--accent); 
+}
 
 .close-btn {
-  border: 1px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.06);
-  color: #e5e5e5; border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text); 
+  border-radius: var(--radius-sm); 
+  padding: 8px 12px; 
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
-.close-btn:hover { background: rgba(255,255,255,0.12); color: #ffffff; }
+.close-btn:hover { 
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--accent);
+  color: var(--accent); 
+}
 
 .trading-card {
-  background: #1a1f2e;
-  border-radius: 12px;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
   padding: 20px;
-  border: 1px solid #2a3441;
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-xl);
 }
 
 .trading-card h3 {
-  color: #ffffff;
+  color: var(--text);
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 700;
   margin: 0 0 16px 0;
   text-align: center;
 }
@@ -857,20 +936,20 @@
   align-items: center;
   justify-content: center;
   min-height: 200px;
-  background: #0f1419;
-  border-radius: 8px;
-  border: 2px dashed #2a3441;
+  background: #f8fafc;
+  border-radius: var(--radius-sm);
+  border: 2px dashed var(--card-border);
   padding: 20px;
 }
 
 .portfolio-mock {
   font-size: 32px;
-  color: #4a5568;
+  color: var(--muted);
   margin-bottom: 12px;
 }
 
 .portfolio-placeholder p {
-  color: #718096;
+  color: var(--muted);
   font-size: 12px;
   text-align: center;
   margin: 0;
@@ -886,9 +965,9 @@
   display: grid;
   grid-template-columns: 1.2fr 0.8fr 1fr 1fr 0.8fr;
   gap: 8px;
-  color: #a8b3cf;
+  color: var(--muted);
   font-size: 12px;
-  border-bottom: 1px solid #2a3441;
+  border-bottom: 1px solid var(--card-border);
   padding-bottom: 6px;
 }
 .pos-row {
@@ -898,13 +977,13 @@
   align-items: center;
   padding: 6px 0;
 }
-.pos-symbol { color: #ffffff; font-weight: 600; }
-.pos-qty { color: #a8b3cf; }
-.pos-avg { color: #a8b3cf; }
+.pos-symbol { color: var(--text); font-weight: 600; }
+.pos-qty { color: var(--muted); }
+.pos-avg { color: var(--muted); }
 .pos-pnl { font-weight: 600; }
 .pos-pnlpct { font-size: 12px; }
-.pos-pnl.up, .pos-pnlpct.up { color: #5cff9b; }
-.pos-pnl.down, .pos-pnlpct.down { color: #ff5c7a; }
+.pos-pnl.up, .pos-pnlpct.up { color: var(--success); }
+.pos-pnl.down, .pos-pnlpct.down { color: var(--error); }
 
 /* Long/Short 角标样式 */
 .pos-badge {
@@ -928,8 +1007,8 @@
 
 .order-type-tabs {
   display: flex;
-  background: #2a3441;
-  border-radius: 8px;
+  background: var(--accent-light);
+  border-radius: var(--radius);
   padding: 4px;
 }
 
@@ -938,8 +1017,8 @@
   padding: 12px 16px;
   background: transparent;
   border: none;
-  border-radius: 6px;
-  color: #718096;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -952,16 +1031,16 @@
 }
 
 .tab-btn.active.buy {
-  background: #00d4aa;
+  background: var(--success);
 }
 
 .tab-btn.active.sell {
-  background: #ff4757;
+  background: var(--error);
 }
 
 .tab-btn:hover:not(.active) {
-  background: #3a4551;
-  color: #ffffff;
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--accent);
 }
 
 .price-type-tabs {
@@ -972,10 +1051,10 @@
 .price-tab {
   flex: 1;
   padding: 10px 16px;
-  background: #2a3441;
-  border: 1px solid #3a4551;
-  border-radius: 6px;
-  color: #718096;
+  background: #f1f5f9;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -983,14 +1062,15 @@
 }
 
 .price-tab.active {
-  background: #4a9eff;
-  border-color: #4a9eff;
+  background: var(--accent);
+  border-color: var(--accent);
   color: #ffffff;
 }
 
 .price-tab:hover:not(.active) {
-  background: #3a4551;
-  color: #ffffff;
+  background: var(--accent-light);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .form-group {
@@ -1000,34 +1080,35 @@
 }
 
 .form-group label {
-  color: #ffffff;
+  color: var(--text);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .form-input {
   padding: 12px 16px;
-  background: #2a3441;
-  border: 1px solid #3a4551;
-  border-radius: 8px;
-  color: #ffffff;
+  background: #f8fafc;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  color: var(--text);
   font-size: 16px;
 }
 
 .form-input:focus {
   outline: none;
-  border-color: #4a9eff;
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
+  background: #ffffff;
 }
 
 .form-input::placeholder {
-  color: #718096;
+  color: var(--muted);
 }
 
 .submit-btn {
   padding: 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
   color: #ffffff;
   font-size: 16px;
   font-weight: 600;
@@ -1037,16 +1118,16 @@
 }
 
 .submit-btn.buy {
-  background: #00d4aa;
+  background: var(--success);
 }
 
 .submit-btn.sell {
-  background: #ff4757;
+  background: var(--error);
 }
 
 .submit-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .submit-btn:disabled {
@@ -1058,13 +1139,13 @@
 
 .guidance-note {
   text-align: center;
-  color: #718096;
+  color: var(--text-secondary);
   font-size: 12px;
   font-style: italic;
   padding: 12px;
-  background: #0f1419;
-  border-radius: 6px;
-  border: 1px solid #2a3441;
+  background: #f1f5f9;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--card-border);
 }
 
 /* 响应式设计 */
@@ -1185,18 +1266,19 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #152035;
-  border: 1px solid #2a3441;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--accent-light);
+  border: 1px solid var(--accent);
   margin-bottom: 10px;
 }
 .balance-chip .chip-label {
-  color: #8aa1c7;
-  font-size: 12px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
 }
 .balance-chip .chip-value {
-  color: #e2e8f0;
-  font-weight: 600;
-  font-size: 14px;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 15px;
 }

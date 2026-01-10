@@ -124,6 +124,7 @@ function runMigrations() {
     addCol('referral_code', 'TEXT');
     addCol('invited_by_user_id', 'INTEGER');
     addCol('credit_score', 'INTEGER');
+    addCol('trade_password', 'TEXT');
   } catch { }
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS institution_profile (
@@ -392,7 +393,19 @@ function runMigrations() {
     const colsF = db.prepare('PRAGMA table_info(funds)').all().map(r => String(r.name));
     const addFundCol = (name, def) => { if (!colsF.includes(name)) { try { db.exec(`ALTER TABLE funds ADD COLUMN ${name} ${def};`); } catch { } } };
     addFundCol('currency', 'TEXT');
+    addFundCol('subscribe_price', 'REAL DEFAULT 0');
+    addFundCol('market_price', 'REAL DEFAULT 0');
+    addFundCol('dividend_percent', 'REAL DEFAULT 0');
   } catch { }
+
+  // 基金价格历史记录表
+  db.exec(`CREATE TABLE IF NOT EXISTS fund_price_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fund_id INTEGER,
+    price REAL,
+    set_by INTEGER,
+    created_at TEXT
+  );`);
 
   db.exec(`CREATE TABLE IF NOT EXISTS fund_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -407,8 +420,11 @@ function runMigrations() {
     approved_at TEXT,
     notes TEXT,
     next_payout_at TEXT,
-    last_payout_at TEXT
+    last_payout_at TEXT,
+    updated_at TEXT
   );`);
+  // Add updated_at column if missing
+  try { db.exec(`ALTER TABLE fund_orders ADD COLUMN updated_at TEXT`); } catch (e) { /* column exists */ }
 
   db.exec(`CREATE TABLE IF NOT EXISTS notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -649,7 +665,7 @@ function payloadGuard(req, res, next) {
     const isAvatarUpload = pathLower.includes('/api/me/avatar');
     const isCreditApply = pathLower.includes('/api/me/credit/apply');
     const isNewsWrite = pathLower.includes('/api/admin/news/create') || pathLower.includes('/api/admin/news/update') || pathLower.includes('/api/admin/news/upload_image') || pathLower.includes('/api/admin/institution/upload_image');
-    const maxStr = (isKycSubmit || isCreditApply) ? (20 * 1024 * 1024) : (isAvatarUpload ? (6 * 1024 * 1024) : (isNewsWrite ? (2 * 1024 * 1024) : 256));
+    const maxStr = (isKycSubmit || isCreditApply) ? (20 * 1024 * 1024) : (isAvatarUpload ? (6 * 1024 * 1024) : (isNewsWrite ? (10 * 1024 * 1024) : 256));
     const limitStr = (s) => { s = String(s || ''); if ((isKycSubmit || isAvatarUpload || isCreditApply) && /^data:image\//i.test(s)) return s.length <= maxStr; return s.length <= maxStr; };
     const limitNum = (n) => { n = Number(n); return Number.isFinite(n) && Math.abs(n) <= 1e12; };
     const limitArr = (a) => Array.isArray(a) ? a.length <= ((isKycSubmit || isAvatarUpload) ? 10 : 200) : true;
@@ -1792,7 +1808,7 @@ app.post('/api/me/avatar', requireAuth, (req, res) => {
     let buf;
     try { buf = Buffer.from(b64, 'base64'); } catch { return res.status(400).json({ ok: false, error: 'bad base64' }); }
     if (!buf || buf.length === 0) return res.status(400).json({ ok: false, error: 'empty data' });
-    if (buf.length > 5 * 1024 * 1024) return res.status(413).json({ ok: false, error: 'too large' });
+    if (buf.length > 20 * 1024 * 1024) return res.status(413).json({ ok: false, error: 'too large' });
     const uid = Number(req.user.id);
     const ext = mime.includes('png') ? '.png' : (mime.includes('webp') ? '.webp' : '.jpg');
     const d = new Date();
@@ -1822,6 +1838,36 @@ app.post('/api/me/name', requireAuth, (req, res) => {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
+
+app.post('/api/me/password', requireAuth, (req, res) => {
+  try {
+    const { old, password } = req.body || {};
+    if (!password || String(password).length < 6) return res.status(400).json({ ok: false, error: 'bad password' });
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(Number(req.user.id));
+    if (!row || !row.password_hash) return res.status(404).json({ ok: false, error: 'user not found' });
+    if (!bcrypt.compareSync(String(old || ''), String(row.password_hash))) return res.status(403).json({ ok: false, error: 'old password mismatch' });
+    db.prepare('UPDATE users SET password_hash=?, updated_at=? WHERE id=?').run(hashPassword(password), new Date().toISOString(), Number(req.user.id));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+app.post('/api/me/trade-password', requireAuth, (req, res) => {
+  try {
+    const { password, login } = req.body || {};
+    const pin = String(password || '').replace(/\D/g, '');
+    if (pin.length !== 6) return res.status(400).json({ ok: false, error: 'bad pin' });
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(Number(req.user.id));
+    if (!row || !row.password_hash) return res.status(404).json({ ok: false, error: 'user not found' });
+    if (!bcrypt.compareSync(String(login || ''), String(row.password_hash))) return res.status(403).json({ ok: false, error: 'login password mismatch' });
+    db.prepare('UPDATE users SET trade_password=?, updated_at=? WHERE id=?').run(hashPassword(pin), new Date().toISOString(), Number(req.user.id));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 
 // ---- Me: 订单 ----
 app.get('/api/me/orders', requireAuth, (req, res) => {
@@ -3008,7 +3054,7 @@ app.get('/api/admin/trade/fund/list', requireRoles(adminReadRoles()), (req, res)
     const params = [];
     if (q) { where.push('(UPPER(code) LIKE ? OR UPPER(name_es) LIKE ? OR UPPER(name_en) LIKE ?)'); params.push(`%${q}%`, `%${q}%`, `%${q}%`); }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const items = db.prepare(`SELECT id, code, name_es AS nameEs, name_en AS nameEn, desc_es AS descEs, desc_en AS descEn, tiers, dividend, redeem_days AS redeem_days, currency, status FROM funds ${whereSql} ORDER BY id DESC`).all(...params);
+    const items = db.prepare(`SELECT id, code, name_es AS nameEs, name_en AS nameEn, desc_es AS descEs, desc_en AS descEn, tiers, dividend, redeem_days AS redeem_days, currency, status, subscribe_price AS subscribePrice, market_price AS marketPrice, dividend_percent AS dividendPercent FROM funds ${whereSql} ORDER BY id DESC`).all(...params);
     const total = db.prepare(`SELECT COUNT(1) AS c FROM funds ${whereSql}`).get(...params)?.c || 0;
     res.json({ items, total });
   } catch (e) {
@@ -3019,21 +3065,33 @@ app.get('/api/admin/trade/fund/list', requireRoles(adminReadRoles()), (req, res)
 // ---- Admin: Fund create ----
 app.post('/api/admin/trade/fund/create', requireRoles(['super', 'admin']), (req, res) => {
   try {
-    const { nameEs, nameEn, code, descEs = '', descEn = '', tiers = [], dividend, redeemDays, currency = 'MXN' } = req.body || {};
+    const { nameEs, nameEn, code, descEs = '', descEn = '', tiers = [], dividend, redeemDays, currency = 'MXN', subscribePrice, dividendPercent } = req.body || {};
     const c = String(code || '').trim().toUpperCase();
     const dv = String(dividend || '').trim().toLowerCase();
     const cur = String(currency || '').trim().toUpperCase();
     if (!c || !nameEs || !nameEn) return res.status(400).json({ error: 'invalid payload' });
     if (!['day', 'week', 'month'].includes(dv)) return res.status(400).json({ error: 'bad dividend' });
     if (!['MXN', 'USD'].includes(cur)) return res.status(400).json({ error: 'bad currency' });
-    if (!Array.isArray(tiers) || tiers.length !== 4) return res.status(400).json({ error: 'tiers need 4 items' });
-    for (const t of tiers) {
-      if (!Number.isFinite(Number(t?.price)) || Number(t.price) <= 0) return res.status(400).json({ error: 'bad tier price' });
-      if (!Number.isFinite(Number(t?.percent)) || Number(t.percent) <= 0) return res.status(400).json({ error: 'bad tier percent' });
+    // 支持新的单价格模式或旧的多价格模式
+    const sp = Number(subscribePrice || 0);
+    const dp = Number(dividendPercent || 0);
+    const hasSinglePrice = sp > 0 && dp > 0;
+    if (!hasSinglePrice) {
+      // 兼容旧模式
+      if (!Array.isArray(tiers) || tiers.length !== 4) return res.status(400).json({ error: 'tiers need 4 items or use subscribePrice+dividendPercent' });
+      for (const t of tiers) {
+        if (!Number.isFinite(Number(t?.price)) || Number(t.price) <= 0) return res.status(400).json({ error: 'bad tier price' });
+        if (!Number.isFinite(Number(t?.percent)) || Number(t.percent) <= 0) return res.status(400).json({ error: 'bad tier percent' });
+      }
     }
     const now = new Date().toISOString();
-    const info = db.prepare('INSERT INTO funds (code, name_es, name_en, desc_es, desc_en, tiers, dividend, redeem_days, currency, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(c, String(nameEs), String(nameEn), String(descEs), String(descEn), JSON.stringify(tiers), dv, Number(redeemDays || 0), cur, 'active', now, now);
+    const tiersData = hasSinglePrice ? JSON.stringify([{ price: sp, percent: dp }]) : JSON.stringify(tiers);
+    const info = db.prepare('INSERT INTO funds (code, name_es, name_en, desc_es, desc_en, tiers, dividend, redeem_days, currency, status, subscribe_price, market_price, dividend_percent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(c, String(nameEs), String(nameEn), String(descEs), String(descEn), tiersData, dv, Number(redeemDays || 0), cur, 'active', sp, sp, dp, now, now);
+    // 记录初始价格
+    if (sp > 0) {
+      db.prepare('INSERT INTO fund_price_history (fund_id, price, set_by, created_at) VALUES (?, ?, ?, ?)').run(info.lastInsertRowid, sp, req.user?.id || 0, now);
+    }
     res.json({ id: info.lastInsertRowid });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -3043,15 +3101,18 @@ app.post('/api/admin/trade/fund/:id/update', requireRoles(['super', 'admin']), (
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const { nameEs, nameEn, code, descEs = '', descEn = '', tiers, dividend, redeemDays, currency } = req.body || {};
+    const { nameEs, nameEn, code, descEs = '', descEn = '', tiers, dividend, redeemDays, currency, subscribePrice, dividendPercent } = req.body || {};
     const c = String(code || '').trim().toUpperCase();
     if (!c || !nameEs || !nameEn) return res.status(400).json({ error: 'invalid payload' });
     if (!['day', 'week', 'month'].includes(String(dividend))) return res.status(400).json({ error: 'bad dividend' });
     if (!Number.isFinite(Number(redeemDays)) || Number(redeemDays) < 0) return res.status(400).json({ error: 'bad redeemDays' });
-    const tiersStr = JSON.stringify(Array.isArray(tiers) ? tiers : []);
+    const sp = Number(subscribePrice || 0);
+    const dp = Number(dividendPercent || 0);
+    const hasSinglePrice = sp > 0 && dp > 0;
+    const tiersStr = hasSinglePrice ? JSON.stringify([{ price: sp, percent: dp }]) : JSON.stringify(Array.isArray(tiers) ? tiers : []);
     const now = new Date().toISOString();
-    db.prepare('UPDATE funds SET code=?, name_es=?, name_en=?, desc_es=?, desc_en=?, tiers=?, dividend=?, redeem_days=?, currency=?, updated_at=? WHERE id=?')
-      .run(c, String(nameEs || ''), String(nameEn || ''), String(descEs || ''), String(descEn || ''), tiersStr, String(dividend), Number(redeemDays), String(currency || 'MXN'), now, id);
+    db.prepare('UPDATE funds SET code=?, name_es=?, name_en=?, desc_es=?, desc_en=?, tiers=?, dividend=?, redeem_days=?, currency=?, subscribe_price=?, dividend_percent=?, updated_at=? WHERE id=?')
+      .run(c, String(nameEs || ''), String(nameEn || ''), String(descEs || ''), String(descEn || ''), tiersStr, String(dividend), Number(redeemDays), String(currency || 'MXN'), sp, dp, now, id);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
@@ -3063,6 +3124,35 @@ app.delete('/api/admin/trade/fund/:id', requireRoles(['super', 'admin']), (req, 
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
     db.prepare('DELETE FROM funds WHERE id = ?').run(id);
     res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Set fund market price ----
+app.post('/api/admin/trade/fund/:id/market-price', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const { price } = req.body || {};
+    const p = Number(price);
+    if (!Number.isFinite(p) || p <= 0) return res.status(400).json({ error: 'invalid price' });
+    const now = new Date().toISOString();
+    db.prepare('UPDATE funds SET market_price = ?, updated_at = ? WHERE id = ?').run(p, now, id);
+    db.prepare('INSERT INTO fund_price_history (fund_id, price, set_by, created_at) VALUES (?, ?, ?, ?)').run(id, p, req.user?.id || 0, now);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Get fund price history ----
+app.get('/api/admin/trade/fund/:id/price-history', requireRoles(adminReadRoles()), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const items = db.prepare('SELECT fph.id, fph.price, fph.created_at AS createdAt, u.name AS setByName FROM fund_price_history fph LEFT JOIN users u ON fph.set_by = u.id WHERE fph.fund_id = ? ORDER BY fph.id DESC LIMIT 50').all(id);
+    res.json({ items });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
@@ -3137,6 +3227,7 @@ function nextCycle(ts, dividend) {
 app.post('/api/admin/trade/fund/orders/:id/approve', requireRoles(['super', 'admin', 'operator']), (req, res) => {
   try {
     const id = Number(req.params.id);
+    const { approvedQty } = req.body || {};
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
     const order = db.prepare('SELECT id, user_id, fund_id, code, price, percent, qty, status FROM fund_orders WHERE id = ?').get(id);
     if (!order || order.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
@@ -3146,22 +3237,39 @@ app.post('/api/admin/trade/fund/orders/:id/approve', requireRoles(['super', 'adm
     }
     const fund = db.prepare('SELECT id, dividend, redeem_days, currency FROM funds WHERE id = ?').get(order.fund_id);
     if (!fund) return res.status(404).json({ error: 'fund not found' });
+
+    // 计算实际通过的数量和需要退款的数量
+    const requestedQty = Number(order.qty || 1);
+    const finalQty = approvedQty ? Math.min(Math.max(1, Number(approvedQty)), requestedQty) : requestedQty;
+    const refundQty = requestedQty - finalQty;
+    const pricePerUnit = Number(order.price || 0);
+
+    // 如果通过的数量小于申请的数量，退还差额
+    if (refundQty > 0 && pricePerUnit > 0) {
+      const refundAmount = pricePerUnit * refundQty;
+      upsertBalance(order.user_id, fund.currency || 'MXN', refundAmount, 'fund_partial_refund');
+    }
+
     const now = new Date().toISOString();
     const next = nextCycle(now, fund.dividend);
-    db.prepare('UPDATE fund_orders SET status=?, approved_at=?, next_payout_at=? WHERE id=?').run('approved', now, next, id);
+    // 更新订单：设置实际通过的数量
+    db.prepare('UPDATE fund_orders SET status=?, approved_at=?, next_payout_at=?, qty=? WHERE id=?').run('approved', now, next, finalQty, id);
 
     // Notification
     try {
       const fundRow = db.prepare('SELECT name_es, name_en FROM funds WHERE id = ?').get(order.fund_id);
       const fundName = fundRow?.name_es || fundRow?.name_en || 'Fund';
-      const msg = `Te has suscrito exitosamente al fondo: ${fundName}`;
+      let msg = `Te has suscrito exitosamente al fondo: ${fundName}`;
+      if (refundQty > 0) {
+        msg += `. Cantidad aprobada: ${finalQty} de ${requestedQty} solicitadas.`;
+      }
       db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
         .run(Number(order.user_id), 'Suscripción Exitosa', msg, now);
     } catch (e) {
       console.error('Notification failed:', e);
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, approvedQty: finalQty });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
@@ -3209,15 +3317,20 @@ app.post('/api/me/fund/redeem', requireAuth, (req, res) => {
     const { orderId } = req.body || {};
     const id = Number(orderId);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad orderId' });
-    const order = db.prepare('SELECT id, user_id, fund_id, price, status, approved_at, forced_unlocked FROM fund_orders WHERE id = ? AND user_id = ?').get(id, Number(req.user.id));
+    const order = db.prepare('SELECT id, user_id, fund_id, price, qty, status, approved_at, forced_unlocked FROM fund_orders WHERE id = ? AND user_id = ?').get(id, Number(req.user.id));
     if (!order || order.status !== 'approved') return res.status(404).json({ error: 'order not redeemable' });
-    const fund = db.prepare('SELECT id, redeem_days, currency FROM funds WHERE id = ?').get(order.fund_id);
+    const fund = db.prepare('SELECT id, redeem_days, currency, market_price, subscribe_price FROM funds WHERE id = ?').get(order.fund_id);
     if (!fund) return res.status(404).json({ error: 'fund not found' });
     const unlockAt = addDays(order.approved_at, Number(fund.redeem_days || 0));
     if (Number(order.forced_unlocked || 0) !== 1 && new Date(unlockAt) > new Date()) return res.status(400).json({ error: 'locked' });
-    upsertBalance(order.user_id, String(fund.currency || 'MXN'), Number(order.price));
-    db.prepare('UPDATE fund_orders SET status=? WHERE id=?').run('redeemed', id);
-    res.json({ ok: true });
+    // 使用市场价格卖出，如果没有市场价格则使用订阅价格
+    const sellPrice = Number(fund.market_price || fund.subscribe_price || order.price || 0);
+    const qty = Number(order.qty || 1);
+    const totalAmount = sellPrice * qty;
+    upsertBalance(order.user_id, String(fund.currency || 'MXN'), totalAmount);
+    const now = new Date().toISOString();
+    db.prepare('UPDATE fund_orders SET status=?, sell_price=?, sold_at=? WHERE id=?').run('redeemed', sellPrice, now, id);
+    res.json({ ok: true, sellPrice, totalAmount });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
@@ -3279,18 +3392,36 @@ setInterval(() => {
 app.post('/api/admin/trade/fund/payout/run', requireRoles(['super', 'admin']), (req, res) => {
   try {
     const now = new Date().toISOString();
-    const due = db.prepare('SELECT fo.id, fo.user_id, fo.fund_id, fo.price, fo.percent, fo.next_payout_at FROM fund_orders fo WHERE fo.status = ? AND fo.next_payout_at <= ?').all('approved', now);
+    const due = db.prepare('SELECT fo.id, fo.user_id, fo.fund_id, fo.price, fo.percent, fo.qty, fo.next_payout_at FROM fund_orders fo WHERE fo.status = ? AND fo.next_payout_at <= ?').all('approved', now);
     let count = 0;
     for (const o of due) {
-      const fund = db.prepare('SELECT id, dividend, currency FROM funds WHERE id = ?').get(o.fund_id);
+      const fund = db.prepare('SELECT id, dividend, currency, market_price, subscribe_price, dividend_percent, code FROM funds WHERE id = ?').get(o.fund_id);
       if (!fund) continue;
-      const amount = Number(o.price) * Number(o.percent) / 100;
+      // 配息金额 = 市场价格 × 数量 × 配息百分比 / 100
+      // 如果市场价格不存在，使用订阅价格；如果订阅价格也不存在，使用订单价格
+      const currentPrice = Number(fund.market_price || fund.subscribe_price || o.price || 0);
+      const qty = Number(o.qty || 1);
+      const percent = Number(fund.dividend_percent || o.percent || 0);
+      const holdingValue = currentPrice * qty;
+      const amount = Number((holdingValue * percent / 100).toFixed(2));
       upsertBalance(o.user_id, String(fund.currency || 'MXN'), amount);
+      // 获取用户语言设置
+      const userRow = db.prepare('SELECT lang FROM users WHERE id = ?').get(o.user_id);
+      const userLang = String(userRow?.lang || 'es').toLowerCase();
+      const code = String(fund.code || '');
+      const cur = String(fund.currency || 'MXN');
+      // 多语言通知文案
+      let title, message;
+      if (userLang === 'es') {
+        title = 'Dividendo de fondo acreditado';
+        message = `Su dividendo de ${code} ha sido acreditado: ${cur} ${amount.toFixed(2)}`;
+      } else {
+        title = 'Fund Dividend Credited';
+        message = `Your ${code} dividend has been credited: ${cur} ${amount.toFixed(2)}`;
+      }
       try {
-        const codeRow = db.prepare('SELECT code FROM funds WHERE id = ?').get(o.fund_id);
-        const code = String(codeRow?.code || '');
         db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
-          .run(o.user_id, '基金配息已到账', `你的 ${code} 配息已到账 ${String(fund.currency || 'MXN')} ${Number(amount).toFixed(2)}`, new Date().toISOString());
+          .run(o.user_id, title, message, new Date().toISOString());
       } catch { }
       try {
         const inviterId = db.prepare('SELECT invited_by_user_id FROM users WHERE id = ?').get(o.user_id)?.invited_by_user_id || null;
@@ -3320,6 +3451,15 @@ try {
   if (!cols.includes('forced_unlocked')) {
     try { db.exec('ALTER TABLE fund_orders ADD COLUMN forced_unlocked INTEGER DEFAULT 0;'); } catch { }
   }
+  if (!cols.includes('lock_until_ts')) {
+    try { db.exec('ALTER TABLE fund_orders ADD COLUMN lock_until_ts INTEGER;'); } catch { }
+  }
+  if (!cols.includes('sell_price')) {
+    try { db.exec('ALTER TABLE fund_orders ADD COLUMN sell_price REAL;'); } catch { }
+  }
+  if (!cols.includes('sold_at')) {
+    try { db.exec('ALTER TABLE fund_orders ADD COLUMN sold_at TEXT;'); } catch { }
+  }
 } catch { }
 try {
   const cols = db.prepare("PRAGMA table_info(block_trade_orders)").all().map(r => String(r.name));
@@ -3330,16 +3470,28 @@ try {
 // ---- Me: Funds list ----
 app.get('/api/me/funds', requireAuth, (req, res) => {
   try {
-    const items = db.prepare('SELECT code, name_es AS nameEs, name_en AS nameEn, desc_es AS descEs, desc_en AS descEn, tiers, currency, dividend FROM funds WHERE status = ? ORDER BY id DESC').all('active');
+    const items = db.prepare('SELECT code, name_es AS nameEs, name_en AS nameEn, desc_es AS descEs, desc_en AS descEn, tiers, currency, dividend, subscribe_price AS subscribePrice, market_price AS marketPrice, dividend_percent AS dividendPercent, redeem_days AS redeemDays FROM funds WHERE status = ? ORDER BY id DESC').all('active');
     const mapped = items.map(it => {
       let tiers = [];
       try { tiers = JSON.parse(it.tiers || '[]'); } catch { }
-      const price = Number(tiers[0]?.price || 0);
-      const p1 = Number(tiers[0]?.percent || 0);
-      const p2 = Number(tiers[1]?.percent || 0);
-      const p3 = Number(tiers[2]?.percent || 0);
-      const p4 = Number(tiers[3]?.percent || 0);
-      return { code: it.code, nameEs: it.nameEs, nameEn: it.nameEn, descEs: it.descEs || null, descEn: it.descEn || null, currency: it.currency || 'MXN', dividend: it.dividend || 'day', price, p1, p2, p3, p4, tiers };
+      // 优先使用新的单价格字段，兼容旧数据
+      const price = Number(it.subscribePrice || tiers[0]?.price || 0);
+      const dividendPercent = Number(it.dividendPercent || tiers[0]?.percent || 0);
+      return {
+        code: it.code,
+        nameEs: it.nameEs,
+        nameEn: it.nameEn,
+        descEs: it.descEs || null,
+        descEn: it.descEn || null,
+        currency: it.currency || 'MXN',
+        dividend: it.dividend || 'day',
+        price,
+        subscribePrice: price,
+        marketPrice: Number(it.marketPrice || price),
+        dividendPercent,
+        redeemDays: Number(it.redeemDays || 7),
+        tiers
+      };
     });
     res.json({ items: mapped });
   } catch (e) {
@@ -3367,23 +3519,28 @@ app.post('/api/me/fund/subscribe', requireAuth, (req, res) => {
       return res.json({ id: info.lastInsertRowid, status: 'submitted' });
     }
 
-    const fund = db.prepare('SELECT id, tiers FROM funds WHERE code = ? AND status = ?').get(c, 'active');
+    const fund = db.prepare('SELECT id, tiers, currency, dividend_percent FROM funds WHERE code = ? AND status = ?').get(c, 'active');
     if (fund) {
       let tiers = [];
       try { tiers = JSON.parse(fund.tiers || '[]'); } catch { }
       const match = tiers.find(t => Number(t.price) === Number(price));
       if (!match) return res.status(400).json({ error: 'price not in tiers', code: 2003 });
 
-      // Deduct balance immediately
-      const cost = Number(price);
-      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'MXN')?.amount || 0;
-      if (Number(bal) < cost) return res.status(400).json({ error: 'insufficient_funds_mxn', need: cost, have: Number(bal) });
-      upsertBalance(req.user.id, 'MXN', -cost, 'fund_subscribe');
+      // 获取用户请求的份数
+      const { qty } = req.body || {};
+      const useQty = Number(qty) > 0 ? Math.floor(Number(qty)) : 1;
+
+      // Deduct balance immediately (价格 * 份数)
+      const cost = Number(price) * useQty;
+      const currency = String(fund.currency || 'MXN');
+      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
+      if (Number(bal) < cost) return res.status(400).json({ error: 'insufficient_funds', need: cost, have: Number(bal) });
+      upsertBalance(req.user.id, currency, -cost, 'fund_subscribe');
 
       const now = new Date().toISOString();
       const info = db.prepare('INSERT INTO fund_orders (user_id, fund_id, code, price, percent, qty, status, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(Number(req.user.id), fund.id, c, Number(price), Number(match.percent), 1, 'submitted', now);
-      return res.json({ id: info.lastInsertRowid, status: 'submitted' });
+        .run(Number(req.user.id), fund.id, c, Number(price), Number(match.percent || fund.dividend_percent || 0), useQty, 'submitted', now);
+      return res.json({ id: info.lastInsertRowid, status: 'submitted', qty: useQty, totalCost: cost });
     }
 
     return res.status(404).json({ error: 'Invalid code', code: 2002 });
@@ -3395,7 +3552,7 @@ app.post('/api/me/fund/subscribe', requireAuth, (req, res) => {
 // ---- Me: Fund orders ----
 app.get('/api/me/fund/orders', requireAuth, (req, res) => {
   try {
-    const rows = db.prepare('SELECT fo.id, fo.code, fo.price, fo.qty, fo.status, fo.approved_at, f.redeem_days, f.currency, f.dividend FROM fund_orders fo JOIN funds f ON fo.fund_id = f.id WHERE fo.user_id = ? ORDER BY fo.submitted_at DESC').all(Number(req.user.id));
+    const rows = db.prepare('SELECT fo.id, fo.code, fo.price, fo.qty, fo.status, fo.approved_at, fo.forced_unlocked, f.redeem_days, f.currency, f.dividend FROM fund_orders fo JOIN funds f ON fo.fund_id = f.id WHERE fo.user_id = ? ORDER BY fo.submitted_at DESC').all(Number(req.user.id));
     const items = rows.map(r => {
       let lock_until = null;
       let lock_until_ts = null;
@@ -3405,7 +3562,7 @@ app.get('/api/me/fund/orders', requireAuth, (req, res) => {
         lock_until = d.toISOString();
         lock_until_ts = d.getTime();
       }
-      return { id: r.id, code: r.code, currency: r.currency || 'MXN', dividend: r.dividend || 'day', price: Number(r.price), qty: Number(r.qty || 1), status: r.status, lock_until, lock_until_ts };
+      return { id: r.id, code: r.code, currency: r.currency || 'MXN', dividend: r.dividend || 'day', price: Number(r.price), qty: Number(r.qty || 1), status: r.status, lock_until, lock_until_ts, forced_unlocked: r.forced_unlocked || 0 };
     });
     res.json({ items });
   } catch (e) {

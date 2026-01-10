@@ -99,6 +99,15 @@ export default function Home() {
   const [error, setError] = useState("");
   const [UPDATED_AT, setUpdatedAt] = useState(0);
   const [market, setMarket] = useState("us"); // mx | us | crypto
+  
+  // 新闻轮播图状态
+  const [newsCarousel, setNewsCarousel] = useState([]);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const carouselTimerRef = useRef(null);
+  const carouselTouchStartRef = useRef(null);
+  const carouselTouchXRef = useRef(0);
+  const carouselMouseDownRef = useRef(false);
+  const carouselMouseXRef = useRef(0);
   const [cryptoCurrency, setCryptoCurrency] = useState(() => {
     try { return localStorage.getItem("cryptoCurrency") || "USD"; } catch { return "USD"; }
   });
@@ -729,6 +738,212 @@ export default function Home() {
     first();
   }, []);
 
+  // 获取新闻用于轮播图（最多3条）
+  useEffect(() => {
+    const fetchNewsCarousel = async () => {
+      try {
+        const cacheKey = 'home:news:carousel';
+        const cached = (() => { try { return JSON.parse(localStorage.getItem(cacheKey)||'null')||null } catch { return null } })();
+        // 缓存5分钟
+        if (cached && Array.isArray(cached.items) && cached.items.length && Date.now() - (cached.ts||0) < 300000) {
+          setNewsCarousel(cached.items.slice(0, 3));
+          return;
+        }
+        const r = await fetch(`/api/news/feed?market=mx&lang=${encodeURIComponent(lang)}`);
+        const j = await r.json().catch(()=>({ items: [] }));
+        let list = Array.isArray(j?.items) ? j.items.slice(0, 3) : [];
+        if (!list.length) {
+          const r2 = await fetch(`/api/news/mx?lang=${encodeURIComponent(lang)}`).catch(()=>null);
+          const j2 = r2 ? await r2.json().catch(()=>({ items: [] })) : { items: [] };
+          list = Array.isArray(j2.items) ? j2.items.slice(0, 3) : [];
+        }
+        if (list.length) {
+          setNewsCarousel(list);
+          try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), items: list })) } catch {}
+        } else if (cached && Array.isArray(cached.items)) {
+          setNewsCarousel(cached.items.slice(0, 3));
+        }
+      } catch {
+        // 使用缓存
+        try {
+          const cached = JSON.parse(localStorage.getItem('home:news:carousel')||'null');
+          if (cached && Array.isArray(cached.items)) setNewsCarousel(cached.items.slice(0, 3));
+        } catch {}
+      }
+    };
+    fetchNewsCarousel();
+  }, [lang]);
+
+  // 轮播图自动切换（每5秒）
+  useEffect(() => {
+    if (newsCarousel.length <= 1) return;
+    carouselTimerRef.current = setInterval(() => {
+      setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+    }, 5000);
+    return () => { if (carouselTimerRef.current) clearInterval(carouselTimerRef.current); };
+  }, [newsCarousel.length]);
+
+  // 轮播图滑动处理函数（触摸事件）
+  const handleCarouselTouchStart = (e) => {
+    // 暂停自动切换
+    if (carouselTimerRef.current) {
+      clearInterval(carouselTimerRef.current);
+      carouselTimerRef.current = null;
+    }
+    carouselTouchStartRef.current = Date.now();
+    carouselTouchXRef.current = e.touches[0].clientX;
+  };
+
+  const handleCarouselTouchMove = (e) => {
+    if (!carouselTouchStartRef.current) return;
+    e.preventDefault(); // 防止页面滚动
+  };
+
+  const handleCarouselTouchEnd = (e) => {
+    if (!carouselTouchStartRef.current) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const touchStartX = carouselTouchXRef.current;
+    const deltaX = touchStartX - touchEndX;
+    const deltaTime = Date.now() - carouselTouchStartRef.current;
+    
+    // 滑动距离超过50px或快速滑动（时间少于300ms且距离超过30px）时切换
+    const minSwipeDistance = 50;
+    const quickSwipeDistance = 30;
+    const quickSwipeTime = 300;
+    
+    if (Math.abs(deltaX) > minSwipeDistance || (Math.abs(deltaX) > quickSwipeDistance && deltaTime < quickSwipeTime)) {
+      if (deltaX > 0) {
+        // 向左滑动，显示下一张
+        setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+      } else {
+        // 向右滑动，显示上一张
+        setCarouselIndex(prev => (prev - 1 + newsCarousel.length) % newsCarousel.length);
+      }
+    }
+    
+    // 重置触摸状态
+    carouselTouchStartRef.current = null;
+    carouselTouchXRef.current = 0;
+    
+    // 重新启动自动切换
+    if (newsCarousel.length > 1) {
+      carouselTimerRef.current = setInterval(() => {
+        setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+      }, 5000);
+    }
+  };
+
+  // 轮播图滑动处理函数（鼠标事件，用于桌面端）
+  const handleCarouselMouseDown = (e) => {
+    // 暂停自动切换
+    if (carouselTimerRef.current) {
+      clearInterval(carouselTimerRef.current);
+      carouselTimerRef.current = null;
+    }
+    carouselMouseDownRef.current = true;
+    carouselMouseXRef.current = e.clientX;
+    e.preventDefault();
+  };
+
+  const handleCarouselMouseMove = (e) => {
+    if (!carouselMouseDownRef.current) return;
+    e.preventDefault();
+  };
+
+  const handleCarouselMouseUp = (e) => {
+    if (!carouselMouseDownRef.current) return;
+    const mouseEndX = e.clientX;
+    const mouseStartX = carouselMouseXRef.current;
+    const deltaX = mouseStartX - mouseEndX;
+    
+    // 滑动距离超过50px时切换
+    const minSwipeDistance = 50;
+    
+    if (Math.abs(deltaX) > minSwipeDistance) {
+      if (deltaX > 0) {
+        // 向左滑动，显示下一张
+        setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+      } else {
+        // 向右滑动，显示上一张
+        setCarouselIndex(prev => (prev - 1 + newsCarousel.length) % newsCarousel.length);
+      }
+    }
+    
+    // 重置鼠标状态
+    carouselMouseDownRef.current = false;
+    carouselMouseXRef.current = 0;
+    
+    // 重新启动自动切换
+    if (newsCarousel.length > 1) {
+      carouselTimerRef.current = setInterval(() => {
+        setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+      }, 5000);
+    }
+  };
+
+  // 处理鼠标离开元素的情况
+  const handleCarouselMouseLeave = () => {
+    if (carouselMouseDownRef.current) {
+      carouselMouseDownRef.current = false;
+      carouselMouseXRef.current = 0;
+      // 重新启动自动切换
+      if (newsCarousel.length > 1) {
+        carouselTimerRef.current = setInterval(() => {
+          setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+        }, 5000);
+      }
+    }
+  };
+
+  // 全局鼠标事件处理（确保在元素外释放鼠标时也能正确处理）
+  useEffect(() => {
+    const handleGlobalMouseUp = (e) => {
+      if (carouselMouseDownRef.current) {
+        const mouseEndX = e.clientX;
+        const mouseStartX = carouselMouseXRef.current;
+        const deltaX = mouseStartX - mouseEndX;
+        
+        // 滑动距离超过50px时切换
+        const minSwipeDistance = 50;
+        
+        if (Math.abs(deltaX) > minSwipeDistance) {
+          if (deltaX > 0) {
+            // 向左滑动，显示下一张
+            setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+          } else {
+            // 向右滑动，显示上一张
+            setCarouselIndex(prev => (prev - 1 + newsCarousel.length) % newsCarousel.length);
+          }
+        }
+        
+        // 重置鼠标状态
+        carouselMouseDownRef.current = false;
+        carouselMouseXRef.current = 0;
+        
+        // 重新启动自动切换
+        if (newsCarousel.length > 1) {
+          carouselTimerRef.current = setInterval(() => {
+            setCarouselIndex(prev => (prev + 1) % newsCarousel.length);
+          }, 5000);
+        }
+      }
+    };
+
+    const handleGlobalMouseMove = (e) => {
+      if (carouselMouseDownRef.current) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+    };
+  }, [newsCarousel.length]);
+
   // 自动刷新：自适应轮询，页面不可见时暂停
   // 说明：墨股（BMV/XMEX）仅支持 REST；为避免 Twelve Data 出现 429，我们将首页默认轮询下调到 5s。
   // 可通过环境变量或 localStorage 调整：
@@ -820,13 +1035,93 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 市场概览卡片已移除 */}
-
-      {/* 广告占位移除 */}
-
-      {/* 移除首页市场切换图标页 */}
-
-      {/* 1) 各项指数卡片已移除 */}
+      {/* 新闻轮播图 */}
+      {newsCarousel.length > 0 && (
+        <div className="card borderless-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div 
+            className="news-carousel" 
+            style={{ position: 'relative', borderRadius: 'var(--radius)', overflow: 'hidden', border: '1px solid var(--card-border)', boxShadow: 'var(--shadow)', touchAction: 'pan-y', cursor: 'grab', userSelect: 'none' }}
+            onTouchStart={handleCarouselTouchStart}
+            onTouchMove={handleCarouselTouchMove}
+            onTouchEnd={handleCarouselTouchEnd}
+            onMouseDown={handleCarouselMouseDown}
+            onMouseMove={handleCarouselMouseMove}
+            onMouseUp={handleCarouselMouseUp}
+            onMouseLeave={handleCarouselMouseLeave}
+          >
+            {/* 轮播图片 */}
+            <div 
+              style={{ 
+                display: 'flex', 
+                transition: 'transform 0.5s ease',
+                transform: `translateX(-${carouselIndex * 100}%)`,
+              }}
+            >
+              {newsCarousel.map((news, idx) => (
+                <div 
+                  key={`carousel-${idx}`} 
+                  style={{ 
+                    minWidth: '100%', 
+                    position: 'relative',
+                  }}
+                >
+                  <img 
+                    src={news.img} 
+                    alt={news.title} 
+                    style={{ 
+                      width: '100%', 
+                      height: 180, 
+                      objectFit: 'cover',
+                      display: 'block',
+                    }} 
+                    onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                  />
+                  {/* 标题遮罩 */}
+                  <div style={{ 
+                    position: 'absolute', 
+                    bottom: 0, 
+                    left: 0, 
+                    right: 0, 
+                    padding: '40px 16px 16px',
+                    background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+                    color: '#fff',
+                  }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.4 }}>{news.title}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* 指示点 */}
+            {newsCarousel.length > 1 && (
+              <div style={{ 
+                position: 'absolute', 
+                bottom: 8, 
+                left: '50%', 
+                transform: 'translateX(-50%)',
+                display: 'flex', 
+                gap: 6,
+              }}>
+                {newsCarousel.map((_, idx) => (
+                  <button 
+                    key={`dot-${idx}`}
+                    onClick={(e) => { e.stopPropagation(); setCarouselIndex(idx); }}
+                    style={{ 
+                      width: idx === carouselIndex ? 20 : 8, 
+                      height: 8, 
+                      borderRadius: 4,
+                      background: idx === carouselIndex ? 'var(--accent)' : 'rgba(255,255,255,0.5)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease',
+                    }}
+                    aria-label={`Slide ${idx + 1}`}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 2) 热门（当日成交量排序） */}
       <div className="card borderless-card">

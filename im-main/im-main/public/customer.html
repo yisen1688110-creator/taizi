@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>ECIM</title>
   <link rel="icon" href="/im-api/tiny.png" />
   <style>
@@ -360,7 +360,8 @@
       border: 1px solid #ddd;
       border-radius: 6px;
       flex: 1;
-      resize: none
+      resize: none;
+      font-size: 16px
     }
 
     textarea {
@@ -1272,7 +1273,11 @@
       }
       plusMenu.onclick = (e) => {
         e.stopPropagation()
-        photoInput.click()
+        // If the click target is the label or input, let the default behavior handle it
+        // Only trigger programmatically if clicking the menu container itself (which is unlikely to be intended, but safe)
+        if (e.target.tagName !== 'LABEL' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SPAN') {
+          // do nothing, let label handle it
+        }
       }
       document.addEventListener('click', () => { emojiMenu.classList.add('hidden'); plusMenu.classList.add('hidden') })
       photoInput.onchange = async () => {

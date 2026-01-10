@@ -250,12 +250,14 @@ export default function InstitutionBlocks() {
   };
 
   return (
-    <div className="screen top-align" style={{ paddingTop: 6 }}>
-      <button className="back-btn" onClick={() => nav(-1)} aria-label="back" style={{ transform: 'scale(0.9)', left: 8, top: 8 }}><span className="back-icon"></span></button>
+    <div className="screen top-align" style={{ paddingTop: 6, padding: '6px' }}>
       {toast.show && (<div className={`top-toast ${toast.type}`}>{toast.text}</div>)}
-      <div className="inst-container">
+      <div className="inst-container" style={{ paddingTop: 16 }}>
         <div>
-          <h1 className="title" style={{ marginTop: 0 }}>{labels.pageTitle}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <button className="back-btn" onClick={() => nav(-1)} aria-label="back" style={{ position: 'relative', top: 'auto', left: 'auto' }}><span className="back-icon"></span></button>
+            <h1 className="title" style={{ marginTop: 0, marginBottom: 0 }}>{labels.pageTitle}</h1>
+          </div>
           <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? '从后台配置的大宗交易中选择并认购' : (lang === 'es' ? 'Seleccione y suscríbase a operaciones de bloque' : 'Select and subscribe to block trades')}</div>
         </div>
 
@@ -288,13 +290,13 @@ export default function InstitutionBlocks() {
                       <div className="tag" style={{ background: market === 'crypto' ? '#2a3b56' : '#2a5640', transform: 'scale(0.92)', whiteSpace: 'normal', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{labels.type}: {market === 'crypto' ? labels.typeCrypto : labels.typeUS}</div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <div className="desc">{labels.currentPrice}: {(market === 'crypto' ? formatUSDT(currentPrice, lang) : `${formatMoney(currentPrice, 'USD', lang)} / ${formatMoney(currentPrice * usdToMxnRate, 'MXN', lang)}`)}</div>
-                      <div className="desc">{labels.blockPrice}: {market === 'crypto' ? formatUSDT(blockPrice, lang) : `${formatMoney(blockPrice, 'USD', lang)} / ${formatMoney(blockPrice * usdToMxnRate, 'MXN', lang)}`}</div>
+                      <div className="desc">{labels.currentPrice}: {(market === 'crypto' ? formatUSDT(currentPrice, lang) : formatMoney(currentPrice * usdToMxnRate, 'MXN', lang))}</div>
+                      <div className="desc">{labels.blockPrice}: {market === 'crypto' ? formatUSDT(blockPrice, lang) : formatMoney(blockPrice * usdToMxnRate, 'MXN', lang)}</div>
                       <div className="desc">{labels.window}: {formatMinute(it.start_at || it.startAt)} ~ {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{lang === 'zh' ? '截至购买' : 'Deadline'}: {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{labels.lockedUntil}: {formatMinute(it.lock_until || it.lockUntil)}</div>
                       <div className="desc">{labels.minQty}: {minQty}</div>
-                      <div className="desc">{labels.consume}: {currency === 'USDT' ? formatUSDT(total, lang) : formatMoney(total, 'USD', lang)}</div>
+                      <div className="desc">{labels.consume}: {currency === 'USDT' ? formatUSDT(total, lang) : formatMoney(total * usdToMxnRate, 'MXN', lang)}</div>
                       <div className="desc" style={{ color: unitProfit >= 0 ? '#5cff9b' : '#ff5c7a' }}>
                         {(lang === 'zh' ? '预计收益' : 'Est. Profit')}: {(currency === 'USDT' ? formatUSDT(totalProfit || unitProfit, lang) : formatMoney((totalProfit || unitProfit) * usdToMxnRate, 'MXN', lang))} ({unitPct.toFixed(2)}%)
                       </div>

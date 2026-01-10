@@ -468,20 +468,21 @@ export default function IpoRwaPage() {
   }
 
   return (
-    <div className="screen top-align">
+    <div className="screen" style={{ padding: '0 6px', paddingBottom: 100, alignItems: 'stretch', justifyContent: 'flex-start', width: '100%', boxSizing: 'border-box' }}>
       {toast?.show && (
         <div style={{ position: 'fixed', top: 10, left: 0, right: 0, display: 'grid', placeItems: 'center', zIndex: 1000 }}>
           <div style={{ padding: '8px 12px', borderRadius: 10, background: toast.type === 'error' ? '#7a2a2a' : '#274a36', color: '#fff', boxShadow: '0 4px 14px rgba(0,0,0,.2)' }}>{toast.text}</div>
         </div>
       )}
-      <button className="back-btn" onClick={() => navigate(-1)} aria-label="back"><span className="back-icon"></span></button>
-      <div className="card">
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className={`pill ${tab === 'ipo' ? 'active' : ''}`} onClick={() => setTab('ipo')}>IPO</button>
-          <button className={`pill ${tab === 'rwa' ? 'active' : ''}`} onClick={() => setTab('rwa')}>RWA</button>
+      <div style={{ paddingTop: 16, width: '100%', boxSizing: 'border-box', padding: '16px 6px 10px 6px' }}>
+        <div style={{ width: '100%', marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="back-btn" onClick={() => navigate(-1)} aria-label="back" style={{ position: 'relative', top: 'auto', left: 'auto', marginRight: 8 }}><span className="back-icon"></span></button>
+            <button className={`pill ${tab === 'ipo' ? 'active' : ''}`} onClick={() => setTab('ipo')}>IPO</button>
+            <button className={`pill ${tab === 'rwa' ? 'active' : ''}`} onClick={() => setTab('rwa')}>RWA</button>
+          </div>
         </div>
-      </div>
-      <div className="card">
+        <div style={{ width: '100%' }}>
         <h1 className="title" style={{ marginTop: 0 }}>{tab === 'ipo' ? 'IPO' : 'RWA'}</h1>
         {loading && <div className="desc">Loading...</div>}
         {!loading && list.length === 0 && <div className="desc">--</div>}
@@ -496,9 +497,9 @@ export default function IpoRwaPage() {
               const unitProfit = Number((current - subPrice).toFixed(6));
               const unitPct = Number(subPrice > 0 ? (((current - subPrice) / subPrice) * 100).toFixed(2) : 0);
               return (
-                <div key={it.id || code} className="card flat" style={{ border: '1px solid rgba(68,120,192,0.38)', borderRadius: 12, padding: '12px 14px', boxShadow: '0 0 0 2px rgba(68,120,192,0.32), inset 0 0 0 2px rgba(68,120,192,0.26), inset 0 8px 28px rgba(68,120,192,0.14)' }}>
-                  <div style={{ border: '1px solid rgba(68,120,192,0.18)', borderRadius: 10, padding: '10px 12px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 8, alignItems: 'start' }}>
+                <div key={it.id || code} className="inst-card" style={{ padding: '12px', marginBottom: 8 }}>
+                  <div style={{ padding: 0 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ display: 'grid', gap: 6 }}>
                         <div style={{ fontWeight: 700 }}>{it.name} · {code}</div>
                         <div className="desc">{lang === 'zh' ? '当前价格' : (lang === 'es' ? 'Precio actual' : 'Current Price')}: {formatRwaPrice((displayCurrent > 0 ? displayCurrent : Number(it.subscribePrice || 0)) || 0, lang)}</div>
@@ -539,10 +540,10 @@ export default function IpoRwaPage() {
         </div>
       )}
 
-      <div className="card" style={{ marginTop: 16 }}>
-        <h2 className="title" style={{ marginTop: 0 }}>{lang === 'es' ? 'Órdenes IPO' : 'IPO Orders'}</h2>
+        <div style={{ marginTop: 16, width: '100%' }}>
+          <h2 className="title" style={{ marginTop: 0 }}>{lang === 'es' ? 'Órdenes IPO' : 'IPO Orders'}</h2>
         {ordersUnsupported && (<div className="desc" style={{ marginTop: 6 }}>{lang === 'es' ? 'Órdenes no disponibles' : 'Orders API unavailable'}</div>)}
-        <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
+        <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
           {(orders || []).map(o => {
             const code = String(o.code || '').toUpperCase();
             const det = orderDetails[code] || {};
@@ -552,8 +553,8 @@ export default function IpoRwaPage() {
             const { amount, pct } = orderProfit(o);
             const color = profitColorBy(o);
             return (
-              <div key={o.id} className="card flat" style={{ border: '1px solid rgba(68,120,192,0.38)', borderRadius: 12, padding: '12px 14px', boxShadow: '0 0 0 2px rgba(68,120,192,0.32), inset 0 0 0 2px rgba(68,120,192,0.26)', overflow: 'hidden' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: 8, alignItems: 'start' }}>
+              <div key={o.id} className="inst-card" style={{ padding: '12px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                   <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ fontWeight: 700 }}>{String(o.kind || '').toLowerCase() === 'rwa' ? 'RWA' : (String(o.kind || '').toLowerCase() === 'ipo' ? 'IPO' : 'Global Stocks')} · {det.name || code}</div>
                     <div className="desc">{lang === 'es' ? 'Fecha de listado' : 'Listing Date'}: {det.listAt ? formatYMD(det.listAt) : '-'}</div>
@@ -562,13 +563,13 @@ export default function IpoRwaPage() {
                     )}
                     <div className="desc">{lang === 'es' ? 'Precio de subscripción' : 'Subscribe Price'}: {formatRwaPrice(price, lang)}</div>
                   </div>
-                  <div style={{ display: 'grid', justifyItems: 'end', alignContent: 'start', gap: 8 }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color }}>{pct}%</div>
-                    <div style={{ fontSize: 14, color }}>{formatRwaPrice(amount, lang).replace('US$', '$')}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color }}>{pct}%</div>
+                    <div style={{ fontSize: 13, color }}>{formatRwaPrice(amount, lang).replace('US$', '$')}</div>
                     {!(String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') ? (
-                      <button className="btn primary" onClick={() => onSell(o)}>{lang === 'es' ? 'Vender' : 'Sell'}</button>
+                      <button className="btn primary" style={{ fontSize: 12, padding: '6px 12px', height: 'auto' }} onClick={() => onSell(o)}>{lang === 'es' ? 'Vender' : 'Sell'}</button>
                     ) : (
-                      <span className="tag" style={{ background: '#274a36' }}>{lang === 'es' ? 'Completado' : 'Completed'}</span>
+                      <span className="tag" style={{ background: '#16a34a', color: '#fff', padding: '4px 8px', borderRadius: 6, fontSize: 11 }}>{lang === 'es' ? 'Completado' : 'Completed'}</span>
                     )}
                   </div>
                 </div>
@@ -576,6 +577,7 @@ export default function IpoRwaPage() {
             );
           })}
           {(orders || []).length === 0 && (<div className="desc">--</div>)}
+        </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 @echo off
 setlocal
 echo ==========================================
-echo ECIM Agent Desktop Setup V4
+echo ECIM Agent Desktop Setup V6.1
 echo ==========================================
 
 echo Select Mode:
@@ -31,6 +31,10 @@ if exist node_modules (
 if "%mode%"=="2" (
     echo [3/3] Starting App...
     call npm start
+    if %errorlevel% neq 0 (
+        echo [ERROR] App exited with code %errorlevel%.
+    )
+    pause
     goto :EOF
 )
 

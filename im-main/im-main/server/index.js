@@ -12,6 +12,11 @@ const multer = require('multer')
 const app = express()
 const allowOrigins = String(process.env.IM_CORS_ORIGIN || process.env.CORS_ORIGIN || '').split(/[\s,]+/).filter(Boolean)
 const allowAllCors = allowOrigins.length === 0
+app.use((req, res, next) => {
+  const ts = new Date().toISOString()
+  console.log(`[${ts}] ${req.method} ${req.url}`)
+  next()
+})
 app.use(cors({
   origin: (origin, cb) => {
     try {
@@ -263,6 +268,12 @@ if (db) {
         if (!hasPinned) db.run('ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0')
       }
     })
+    db.all('PRAGMA table_info(user_notes)', (err, cols) => {
+      if (!err) {
+        const hasPinned = Array.isArray(cols) && cols.some(c => c.name === 'pinned')
+        if (!hasPinned) db.run('ALTER TABLE user_notes ADD COLUMN pinned INTEGER DEFAULT 0')
+      }
+    })
     db.all('PRAGMA table_info(messages)', (err, cols) => {
       if (!err) {
         const hasType = Array.isArray(cols) && cols.some(c => c.name === 'type')
@@ -281,7 +292,15 @@ if (db) {
   })
 }
 
-app.use(express.static(path.join(__dirname, '..', 'public')))
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res, path) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Expires', '0')
+  }
+}))
 app.get('/logo.png', (req, res) => {
   try { res.sendFile(path.join(__dirname, '..', 'public', 'tiny.png')) } catch { res.status(204).end() }
 })
@@ -303,7 +322,7 @@ const upload = multer({
       cb(null, name)
     }
   }),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_, file, cb) => {
     const ok = /^image\//.test(file.mimetype)
     cb(ok ? null : new Error('invalid_filetype'), ok)
@@ -450,6 +469,7 @@ app.get('/api/conversations', (req, res) => {
          u.name as name,
          u.avatar as avatar,
          un.note as note,
+         un.pinned as pinned,
          (SELECT content FROM messages WHERE phone=p.phone ORDER BY ts DESC LIMIT 1) AS last_content,
          (SELECT ts FROM messages WHERE phone=p.phone ORDER BY ts DESC LIMIT 1) AS last_ts,
          (SELECT ts FROM messages WHERE phone=p.phone AND sender='agent' ORDER BY ts DESC LIMIT 1) AS last_agent_ts,
@@ -459,7 +479,7 @@ app.get('/api/conversations', (req, res) => {
   LEFT JOIN users u ON u.phone=p.phone
   LEFT JOIN user_notes un ON un.phone=p.phone
   LEFT JOIN seen s ON s.phone=p.phone
-  ORDER BY last_ts DESC
+  ORDER BY un.pinned DESC, last_ts DESC
   `
   db.all(sql, [], (err, rows) => {
     if (err) return res.status(500).json({ error: 'db_error' })
@@ -522,7 +542,43 @@ app.post('/api/notes', rateLimitWrite, (req, res) => {
   if (!db) { const id = mem.nextId++; mem.notes.push({ id, phone, content, ts, pinned: 0 }); return res.json({ ok: true, id, ts }) }
   db.run('INSERT INTO notes (phone, content, ts) VALUES (?, ?, ?)', [phone, content, ts], function (err) {
     if (err) return res.status(500).json({ error: 'db_error' })
-    res.json({ ok: true, id: this.lastID, ts })
+    return res.json({ ok: true, id: this.lastID, ts })
+  })
+})
+
+app.post('/api/conversation/:phone/pin', (req, res) => {
+  if (!db) return res.status(501).json({ error: 'not_implemented_memory_mode' })
+  const pinned = req.body.pinned ? 1 : 0
+  const phone = String(req.params.phone || '').trim()
+  if (!phone) return res.status(400).json({ error: 'phone_required' })
+  db.get('SELECT phone FROM user_notes WHERE phone = ?', [phone], (err, row) => {
+    if (err) return res.status(500).json({ error: 'db_error' })
+    if (row) {
+      db.run('UPDATE user_notes SET pinned = ? WHERE phone = ?', [pinned, phone], (err) => {
+        if (err) return res.status(500).json({ error: 'db_error' })
+        res.json({ success: true })
+      })
+    } else {
+      db.run('INSERT INTO user_notes (phone, note, pinned) VALUES (?, ?, ?)', [phone, '', pinned], (err) => {
+        if (err) return res.status(500).json({ error: 'db_error' })
+        res.json({ success: true })
+      })
+    }
+  })
+})
+
+app.delete('/api/conversation/:phone', (req, res) => {
+  if (!db) return res.status(501).json({ error: 'not_implemented_memory_mode' })
+  const phone = String(req.params.phone || '').trim()
+  if (!phone) return res.status(400).json({ error: 'phone_required' })
+  db.serialize(() => {
+    db.run('DELETE FROM messages WHERE phone = ?', [phone])
+    db.run('DELETE FROM user_notes WHERE phone = ?', [phone])
+    db.run('DELETE FROM reads WHERE phone = ?', [phone])
+    db.run('DELETE FROM seen WHERE phone = ?', [phone], (err) => {
+      if (err) return res.status(500).json({ error: 'db_error' })
+      res.json({ success: true })
+    })
   })
 })
 

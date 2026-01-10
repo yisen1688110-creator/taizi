@@ -116,16 +116,16 @@ export default function Login() {
   };
 
   return (
-    <div className="screen">
+    <div className="screen" style={{ padding: '20px 16px', minHeight: '100vh', justifyContent: 'center' }}>
       {/* logo 区域 */}
-      <div className="logo-area enter">
-        <img className="logo-img" alt="logo" src="/logo.png" />
+      <div className="logo-area enter" style={{ height: 'auto', maxHeight: 140, marginBottom: 16 }}>
+        <img className="logo-img" alt="logo" src="/logo.png" style={{ width: 100, height: 100 }} />
       </div>
 
-      <div ref={cardRef} className="card cyber-tilt" onMouseMove={handleMove} onMouseLeave={handleLeave}>
-        <h1 className="title">{t("loginTitle")}</h1>
+      <div ref={cardRef} className="card" style={{ width: '100%', maxWidth: 360, padding: '24px 20px' }} onMouseMove={handleMove} onMouseLeave={handleLeave}>
+        <h1 className="title" style={{ fontSize: 22, marginBottom: 16 }}>{t("loginTitle")}</h1>
 
-        <form onSubmit={handleLogin} className="form">
+        <form onSubmit={handleLogin} className="form" style={{ gap: 12 }}>
           {isAdminEnv ? (
             <>
               <label className="label">{t("email")}</label>

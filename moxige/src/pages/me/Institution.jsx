@@ -337,15 +337,15 @@ export default function Institution() {
   }
   function profitColor(o) {
     const v = pnlValue(o);
-    if (v > 0) return '#5cff9b';
-    if (v < 0) return '#ff5c7a';
-    return '#9aa3ad';
+    if (v > 0) return '#16a34a';
+    if (v < 0) return '#dc2626';
+    return '#64748b';
   }
   function statusColor(s) {
     const v = String(s || 'submitted');
-    if (v === 'rejected') return '#7a2a2a';
-    if (v === 'done') return '#9aa3ad';
-    return '#274a36';
+    if (v === 'rejected') return '#ef4444';
+    if (v === 'done') return '#64748b';
+    return '#10b981';
   }
   function tabBtnStyle(active) {
     return active
@@ -475,11 +475,11 @@ export default function Institution() {
         {/* 顶部：头像 + 用户资金 */}
         <div className="inst-card">
           <div className="profile-top-card" style={{ marginTop: 0 }}>
-            <div className="top-left">
+            <div className="top-left" style={{ minWidth: 90 }}>
               <div className="avatar-wrap">
                 <img className="avatar" src={avatarUrl || "/logo.png"} alt="avatar" onError={(e) => { try { e.currentTarget.src = '/logo.png'; } catch { } }} />
               </div>
-              <div className="top-name">{labels.title}</div>
+              <div className="top-name" style={{ fontSize: 11, maxWidth: 90, wordBreak: 'normal', hyphens: 'none' }}>{labels.title}</div>
             </div>
             <div className="top-right" style={{ position: 'relative' }}>
               <div className="top-title">{lang === 'zh' ? '资产' : (lang === 'es' ? 'Fondos' : 'Funds')}</div>
@@ -494,11 +494,11 @@ export default function Institution() {
 
         {/* 机构简介占位：头像 + 名称 + 文案介绍 */}
         <div className="inst-card">
-          <div style={{ display: 'grid', gridTemplateColumns: '96px 1fr', gap: 16, alignItems: 'center' }}>
-            <img src={normalizeAvatar(org.avatar)} alt="org-avatar" style={{ width: 72, height: 72, borderRadius: 36, border: '1px solid #2a3441', objectFit: 'cover' }} onError={(e) => { try { e.currentTarget.src = '/logo.png'; } catch { } }} />
-            <div style={{ display: 'grid', gap: 6 }}>
-              <div style={{ fontWeight: 700, fontSize: 16 }}>{org.name}</div>
-              <div className="desc" style={{ lineHeight: 1.5 }}>{org.desc}</div>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+            <img src={normalizeAvatar(org.avatar)} alt="org-avatar" style={{ width: 64, height: 64, minWidth: 64, borderRadius: 12, border: '2px solid var(--card-border)', objectFit: 'cover', background: 'var(--card-bg)' }} onError={(e) => { try { e.currentTarget.src = '/logo.png'; } catch { } }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: 6 }}>{org.name}</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, wordBreak: 'break-word' }}>{org.desc}</div>
             </div>
           </div>
         </div>
@@ -536,39 +536,34 @@ export default function Institution() {
               <div className="desc">{labels.emptyTip}</div>
             )}
             {(orders || []).filter(o => (tab === 'current' ? o.status !== 'done' : o.status === 'done')).map(o => (
-              <div key={o.id} className="card flat order-row" style={{ display: 'grid', gridTemplateColumns: (isMobile ? '1fr' : '1fr 180px'), gap: 8, alignItems: (isMobile ? 'start' : 'center'), border: '1px solid rgba(68,120,192,0.38)', borderRadius: 14, padding: '12px 14px', background: 'linear-gradient(180deg, rgba(12,18,28,0.78), rgba(12,18,28,0.55))', boxShadow: '0 0 0 2px rgba(68,120,192,0.32), inset 0 0 0 2px rgba(68,120,192,0.26), inset 0 8px 28px rgba(68,120,192,0.14)', overflow: 'hidden', boxSizing: 'border-box' }}>
+              <div key={o.id} className="card flat order-row" style={{ display: 'grid', gridTemplateColumns: (isMobile ? '1fr' : '1fr 180px'), gap: 8, alignItems: (isMobile ? 'start' : 'center'), border: '1px solid #e2e8f0', borderRadius: 14, padding: '12px 14px', background: '#ffffff', boxShadow: '0 2px 5px rgba(0,0,0,0.05)', overflow: 'hidden', boxSizing: 'border-box', color: '#1e293b' }}>
                 <div style={{ display: 'grid', gap: 4, minWidth: 0, wordBreak: 'break-word' }}>
-                  <div style={{ fontWeight: 700 }}>{String(o.market).toUpperCase()} · {String(o.symbol).toUpperCase()}</div>
-                  <div className="desc">
-                    {lang === 'zh' ? '价格' : (lang === 'es' ? 'Precio' : 'Price')}: {o.market === 'crypto' ? formatUSDT(Number(o.blockPrice || o.price || 0), lang) : `${formatMoney(Number(o.blockPrice || o.price || 0), 'USD', lang)} / ${formatMoney(Number(o.blockPrice || o.price || 0) * usdToMxnRate, 'MXN', lang)}`}
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{String(o.market).toUpperCase()} · {String(o.symbol).toUpperCase()}</div>
+                  <div className="desc" style={{ color: '#64748b' }}>
+                    {lang === 'zh' ? '价格' : (lang === 'es' ? 'Precio' : 'Price')}: {o.market === 'crypto' ? formatUSDT(Number(o.blockPrice || o.price || 0), lang) : formatMoney(Number(o.blockPrice || o.price || 0) * usdToMxnRate, 'MXN', lang)}
                     {' · '}
                     {lang === 'zh' ? '数量' : (lang === 'es' ? 'Cantidad' : 'Qty')}: {Number(o.qty || 0)}
                     {' · '}
-                    {lang === 'zh' ? '总额' : (lang === 'es' ? 'Total' : 'Total')}: {o.market === 'crypto' ? formatUSDT(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), lang) : `${formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), 'USD', lang)} / ${formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)) * usdToMxnRate, 'MXN', lang)}`}
+                    {lang === 'zh' ? '总额' : (lang === 'es' ? 'Total' : 'Total')}: {o.market === 'crypto' ? formatUSDT(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), lang) : formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)) * usdToMxnRate, 'MXN', lang)}
                   </div>
-                  <div className="desc">
+                  <div className="desc" style={{ color: '#64748b' }}>
                     {lang === 'zh' ? '锁定至' : (lang === 'es' ? 'Bloqueado hasta' : 'Lock Until')}: {o.locked === false ? (lang === 'zh' ? '已解锁' : (lang === 'es' ? 'Desbloqueado' : 'Unlocked')) : formatMinute(o.lockUntil || o.lock_until)}
                     {tab === 'current' ? (
-                      <> {' · '} {lang === 'zh' ? '当前价' : (lang === 'es' ? 'Precio actual' : 'Current')}: {o.market === 'crypto' ? formatUSDT(currentPriceFor(o) || 0, lang) : `${formatMoney(currentPriceFor(o) || 0, 'USD', lang)} / ${formatMoney((currentPriceFor(o) || 0) * usdToMxnRate, 'MXN', lang)}`} </>
+                      <> {' · '} {lang === 'zh' ? '当前价' : (lang === 'es' ? 'Precio actual' : 'Current')}: {o.market === 'crypto' ? formatUSDT(currentPriceFor(o) || 0, lang) : formatMoney((currentPriceFor(o) || 0) * usdToMxnRate, 'MXN', lang)} </>
                     ) : null}
                   </div>
-                  <div className="desc">
+                  <div className="desc" style={{ color: '#64748b' }}>
                     {lang === 'zh' ? '提交于' : (lang === 'es' ? 'Enviado' : 'Submitted')}: {formatMinute(Number(o.ts || Date.now()))}
                   </div>
                 </div>
                 <div style={{ display: 'grid', justifyItems: (isMobile ? 'start' : 'end'), alignContent: 'start', gap: 6, minWidth: 0, paddingRight: (isMobile ? 0 : 6), paddingTop: (isMobile ? 8 : 0) }}>
-                  <span className="tag" style={{ background: statusColor(o.status) }}>{statusLabel(o.status)}</span>
+                  <span className="tag" style={{ background: statusColor(o.status), color: '#fff' }}>{statusLabel(o.status)}</span>
                   <div style={{ fontSize: 18, fontWeight: 700, color: profitColor(o) }}>{pnlPct(o)}%</div>
                   <div style={{ fontSize: 14, color: profitColor(o) }}>{o.market === 'crypto' ? formatUSDT(pnlValue(o), lang) : formatMoney(Number(pnlValue(o)) * usdToMxnRate, 'MXN', lang)}</div>
                   {tab === 'current' && (
                     <button className="btn primary slim" disabled={tradeDisabled || o.status !== 'approved'} onClick={() => sell(o)}>
                       {lang === 'zh' ? '卖出' : (lang === 'es' ? 'Vender' : 'Sell')}
                     </button>
-                  )}
-                  {tab === 'done' && (
-                    <span className="tag" style={{ background: '#274a36' }}>
-                      {lang === 'zh' ? '已完成' : (lang === 'es' ? 'Completado' : 'Completed')}
-                    </span>
                   )}
                 </div>
               </div>
@@ -623,13 +618,13 @@ export default function Institution() {
               }} />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginTop: 8 }}>
                 {Array.isArray(creditForm.images) && creditForm.images.map((im, idx) => (
-                  <div key={`im-${idx}`} style={{ position: 'relative', height: 80, border: '1px dashed #2a3b56', borderRadius: 8, overflow: 'hidden', background: '#0e1a2b' }}>
+                  <div key={`im-${idx}`} style={{ position: 'relative', height: 80, border: '1px dashed var(--card-border)', borderRadius: 8, overflow: 'hidden', background: 'var(--card-bg)' }}>
                     <img src={im.data || im} alt={im.name || `img-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onClick={() => { const w = window.open('', '_blank', 'noopener'); if (w) { w.document.write(`<img src='${im.data || im}' style='max-width:100%' />`); } }} />
                     <button className="pill" style={{ position: 'absolute', top: 4, right: 4 }} onClick={() => { setCreditForm(p => ({ ...p, images: p.images.filter((_, i) => i !== idx) })); }}>×</button>
                   </div>
                 ))}
                 {Array.isArray(creditForm.images) && creditForm.images.length < 5 && (
-                  <div onClick={() => fileInputRef.current?.click?.()} style={{ display: 'grid', placeItems: 'center', height: 80, border: '1px dashed #2a3b56', borderRadius: 8, cursor: 'pointer', background: '#0e1a2b', color: '#b8c7e0', fontSize: 24, lineHeight: 1 }}>+
+                  <div onClick={() => fileInputRef.current?.click?.()} style={{ display: 'grid', placeItems: 'center', height: 80, border: '1px dashed var(--card-border)', borderRadius: 8, cursor: 'pointer', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 24, lineHeight: 1 }}>+
                   </div>
                 )}
               </div>

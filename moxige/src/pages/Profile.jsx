@@ -207,8 +207,8 @@ export default function Profile() {
 
   return (
     <div className="screen borderless profile-screen">
-      <div className="card borderless-card profile-card">
-        {/* 顶部：头像 + 账户资金 + 提现按钮（去掉外边框可用 flat） */}
+      <div className="profile-container">
+        {/* 顶部：头像 + 账户资金 + 提现按钮 */}
         <div className="profile-top-card">
           <div className="top-left">
             <div className="avatar-wrap" onClick={onPickAvatar} role="button" aria-label="change-avatar" title={lang === 'es' ? 'Cambiar avatar' : 'Change avatar'}>
@@ -228,20 +228,20 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* 中部：两行三列圆形图标入口 */}
-        <div className="card borderless-card section-card">
+        {/* 中部：功能入口网格 */}
+        <div className="profile-menu-card">
           <div className="icon-grid">
             <div className="icon-item" onClick={() => nav('/me/settings')} aria-label="account-settings">
               <div className="icon-circle">✏️</div>
-              <div className="icon-label">{lang === 'es' ? 'Configuración' : 'Account Settings'}</div>
+              <div className="icon-label">{lang === 'es' ? 'Configuración' : 'Settings'}</div>
             </div>
             <div className="icon-item" onClick={() => nav('/me/cards')} aria-label="linked-bank-cards">
               <div className="icon-circle">💳</div>
-              <div className="icon-label">{lang === 'es' ? 'Tarjeta bancaria' : 'Linked Bank Cards'}</div>
+              <div className="icon-label">{lang === 'es' ? 'Tarjeta bancaria' : 'Bank Cards'}</div>
             </div>
             <div className="icon-item" onClick={() => nav('/trades')}>
               <div className="icon-circle">📜</div>
-              <div className="icon-label">{lang === 'es' ? 'Historial de operaciones' : 'Trades History'}</div>
+              <div className="icon-label">{lang === 'es' ? 'Historial' : 'History'}</div>
             </div>
             <div className="icon-item" onClick={() => {
               try { localStorage.setItem('im:unread_count', '0'); window.dispatchEvent(new Event('im:unread')); } catch { }
@@ -251,9 +251,9 @@ export default function Profile() {
                 🛟
                 {unreadCount > 0 && <div style={{ position: 'absolute', top: -5, right: -5, background: '#ef4444', color: '#fff', fontSize: 10, height: 16, minWidth: 16, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '1px solid #fff' }}>{unreadCount > 99 ? '99+' : unreadCount}</div>}
               </div>
-              <div className="icon-label">{lang === 'es' ? 'Contacto soporte' : 'Support'}</div>
+              <div className="icon-label">{lang === 'es' ? 'Soporte' : 'Support'}</div>
             </div>
-            {/* 机构账户入口（未解锁需邀请码） */}
+            {/* 机构账户入口 */}
             <div className="icon-item" onClick={async () => {
               try {
                 const sess = (() => { try { return JSON.parse(localStorage.getItem('sessionUser') || 'null'); } catch { return null; } })();
@@ -275,16 +275,14 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* 底部：退出登录 */}
-        <div className="card borderless-card section-card">
-          <div className="desc" style={{ textAlign: 'center', opacity: .8, margin: '8px 0' }}>V1.0.1</div>
-          <div className="logout-area">
-            <button className="btn logout-btn" onClick={async () => {
-              try { await api.post('/auth/logout', {}); } catch { }
-              try { localStorage.removeItem('sessionUser'); localStorage.removeItem('token'); localStorage.removeItem('csrf:token'); } catch { }
-              try { nav('/login'); } catch { }
-            }}>{lang === 'es' ? 'Cerrar sesión' : 'Log Out'}</button>
-          </div>
+        {/* 底部：版本和退出 */}
+        <div className="profile-footer">
+          <div className="version-text">V1.0.1</div>
+          <button className="btn logout-btn" onClick={async () => {
+            try { await api.post('/auth/logout', {}); } catch { }
+            try { localStorage.removeItem('sessionUser'); localStorage.removeItem('token'); localStorage.removeItem('csrf:token'); } catch { }
+            try { nav('/login'); } catch { }
+          }}>{lang === 'es' ? 'Cerrar sesión' : 'Log Out'}</button>
           {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         </div>
       </div>

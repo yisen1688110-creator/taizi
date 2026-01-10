@@ -118,9 +118,9 @@ export default function Notifications() {
     } catch { setList([]); }
   };
   return (
-    <div className="screen top-align">
-      <h1 className="title" style={{ marginTop: 0 }}>{title}</h1>
-      <div className="card">
+    <div className="screen top-align" style={{ padding: '16px 10px', paddingBottom: 100 }}>
+      <h1 className="title" style={{ marginTop: 0, marginBottom: 8 }}>{title}</h1>
+      <div style={{ width: '100%', maxWidth: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button className="pill" onClick={async () => { try { const data = await api.get('/me/notifications'); const arr = Array.isArray(data?.items) ? data.items : []; const items = arr.map(it => ({ id: it.id, title: cnToLocale(it.title || 'Notification'), body: cnToLocale(it.message || ''), ts: new Date(it.created_at).getTime(), pinned: Boolean(it.pinned) })); setList(items.sort((a, b) => (Number(b.ts) - Number(a.ts)))); } catch { } }}>{lang === 'es' ? 'Actualizar' : (lang === 'en' ? 'Refresh' : '刷新')}</button>
           <button className="pill" onClick={clearAll}>{lang === 'es' ? 'Borrar' : (lang === 'en' ? 'Clear' : '清空')}</button>

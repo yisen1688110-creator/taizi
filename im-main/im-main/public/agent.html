@@ -244,7 +244,13 @@
 
     .note-card-body {
       color: #1a1f36;
-      line-height: 1.5
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    #noteInfo .note-card-body {
+      white-space: normal;
     }
 
     .header {
@@ -794,12 +800,45 @@
       cursor: pointer
     }
 
-    .msg-menu-item:hover {
-      background: #173152
+    .msg-menu-item.danger {
+      color: #ff4d4f;
     }
 
-    .msg-menu-item.danger {
-      color: #fca5a5
+    .msg-menu-item:hover {
+      background: #f0f0f0;
+    }
+
+    /* Conversation Context Menu */
+    .ctx-menu {
+      position: fixed;
+      background: white;
+      border: 1px solid #ddd;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      z-index: 20001;
+      border-radius: 4px;
+      padding: 4px 0;
+      min-width: 120px;
+    }
+
+    .ctx-menu-item {
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      color: #333;
+    }
+
+    .ctx-menu-item:hover {
+      background: #f5f5f5;
+    }
+
+    .ctx-menu-item.danger {
+      color: #ff4d4f;
+    }
+
+    .pin-icon {
+      font-size: 12px;
+      margin-right: 4px;
+      color: #1890ff;
     }
   </style>
 </head>
@@ -818,7 +857,7 @@
     <div class="main">
       <div class="header">
         <audio id="notifyAudio"
-          src="data:audio/wav;base64,UklGRl9vT1d7AABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUjbDwAA"></audio>
+          src="data:audio/wav;base64,UklGRqQgAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAgyrD/kP+Q/5D/kP+QAAAA/5D/kP+Q/5D/kAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+ItemAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/kP+Q/5D/kP+QAAAA/5D/kP+Q/5D/kAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/kP+Q/5D/kP+QAAAA/5D/kP+Q/5D/kAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAAA/4j/iP+I/4j/iAAAAAAAiP+I/4j/iP+I/wAAAP+I/4j/iP+I/4gAAAAAAIj/iP+I/4j/iP8AAAD/iP+I/4j/iP+IAAAAAACI/4j/iP+I/4j/AAA="></audio>
         <div class="user">
           <img id="avatar" class="avatar" />
           <div>
@@ -1081,52 +1120,7 @@
         txt.textContent = m.content
         div.appendChild(txt)
         if (m.sender === 'customer' && (!m.type || m.type === 'text')) {
-          const key = m.content || ''
-          if (!window._translateCache) window._translateCache = {}
-          const cached = window._translateCache[key]
-          const run = async () => {
-            try {
-              const csrf = await ensureCsrf()
-              const body = JSON.stringify({ text: key })
-              let ok = false, j = null
-              const headers = {
-                'Content-Type': 'application/json',
-                ...(csrf ? { 'x-csrf-token': csrf } : {}),
-                ...(token ? { 'x-im-token': token } : {})
-              }
-              try {
-                const r1 = await originalFetch('/api/translate?token=' + encodeURIComponent(token), { method: 'POST', credentials: 'include', headers, body })
-                ok = !!(r1 && r1.ok); if (ok) j = await r1.json()
-              } catch (e) { console.error('Translate fetch error:', e) }
-              if (!ok && apiBase) {
-                try {
-                  const r2 = await originalFetch(String(apiBase).replace(/\/$/, '') + '/api/translate?token=' + encodeURIComponent(token), { method: 'POST', credentials: 'include', headers, body })
-                  ok = !!(r2 && r2.ok); if (ok) j = await r2.json()
-                } catch (e) { console.error('Translate fallback error:', e) }
-              }
-              if (!ok) { console.warn('Translate failed'); return }
-              const t = String(j && j.translated || '').trim()
-              if (!t) return
-              window._translateCache[key] = t
-              const sep = document.createElement('div')
-              sep.textContent = '——'
-              const tr = document.createElement('div')
-              tr.textContent = t
-              div.appendChild(sep)
-              div.appendChild(tr)
-              forceScrollBottom()
-            } catch (e) { console.error('Translate logic error:', e) }
-          }
-          if (cached) {
-            const sep = document.createElement('div')
-            sep.textContent = '——'
-            const tr = document.createElement('div')
-            tr.textContent = cached
-            div.appendChild(sep)
-            div.appendChild(tr)
-          } else {
-            run()
-          }
+          // Translation removed
         }
       }
       messagesEl.appendChild(div)
@@ -1173,42 +1167,332 @@
       rbRead.textContent = isRead ? '已读' : '未读'
     }
 
+    function formatTime(ts) {
+      if (!ts) return ''
+      const d = new Date(ts)
+      const now = new Date()
+      const isToday = d.toDateString() === now.toDateString()
+      return isToday ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'numeric', day: 'numeric' })
+    }
+
+    function sortConversations() {
+      if (!Array.isArray(conversations)) return
+      conversations.sort((a, b) => {
+        const pa = a.pinned ? 1 : 0
+        const pb = b.pinned ? 1 : 0
+        if (pa !== pb) return pb - pa
+        return (b.last_ts || 0) - (a.last_ts || 0)
+      })
+    }
+
     function renderList(data) {
       listEl.innerHTML = ''
       const arr = Array.isArray(data) ? data : []
+      sortConversations()
       let totalUnread = 0
       arr.forEach(item => {
         const row = document.createElement('div')
         row.className = 'conversation-item'
         const left = document.createElement('div')
         left.className = 'ci-left'
+        const header = document.createElement('div')
+        header.style.display = 'flex'
+        header.style.justifyContent = 'space-between'
+        header.style.width = '100%'
+        const nameRow = document.createElement('div')
+        nameRow.className = 'ci-name'
+        if (item.pinned) {
+          const pi = document.createElement('span')
+          pi.className = 'pin-icon'
+          pi.textContent = '📌'
+          nameRow.appendChild(pi)
+        }
         const dot = document.createElement('span')
         dot.className = item.online ? 'dot online' : 'dot offline'
-        const name = document.createElement('div')
-        name.className = 'ci-name'
-        name.textContent = item.name || item.phone
+        // Insert dot before name text
+        const nameText = document.createTextNode(item.name || item.phone)
+        const nameWrapper = document.createElement('span')
+        nameWrapper.style.display = 'flex'
+        nameWrapper.style.alignItems = 'center'
+        nameWrapper.style.gap = '6px'
+        nameWrapper.style.flex = '1'
+        nameWrapper.style.minWidth = '0'
+        nameWrapper.appendChild(dot)
+        if (item.pinned) {
+          const pi = document.createElement('span')
+          pi.className = 'pin-icon'
+          pi.textContent = '📌'
+          nameWrapper.appendChild(pi)
+        }
+        const txt = document.createElement('span')
+        txt.textContent = item.name || item.phone
+        txt.style.overflow = 'hidden'
+        txt.style.textOverflow = 'ellipsis'
+        txt.style.whiteSpace = 'nowrap'
+        nameWrapper.appendChild(txt)
+
+        const timeSpan = document.createElement('span')
+        timeSpan.style.fontSize = '12px'
+        timeSpan.style.color = '#999'
+        timeSpan.style.marginLeft = '4px'
+        timeSpan.style.flexShrink = '0'
+        timeSpan.textContent = formatTime(item.last_ts)
+
+        header.appendChild(nameWrapper)
+        header.appendChild(timeSpan)
+
         const meta = document.createElement('div')
         meta.className = 'ci-meta'
         meta.textContent = item.last_content || ''
-        left.appendChild(dot)
-        left.appendChild(name)
+
+        left.appendChild(header)
         left.appendChild(meta)
+
         const right = document.createElement('div')
         right.className = 'ci-right'
-        const read = document.createElement('span')
+        // Only show unread badge on right, time is now in header
         const unreadCount = Number(item.unread_count || 0)
         totalUnread += unreadCount
-        const isUnread = unreadCount > 0
-        read.className = 'read-pill' + (isUnread ? ' unread' : '')
-        read.textContent = isUnread ? (unreadCount > 99 ? '99+' : String(unreadCount)) : '已读'
-        right.appendChild(read)
+        if (unreadCount > 0) {
+          const read = document.createElement('span')
+          read.className = 'read-pill unread'
+          read.textContent = unreadCount > 99 ? '99+' : String(unreadCount)
+          right.appendChild(read)
+        }
+
         row.appendChild(left)
         row.appendChild(right)
         row.onclick = () => loadConversation(item.phone)
+        row.oncontextmenu = (e) => {
+          e.preventDefault()
+          showContextMenu(e, item)
+        }
         listEl.appendChild(row)
       })
       try { localStorage.setItem('im:conv', JSON.stringify(conversations)) } catch { }
       updateBadge(totalUnread)
+    }
+
+    function renderNoteCards(items) {
+      noteCards.innerHTML = ''
+      items.forEach(n => {
+        const card = document.createElement('div')
+        card.className = 'note-card'
+        card.dataset.id = n.id
+
+        const head = document.createElement('div')
+        head.className = 'note-card-head'
+        head.textContent = new Date(n.ts).toLocaleString()
+
+        const body = document.createElement('div')
+        body.className = 'note-card-body'
+        body.textContent = n.content
+
+        // Action Buttons Container
+        const actions = document.createElement('div')
+        actions.style.position = 'absolute'
+        actions.style.top = '8px'
+        actions.style.right = '8px'
+        actions.style.display = 'flex'
+        actions.style.gap = '6px'
+
+        const editBtn = document.createElement('button')
+        editBtn.className = 'icon-btn-tiny'
+        editBtn.textContent = '✏️'
+        editBtn.title = '编辑'
+        editBtn.style.padding = '0'
+        editBtn.style.width = '24px'
+        editBtn.style.height = '24px'
+        editBtn.style.borderRadius = '4px'
+        editBtn.style.background = 'transparent'
+        editBtn.style.color = '#6b7280'
+        editBtn.style.border = '1px solid transparent'
+        editBtn.style.cursor = 'pointer'
+        editBtn.onmouseover = () => editBtn.style.background = '#e5e7eb'
+        editBtn.onmouseout = () => editBtn.style.background = 'transparent'
+
+        const moreBtn = document.createElement('button')
+        moreBtn.className = 'icon-btn-tiny'
+        moreBtn.textContent = '⋮'
+        moreBtn.title = '更多'
+        moreBtn.style.padding = '0'
+        moreBtn.style.width = '24px'
+        moreBtn.style.height = '24px'
+        moreBtn.style.borderRadius = '4px'
+        moreBtn.style.background = 'transparent'
+        moreBtn.style.color = '#6b7280'
+        moreBtn.style.border = '1px solid transparent'
+        moreBtn.style.cursor = 'pointer'
+        moreBtn.onmouseover = () => moreBtn.style.background = '#e5e7eb'
+        moreBtn.onmouseout = () => moreBtn.style.background = 'transparent'
+
+        actions.appendChild(editBtn)
+        actions.appendChild(moreBtn)
+
+        const startInlineEdit = () => {
+          if (card.classList.contains('editing')) return
+          card.classList.add('editing')
+
+          const originalContent = n.content
+          body.style.display = 'none'
+          actions.style.display = 'none'
+
+          const editor = document.createElement('div')
+          editor.className = 'inline-editor'
+          editor.style.marginTop = '8px'
+          editor.style.display = 'flex'
+          editor.style.flexDirection = 'column'
+          editor.style.gap = '8px'
+
+          const ta = document.createElement('textarea')
+          ta.value = originalContent
+          ta.rows = 1
+          ta.style.width = '100%'
+          ta.style.padding = '8px'
+          ta.style.border = '1px solid #d1d5db'
+          ta.style.borderRadius = '6px'
+          ta.style.resize = 'none'
+          ta.style.overflowY = 'hidden'
+          ta.style.fontFamily = 'inherit'
+          ta.style.fontSize = 'inherit'
+          ta.style.lineHeight = '1.5'
+          ta.style.minHeight = '38px'
+          ta.style.flex = 'none' // Prevent global CSS flex:1 from resizing it
+
+          const autoResize = () => {
+            ta.style.height = 'auto'
+            ta.style.height = ta.scrollHeight + 'px'
+          }
+          ta.addEventListener('input', autoResize)
+
+          const btnRow = document.createElement('div')
+          btnRow.style.display = 'flex'
+          btnRow.style.justifyContent = 'flex-end'
+          btnRow.style.gap = '8px'
+
+          const btnCancel = document.createElement('button')
+          btnCancel.textContent = '取消'
+          btnCancel.style.padding = '4px 10px'
+          btnCancel.style.fontSize = '12px'
+          btnCancel.style.background = '#f3f4f6'
+          btnCancel.style.color = '#374151'
+          btnCancel.style.borderRadius = '4px'
+          btnCancel.style.border = 'none'
+          btnCancel.style.cursor = 'pointer'
+          btnCancel.onclick = () => {
+            editor.remove()
+            body.style.display = 'block'
+            actions.style.display = 'flex'
+            card.classList.remove('editing')
+          }
+
+          const btnSave = document.createElement('button')
+          btnSave.textContent = '保存'
+          btnSave.style.padding = '4px 10px'
+          btnSave.style.fontSize = '12px'
+          btnSave.style.background = '#3b82f6'
+          btnSave.style.color = 'white'
+          btnSave.style.borderRadius = '4px'
+          btnSave.style.border = 'none'
+          btnSave.style.cursor = 'pointer'
+          btnSave.onclick = async () => {
+            const v = ta.value.trim()
+            if (v === originalContent) {
+              btnCancel.click()
+              return
+            }
+            try {
+              await fetch('/api/notes/' + n.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: v }) })
+              const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+              renderNoteCards(notes)
+            } catch (err) {
+              alert('保存失败')
+            }
+          }
+
+          btnRow.appendChild(btnCancel)
+          btnRow.appendChild(btnSave)
+          editor.appendChild(ta)
+          editor.appendChild(btnRow)
+          card.appendChild(editor)
+
+          requestAnimationFrame(() => {
+            autoResize()
+            ta.focus()
+            ta.setSelectionRange(ta.value.length, ta.value.length)
+          })
+        }
+
+        editBtn.onclick = (e) => {
+          e.stopPropagation()
+          startInlineEdit()
+        }
+
+        moreBtn.onclick = (e) => {
+          e.stopPropagation()
+
+          // Remove any existing active menus
+          const existing = document.getElementById('activeNoteMenu')
+          if (existing) existing.remove()
+          menuOverlay.classList.remove('hidden')
+
+          const menu = document.createElement('div')
+          menu.id = 'activeNoteMenu'
+          menu.className = 'card-menu popup-menu'
+          menu.style.position = 'fixed'
+          menu.style.zIndex = '10001'
+
+          const pinItem = document.createElement('div')
+          pinItem.className = 'popup-item'
+          pinItem.textContent = n.pinned ? '取消置顶' : '置顶'
+          pinItem.onclick = async () => {
+            await fetch('/api/notes/' + n.id + '/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: !n.pinned }) })
+            const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+            renderNoteCards(notes)
+            closeMenu()
+          }
+
+          const delItem = document.createElement('div')
+          delItem.className = 'popup-item danger'
+          delItem.style.color = '#ff4d4f'
+          delItem.textContent = '删除'
+          delItem.onclick = async () => {
+            if (!confirm('确认删除此条备注?')) return
+            await fetch('/api/notes/' + n.id, { method: 'DELETE' })
+            const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
+            renderNoteCards(notes)
+            closeMenu()
+          }
+
+          menu.appendChild(pinItem)
+          menu.appendChild(delItem)
+          document.body.appendChild(menu)
+
+          // Positioning
+          const rect = moreBtn.getBoundingClientRect()
+          menu.style.top = (rect.bottom + 4) + 'px'
+          // Align right edge of menu with right edge of button
+          // We don't know menu width yet, but we can set right.
+          // Since it's fixed, right property works relative to viewport.
+          // rect.right is distance from left edge to right edge.
+          // Distance from right edge of viewport is window.innerWidth - rect.right.
+          menu.style.right = (window.innerWidth - rect.right) + 'px'
+          menu.style.left = 'auto'
+
+          const closeMenu = () => {
+            if (menu.parentNode) menu.remove()
+            menuOverlay.classList.add('hidden')
+          }
+
+          menuOverlay.onclick = closeMenu
+        }
+
+        card.appendChild(head)
+        card.appendChild(body)
+        card.appendChild(actions)
+
+        noteCards.appendChild(card)
+      })
     }
 
     function updateBadge(count) {
@@ -1226,7 +1510,7 @@
     }
     async function refreshConversations() {
       try {
-        const r = await fetch('/api/conversations')
+        const r = await fetch('/api/conversations?t=' + Date.now())
         if (!r.ok) {
           if (r.status === 401) showTokenBar()
           renderList(conversations)
@@ -1296,6 +1580,66 @@
       const phone = searchPhone.value.trim()
       if (!phone) return
       loadConversation(phone)
+      loadConversation(phone)
+    }
+
+    let activeCtxMenu = null
+    function showContextMenu(e, item) {
+      if (activeCtxMenu) activeCtxMenu.remove()
+      const menu = document.createElement('div')
+      menu.className = 'ctx-menu'
+      const mk = (text, cls, fn) => {
+        const el = document.createElement('div')
+        el.className = 'ctx-menu-item' + (cls ? ' ' + cls : '')
+        el.textContent = text
+        el.onclick = () => { fn(); menu.remove(); activeCtxMenu = null; menuOverlay.classList.add('hidden') }
+        return el
+      }
+      menu.appendChild(mk(item.pinned ? '取消置顶' : '置顶对话', '', () => togglePin(item)))
+      menu.appendChild(mk('删除对话', 'danger', () => deleteConv(item)))
+
+      menu.style.top = e.clientY + 'px'
+      menu.style.left = e.clientX + 'px'
+      document.body.appendChild(menu)
+      activeCtxMenu = menu
+      menuOverlay.classList.remove('hidden')
+      menuOverlay.onclick = () => {
+        if (activeCtxMenu) activeCtxMenu.remove()
+        menuOverlay.classList.add('hidden')
+      }
+    }
+
+    async function togglePin(item) {
+      alert('Debug: Start Pinning Phone=' + item.phone)
+      try {
+        const r = await fetch('/api/conversation/' + item.phone + '/pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinned: !item.pinned })
+        })
+        if (!r.ok) throw new Error(r.status + ' ' + (await r.text()))
+        refreshConversations()
+      } catch (e) {
+        alert('操作失败: ' + e.message)
+      }
+    }
+
+    async function deleteConv(item) {
+      alert('Debug: Start Deleting Phone=' + item.phone)
+      if (!confirm('确定要删除与 ' + (item.name || item.phone) + ' 的对话吗？\n注意：这将永久删除所有历史记录！')) return
+      try {
+        const r = await fetch('/api/conversation/' + item.phone, { method: 'DELETE' })
+        if (!r.ok) throw new Error(r.status + ' ' + (await r.text()))
+        if (currentPhone === item.phone) {
+          currentPhone = null
+          messagesEl.innerHTML = ''
+          rightbar.classList.add('hidden')
+          composerEl.classList.add('hidden')
+        }
+        refreshConversations()
+      } catch (e) {
+        alert('删除失败: ' + e.message)
+      }
     }
 
     const testAudioBtn = document.getElementById('testAudioBtn')
@@ -1587,82 +1931,7 @@
       try { loadConversation(autoPhone) } catch { }
     }
 
-    function renderNoteCards(items) {
-      noteCards.innerHTML = ''
-      items.forEach(n => {
-        const card = document.createElement('div')
-        card.className = 'note-card'
-        const head = document.createElement('div')
-        head.className = 'note-card-head'
-        head.textContent = new Date(n.ts).toLocaleString()
-        const body = document.createElement('div')
-        body.className = 'note-card-body'
-        body.textContent = n.content
-        const menuBtn = document.createElement('button')
-        menuBtn.className = 'card-menu-btn'
-        menuBtn.textContent = '✏️'
-        const menu = document.createElement('div')
-        menu.className = 'card-menu popup-menu hidden'
-        const editItem = document.createElement('div')
-        editItem.className = 'popup-item'
-        editItem.textContent = '编辑'
-        editItem.onclick = async () => {
-          const v = prompt('编辑备注内容', n.content)
-          if (v == null) return
-          await fetch('/api/notes/' + n.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: v }) })
-          const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
-          renderNoteCards(notes)
-          menu.classList.add('hidden')
-        }
-        const pinItem = document.createElement('div')
-        pinItem.className = 'popup-item'
-        pinItem.textContent = n.pinned ? '取消置顶' : '置顶'
-        pinItem.onclick = async () => {
-          await fetch('/api/notes/' + n.id + '/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned: !n.pinned }) })
-          const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
-          renderNoteCards(notes)
-          menu.classList.add('hidden')
-          menuOverlay.classList.add('hidden')
-        }
-        const delItem = document.createElement('div')
-        delItem.className = 'popup-item'
-        delItem.textContent = '删除'
-        delItem.onclick = async () => {
-          await fetch('/api/notes/' + n.id, { method: 'DELETE' })
-          const notes = await fetch('/api/notes/' + encodeURIComponent(currentPhone)).then(r => r.json())
-          renderNoteCards(notes)
-          menu.classList.add('hidden')
-          menuOverlay.classList.add('hidden')
-        }
-        menu.appendChild(editItem)
-        menu.appendChild(pinItem)
-        menu.appendChild(delItem)
-        menuBtn.onclick = (e) => {
-          e.stopPropagation()
-          document.querySelectorAll('.card-menu').forEach(m => { if (m !== menu) m.classList.add('hidden') })
-          const opening = menu.classList.contains('hidden')
-          menu.classList.toggle('hidden')
-          if (opening) {
-            menuOverlay.classList.remove('hidden')
-            menuOverlay.onclick = () => {
-              document.querySelectorAll('.card-menu').forEach(m => m.classList.add('hidden'))
-              menuOverlay.classList.add('hidden')
-            }
-          } else {
-            menuOverlay.classList.add('hidden')
-          }
-        }
-        card.appendChild(head)
-        card.appendChild(body)
-        card.appendChild(menuBtn)
-        card.appendChild(menu)
-        noteCards.appendChild(card)
-      })
-      document.addEventListener('click', () => {
-        document.querySelectorAll('.card-menu').forEach(m => m.classList.add('hidden'))
-        menuOverlay.classList.add('hidden')
-      })
-    }
+    // Old Duplicate Function Removed
   </script>
 </body>
 

@@ -81,10 +81,12 @@ services:
       - REDIS_URL=redis://mxg-redis:6379
       - UPLOAD_SCAN_URL=${UPLOAD_SCAN_URL}
       - DEEPL_AUTH_KEY=e82bc50c-c51f-449e-910e-d75698b517e8:fx
+      - CORS_ORIGIN=https://xg.kudafn.com,https://super.kudafn.com,http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174,http://ecimapp.net,http://decim.org,https://ecimapp.net,https://decim.org
     ports:
       - "3000:3000"
     volumes:
       - im-data:/app/data
+      - ./im-main/im-main/public:/app/public
     depends_on:
       backend:
         condition: service_healthy

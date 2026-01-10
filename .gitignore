@@ -46,9 +46,9 @@ server.tgz
 moxige-dist.tgz
 *.tgz
 
-# Local database files (SQLite) — keep out of VCS
-data/
-server/data/
+# Local database files (SQLite) — temporarily included for backup migration
+# data/
+# server/data/
 
 # Sensitive internal docs (do not publish)
 docs/remote-access.md

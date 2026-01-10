@@ -705,17 +705,13 @@ export default function Market() {
                 )}
               </div>
             </div>
-            <div style={{ marginLeft: 8 }}>
-              <button className={`pill ${showNewsList ? 'active' : ''}`} onClick={fetchMxInvestNews} aria-busy={newsLoading}>{t('tabNews') || (lang==='es'?'Noticias':'News')}</button>
-            </div>
           </div>
         </div>
       </div>
 
       {/* 内容区域 */}
-      {!showNewsList && (
       <div className="market-content" style={{ position: 'relative' }}>
-        <div className="card">
+        <div style={{ background: 'transparent' }}>
           <>
             <div className="search-row" style={{ marginTop: 8 }}>
               <label className="desc search-label" htmlFor="market-search">{searchLabel}</label>
@@ -729,7 +725,7 @@ export default function Market() {
                 onBlur={() => setTimeout(() => setShowSug(false), 120)}
                 placeholder={searchPh}
                 className="search-input"
-                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #263b5e", background: "rgba(21,32,53,0.6)", color: "#a8b3cf" }}
+                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--card-border)", background: "#f8fafc", color: "var(--text)" }}
               />
               <button className="pill" onClick={doSearch} disabled={searchLoading} aria-busy={searchLoading}>
                 {t("search")}
@@ -895,83 +891,6 @@ export default function Market() {
           </>
         </div>
       </div>
-      )}
-
-      {showNewsList && (
-        <div className="market-content" style={{ position:'relative' }}>
-        <div className="card" style={{ marginTop: 12 }}>
-          <h2 className="title" style={{ marginTop: 0 }}>{t('tabNews') || (lang==='es'?'Noticias':'News')}</h2>
-          <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:8 }}>
-            <button className="pill" onClick={()=>setShowNewsList(false)}>{t('viewOverview') || 'Back to Market'}</button>
-          </div>
-          {newsLoading && <div className="desc">{t('loading') || 'Loading...'}</div>}
-          {!newsLoading && (news||[]).length === 0 && (
-            <div className="desc">{t('noMatches') || 'No data'}</div>
-          )}
-          {!newsLoading && (news||[]).length > 0 && (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:12 }}>
-              {(news||[]).map((n, idx) => (
-                <div key={`nx-${idx}`} className="card flat" style={{ cursor:'pointer' }} onClick={()=>{ setNewsIndex(idx); setShowNews(true); }}>
-                  <img src={n.img} alt={n.title} style={{ width:'100%', height:110, objectFit:'cover', borderRadius:8 }} />
-                  <div style={{ fontSize:12, marginTop:6, fontWeight:700 }}>{n.title}</div>
-                  {formatDateText(n.pubDate, lang) && (
-                    <div className="desc" style={{ fontSize:12 }}>{formatDateText(n.pubDate, lang)}</div>
-                  )}
-                  <div className="desc" style={{ fontSize:12 }}>{String(n.desc||'').replace(/<[^>]+>/g,'').slice(0,80)}...</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        </div>
-      )}
-
-      {showNews && createPortal((
-        <div className="modal" role="dialog" aria-modal="true" onClick={()=>setShowNews(false)}>
-          <div className="modal-card news-modal-card" style={{ maxWidth: 920, width: 'min(92vw, 920px)' }} onClick={(e)=>e.stopPropagation()}
-            onTouchStart={(e)=>{ const t=e.touches?.[0]; if (t) touchRef.current={ x:t.clientX, y:t.clientY }; }}
-            onTouchEnd={(e)=>{ const t=e.changedTouches?.[0]; if (!t) return; const dx = t.clientX - touchRef.current.x; const dy = t.clientY - touchRef.current.y; if (Math.abs(dx) > 40 && Math.abs(dy) < 20) { setNewsIndex(i => {
-              if (dx < 0) return Math.min((news||[]).length-1, i+1); else return Math.max(0, i-1);
-            }); } }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 8 }}>
-              <h2 className="title" style={{ margin:0 }}>{t('tabNews') || (lang==='es'?'Noticias':'News')}</h2>
-              <button className="pill" onClick={()=>setShowNews(false)}>×</button>
-            </div>
-            {news.length === 0 ? (
-              <div className="desc" style={{ padding:'16px 0' }}>{newsLoading ? (t('loading') || 'Loading...') : (t('noMatches') || 'No data')}</div>
-            ) : (
-              <div style={{ display:'grid', gap:12 }}>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr', justifyItems:'center' }}>
-                  {(() => { const it = news[newsIndex] || {}; return (
-                    <div style={{ width:'100%', display:'grid', gap:10 }}>
-                      <img src={it.img} alt={it.title} style={{ width:'100%', maxHeight:'40vh', objectFit:'cover', borderRadius:10 }} />
-                      <div style={{ fontWeight:700 }}>{it.title}</div>
-                      {formatDateText(it.pubDate, lang) && (
-                        <div className="desc" style={{ fontSize:12 }}>{formatDateText(it.pubDate, lang)}</div>
-                      )}
-                      <div className="news-content" style={{ lineHeight:1.7, maxHeight:'56vh', overflowY:'auto', paddingRight:6 }} onWheel={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()}>
-                        {String((it.content || it.desc) || '').replace(/<[^>]+>/g,'')}
-                      </div>
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                        <button className="pill" onClick={()=>{ setNewsIndex(i => Math.max(0, i-1)); }} disabled={newsIndex<=0}>{t('prev')||'Prev'}</button>
-                        <button className="pill" onClick={()=>{ setNewsIndex(i => Math.min(news.length-1, i+1)); }} disabled={newsIndex>=news.length-1}>{t('next')||'Next'}</button>
-                      </div>
-                    </div>
-                  ); })()}
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:10 }}>
-                  {(news||[]).map((n, idx) => (
-                    <div key={`n-${idx}`} className="card flat" style={{ cursor:'pointer' }} onClick={async ()=>{ try { setNewsIndex(idx); await ensureNewsContent(idx); } catch {} }}>
-                      <img src={n.img} alt={n.title} style={{ width:'100%', height:100, objectFit:'cover', borderRadius:8 }} />
-                      <div style={{ fontSize:12, marginTop:6 }}>{n.title}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      ), document.body)}
 
       <BottomNav />
     </div>

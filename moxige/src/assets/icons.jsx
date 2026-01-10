@@ -47,13 +47,7 @@ export function IconCrypto({ className = '', size = 18 }) {
 export function IconLightning({ className = '', size = 20 }) {
   return (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      <defs>
-        <linearGradient id="lightBolt" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#ffd54f" />
-          <stop offset="100%" stopColor="#ffeb3b" />
-        </linearGradient>
-      </defs>
-      <path d="M13 3L6 13h5l-2 8 9-12h-5l0-6z" fill="url(#lightBolt)" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M13 2L4 14h7l-2 8 11-12h-7l0-8z" fill="#ffd700" stroke="#ffa500" strokeWidth="0.5" strokeLinejoin="round" />
     </svg>
   );
 }

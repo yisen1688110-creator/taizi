@@ -3284,21 +3284,12 @@ function FundAdmin({ session }) {
   const [fundOpsId, setFundOpsId] = useState(null);
   const [fundEditId, setFundEditId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', tiers: '2000,15%\n5000,20%\n10000,25%\n20000,30%', dividend: 'day', redeemDays: '7', currency: 'MXN' });
-
-  const parseTiers = (text) => {
-    const lines = String(text || '').split(/\n+/).map(l => l.trim()).filter(Boolean);
-    const arr = [];
-    for (const ln of lines) {
-      const m = ln.match(/^([0-9]+)\s*,\s*([0-9]+)%$/);
-      if (!m) return null;
-      const price = Number(m[1]);
-      const percent = Number(m[2]);
-      if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(percent) || percent <= 0) return null;
-      arr.push({ price, percent });
-    }
-    return arr;
-  };
+  // 审批弹窗状态
+  const [approveModal, setApproveModal] = useState({ open: false, order: null, approvedQty: 1 });
+  const [form, setForm] = useState({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', subscribePrice: '', dividendPercent: '', dividend: 'day', redeemDays: '7', currency: 'MXN' });
+  const [priceModal, setPriceModal] = useState({ open: false, fund: null, price: '' });
+  const [priceHistory, setPriceHistory] = useState([]);
+  const [showPriceHistory, setShowPriceHistory] = useState(false);
 
   const fetchList = async () => {
     try {
@@ -3334,14 +3325,16 @@ function FundAdmin({ session }) {
   useEffect(() => { fetchOrders(); }, [orderTab, orderPage, orderPageSize]);
 
   const submitAdd = async () => {
-    const tiersArr = parseTiers(form.tiers);
-    if (!tiersArr || tiersArr.length !== 4) { alert('申购价格及配息格式不正确或不足 4 行'); return; }
+    const sp = Number(form.subscribePrice || 0);
+    const dp = Number(form.dividendPercent || 0);
+    if (sp <= 0) { alert('请输入有效的认购价格'); return; }
+    if (dp <= 0 || dp > 100) { alert('请输入有效的配息比例（1-100%）'); return; }
     if (!form.nameEs || !form.nameEn) { alert('请输入基金名称（西语/英文）'); return; }
     if (!form.code) { alert('请输入基金代码'); return; }
     if (!form.descEs || !form.descEn) { alert('请输入基金介绍（西语/英文）'); return; }
     if (!['day', 'week', 'month'].includes(form.dividend)) { alert('请选择配息方式'); return; }
     if (!/^[0-9]+$/.test(String(form.redeemDays || ''))) { alert('请输入赎回周期（天数）'); return; }
-    const payload = { nameEs: form.nameEs.trim(), nameEn: form.nameEn.trim(), code: form.code.trim().toUpperCase(), descEs: form.descEs.trim(), descEn: form.descEn.trim(), tiers: tiersArr, dividend: form.dividend, redeemDays: Number(form.redeemDays), currency: form.currency };
+    const payload = { nameEs: form.nameEs.trim(), nameEn: form.nameEn.trim(), code: form.code.trim().toUpperCase(), descEs: form.descEs.trim(), descEn: form.descEn.trim(), subscribePrice: sp, dividendPercent: dp, dividend: form.dividend, redeemDays: Number(form.redeemDays), currency: form.currency };
     try {
       if (fundEditId) {
         await api.post(`/admin/trade/fund/${fundEditId}/update`, payload);
@@ -3351,24 +3344,56 @@ function FundAdmin({ session }) {
         alert('已添加基金');
       }
       setShowAdd(false);
-      setForm({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', tiers: '', dividend: 'day', redeemDays: '7', currency: 'MXN' });
+      setFundEditId(null);
+      setForm({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', subscribePrice: '', dividendPercent: '', dividend: 'day', redeemDays: '7', currency: 'MXN' });
       setPage(1);
       fetchList();
     } catch (e) { alert('提交失败: ' + (e?.message || e)); }
   };
 
+  const setMarketPrice = async () => {
+    const p = Number(priceModal.price);
+    if (!Number.isFinite(p) || p <= 0) { alert('请输入有效的市场价格'); return; }
+    try {
+      await api.post(`/admin/trade/fund/${priceModal.fund.id}/market-price`, { price: p });
+      alert('市场价格已更新');
+      setPriceModal({ open: false, fund: null, price: '' });
+      fetchList();
+    } catch (e) { alert('设置失败: ' + (e?.message || e)); }
+  };
+
+  const fetchPriceHistory = async (fundId) => {
+    try {
+      const data = await api.get(`/admin/trade/fund/${fundId}/price-history`);
+      setPriceHistory(Array.isArray(data?.items) ? data.items : []);
+      setShowPriceHistory(true);
+    } catch (e) { alert('获取价格记录失败: ' + (e?.message || e)); }
+  };
+
   const openFundEdit = (it) => {
     setFundEditId(it.id);
     setShowAdd(true);
-    const tiersStr = typeof it.tiers === 'string' ? it.tiers : JSON.stringify(Array.isArray(it.tiers) ? it.tiers : []);
-    const tiersLines = (() => { try { const arr = JSON.parse(tiersStr || '[]'); return arr.map(t => `${t.price},${t.percent}`).join('\n'); } catch { return ''; } })();
+    // 尝试从tiers获取价格和比例（兼容旧数据）
+    let sp = Number(it.subscribePrice || 0);
+    let dp = Number(it.dividendPercent || 0);
+    if (sp === 0 || dp === 0) {
+      try {
+        const tiersStr = typeof it.tiers === 'string' ? it.tiers : JSON.stringify(Array.isArray(it.tiers) ? it.tiers : []);
+        const arr = JSON.parse(tiersStr || '[]');
+        if (arr.length > 0) {
+          sp = Number(arr[0].price || 0);
+          dp = Number(arr[0].percent || 0);
+        }
+      } catch { }
+    }
     setForm({
       nameEs: String(it.nameEs || ''),
       nameEn: String(it.nameEn || ''),
       code: String(it.code || ''),
       descEs: String(it.descEs || ''),
       descEn: String(it.descEn || ''),
-      tiers: tiersLines,
+      subscribePrice: sp > 0 ? String(sp) : '',
+      dividendPercent: dp > 0 ? String(dp) : '',
       dividend: String(it.dividend || 'day'),
       redeemDays: String(it.redeem_days || '7'),
       currency: String(it.currency || 'MXN'),
@@ -3380,9 +3405,18 @@ function FundAdmin({ session }) {
     try { await api.delete(`/admin/trade/fund/${id}`); fetchList(); } catch (e) { alert('删除失败: ' + (e?.message || e)); }
   };
 
-  const approveOrder = async (id) => {
-    if (!confirm('确认通过该基金申购并开始配息？')) return;
-    try { await api.post(`/admin/trade/fund/orders/${id}/approve`, {}); alert('已通过'); fetchOrders(); } catch (e) { alert('操作失败: ' + (e?.message || e)); }
+  const approveOrder = async (id, approvedQty) => {
+    try { 
+      await api.post(`/admin/trade/fund/orders/${id}/approve`, { approvedQty }); 
+      alert('已通过'); 
+      setApproveModal({ open: false, order: null, approvedQty: 1 });
+      fetchOrders(); 
+    } catch (e) { alert('操作失败: ' + (e?.message || e)); }
+  };
+  
+  const openApproveModal = (order) => {
+    setFundOrderOpsOpenId(null);
+    setApproveModal({ open: true, order, approvedQty: Number(order.qty || 1) });
   };
   const rejectOrder = async (id) => {
     const reason = prompt('请输入驳回原因（可选）') || '';
@@ -3448,33 +3482,44 @@ function FundAdmin({ session }) {
                 <tr style={{ textAlign: 'left' }}>
                   <th style={{ padding: '8px 6px' }}>代码</th>
                   <th style={{ padding: '8px 6px' }}>名称</th>
-                  <th style={{ padding: '8px 6px' }}>配息</th>
-                  <th style={{ padding: '8px 6px' }}>赎回</th>
-                  <th style={{ padding: '8px 6px' }}>状态</th>
+                  <th style={{ padding: '8px 6px' }}>认购价</th>
+                  <th style={{ padding: '8px 6px' }}>现价</th>
+                  <th style={{ padding: '8px 6px' }}>配息%</th>
+                  <th style={{ padding: '8px 6px' }}>周期</th>
                   <th style={{ padding: '8px 6px' }}>操作</th>
                 </tr>
               </thead>
               <tbody>
-                {items.map(it => (
+                {items.map(it => {
+                  const sp = Number(it.subscribePrice || 0);
+                  const mp = Number(it.marketPrice || sp);
+                  const dp = Number(it.dividendPercent || 0);
+                  return (
                   <tr key={it.id} style={{ borderTop: '1px solid #263b5e' }}>
                     <td style={{ padding: '8px 6px' }}>{it.code}</td>
-                    <td style={{ padding: '8px 6px' }}>{it.nameEs} / {it.nameEn}</td>
-                    <td style={{ padding: '8px 6px' }}>{it.dividend}</td>
+                    <td style={{ padding: '8px 6px' }}>{it.nameEs}</td>
+                    <td style={{ padding: '8px 6px' }}>{sp > 0 ? sp.toLocaleString() : '-'}</td>
+                    <td style={{ padding: '8px 6px' }}>
+                      <span style={{ color: mp !== sp ? '#22c55e' : 'inherit' }}>{mp > 0 ? mp.toLocaleString() : '-'}</span>
+                    </td>
+                    <td style={{ padding: '8px 6px' }}>{dp > 0 ? `${dp}%` : '-'} / {it.dividend}</td>
                     <td style={{ padding: '8px 6px' }}>{it.redeem_days} 天</td>
-                    <td style={{ padding: '8px 6px' }}>{it.status || 'active'}</td>
                     <td style={{ padding: '8px 6px', position: 'relative' }}>
                       <button className="btn" onClick={() => setFundOpsId(fundOpsId === it.id ? null : it.id)}>操作</button>
                       {fundOpsId === it.id && (
-                        <div className="card" style={{ position: 'absolute', zIndex: 10, padding: 8, right: 8 }}>
+                        <div className="card" style={{ position: 'absolute', zIndex: 10, padding: 8, right: 8, minWidth: 100 }}>
                           <button className="btn slim" style={{ width: '100%' }} onClick={() => { setFundOpsId(null); openFundEdit(it); }}>编辑</button>
-                          <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOpsId(null); removeFund(it.id); }}>删除</button>
+                          <button className="btn slim primary" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOpsId(null); setPriceModal({ open: true, fund: it, price: String(mp) }); }}>设置现价</button>
+                          <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOpsId(null); fetchPriceHistory(it.id); }}>价格记录</button>
+                          <button className="btn slim danger" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOpsId(null); removeFund(it.id); }}>删除</button>
                         </div>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {items.length === 0 && (
-                  <tr><td colSpan={5} className="desc" style={{ padding: '10px 6px' }}>{loading ? '加载中...' : '暂无数据'}</td></tr>
+                  <tr><td colSpan={7} className="desc" style={{ padding: '10px 6px' }}>{loading ? '加载中...' : '暂无数据'}</td></tr>
                 )}
               </tbody>
             </table>
@@ -3528,11 +3573,12 @@ function FundAdmin({ session }) {
             <th style={{ padding: '8px 6px' }}>用户</th>
             <th style={{ padding: '8px 6px' }}>手机号</th>
             <th style={{ padding: '8px 6px' }}>基金</th>
-            <th style={{ padding: '8px 6px' }}>价格</th>
+            <th style={{ padding: '8px 6px' }}>单价</th>
+            <th style={{ padding: '8px 6px' }}>数量</th>
+            <th style={{ padding: '8px 6px' }}>总金额</th>
             <th style={{ padding: '8px 6px' }}>配息比例</th>
             <th style={{ padding: '8px 6px' }}>提交时间</th>
             <th style={{ padding: '8px 6px' }}>封闭期剩余</th>
-            <th style={{ padding: '8px 6px' }}>上次配息</th>
             <th style={{ padding: '8px 6px' }}>下次配息</th>
             <th style={{ padding: '8px 6px' }}>操作</th>
           </tr>
@@ -3543,11 +3589,12 @@ function FundAdmin({ session }) {
               <td style={{ padding: '8px 6px' }}>{o.userName || o.userId}</td>
               <td style={{ padding: '8px 6px' }}>{o.phone || '-'}</td>
               <td style={{ padding: '8px 6px' }}>{o.code}</td>
-              <td style={{ padding: '8px 6px' }}>{o.price}</td>
+              <td style={{ padding: '8px 6px' }}>{Number(o.price || 0).toLocaleString()}</td>
+              <td style={{ padding: '8px 6px' }}>{o.qty || 1}</td>
+              <td style={{ padding: '8px 6px' }}>{(Number(o.price || 0) * Number(o.qty || 1)).toLocaleString()}</td>
               <td style={{ padding: '8px 6px' }}>{o.percent}%</td>
               <td style={{ padding: '8px 6px' }}>{o.submitted_at}</td>
               <td style={{ padding: '8px 6px' }}>{o.status === 'approved' ? fmtRemaining(o.lock_until_ts, o.forced_unlocked) : '-'}</td>
-              <td style={{ padding: '8px 6px' }}>{o.last_payout_at ? String(o.last_payout_at).replace(/:00\.000Z$/, '').replace(/\.\d+Z$/, 'Z') : '-'}</td>
               <td style={{ padding: '8px 6px' }}>{formatNextPayout(o.next_payout_ts)}</td>
               <td style={{ padding: '8px 6px', position: 'relative' }}>
                 {o.status === 'submitted' ? (
@@ -3556,7 +3603,7 @@ function FundAdmin({ session }) {
                     {fundOrderOpsOpenId === o.id && (
                       <div className="card" style={{ position: 'absolute', zIndex: 10, padding: 8, right: 8 }}>
                         <>
-                          <button className="btn slim primary" style={{ width: '100%' }} onClick={() => { setFundOrderOpsOpenId(null); approveOrder(o.id); }}>通过</button>
+                          <button className="btn slim primary" style={{ width: '100%' }} onClick={() => openApproveModal(o)}>通过</button>
                           <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOrderOpsOpenId(null); rejectOrder(o.id); }}>驳回</button>
                         </>
                       </div>
@@ -3566,10 +3613,10 @@ function FundAdmin({ session }) {
                   <>
                     <button className="btn" onClick={() => setFundOrderOpsOpenId(fundOrderOpsOpenId === o.id ? null : o.id)}>操作</button>
                     {fundOrderOpsOpenId === o.id && (
-                      <div className="card" style={{ position: 'absolute', zIndex: 10, padding: 8, right: 8 }}>
-                        <button className="btn slim" style={{ width: '100%' }} onClick={() => { setFundOrderOpsOpenId(null); toggleLock(o); }}>{o.forced_unlocked ? '锁定' : '解除锁定'}</button>
-                        <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOrderOpsOpenId(null); runPayoutOnce(); }}>立即配息</button>
-                        <button className="btn slim danger" style={{ width: '100%', marginTop: 6 }} onClick={() => { setFundOrderOpsOpenId(null); deleteOrder(o.id); }}>删除订单</button>
+                      <div className="card" style={{ position: 'absolute', zIndex: 10, padding: 10, right: 0, minWidth: 140, background: '#1e293b', border: '1px solid #334155' }}>
+                        <button className="btn slim" style={{ width: '100%', whiteSpace: 'nowrap', padding: '8px 12px' }} onClick={() => { setFundOrderOpsOpenId(null); toggleLock(o); }}>{o.forced_unlocked ? '🔒 恢复锁定' : '🔓 解除锁定'}</button>
+                        <button className="btn slim" style={{ width: '100%', marginTop: 8, whiteSpace: 'nowrap', padding: '8px 12px' }} onClick={() => { setFundOrderOpsOpenId(null); runPayoutOnce(); }}>💰 立即配息</button>
+                        <button className="btn slim danger" style={{ width: '100%', marginTop: 8, whiteSpace: 'nowrap', padding: '8px 12px', background: '#dc2626', color: '#fff' }} onClick={() => { setFundOrderOpsOpenId(null); deleteOrder(o.id); }}>🗑️ 删除订单</button>
                       </div>
                     )}
                   </>
@@ -3578,7 +3625,7 @@ function FundAdmin({ session }) {
             </tr>
           ))}
           {orders.length === 0 && (
-            <tr><td colSpan={10} className="desc" style={{ padding: '10px 6px' }}>暂无订单</td></tr>
+            <tr><td colSpan={11} className="desc" style={{ padding: '10px 6px' }}>暂无订单</td></tr>
           )}
         </tbody>
       </table>
@@ -3612,14 +3659,21 @@ function FundAdmin({ session }) {
               <textarea className="input" rows={3} placeholder={'基金介绍（西语）'} value={form.descEs} onChange={e => setForm(f => ({ ...f, descEs: e.target.value }))} />
               <label className="label">基金介绍（英文）</label>
               <textarea className="input" rows={3} placeholder={'基金介绍（英文）'} value={form.descEn} onChange={e => setForm(f => ({ ...f, descEn: e.target.value }))} />
-              <label className="label">申购价格与配息比例</label>
-              <div className="desc">每行格式：价格,比例%，共4行，例如：2000,15%\n5000,20%\n10000,25%\n20000,30%</div>
-              <textarea className="input" rows={6} placeholder={'价格,比例%（每行一组，共4行）'} value={form.tiers} onChange={e => setForm(f => ({ ...f, tiers: e.target.value }))} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="label">认购价格</label>
+                  <input className="input" type="number" placeholder={'如 5000'} value={form.subscribePrice} onChange={e => setForm(f => ({ ...f, subscribePrice: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="label">配息比例（%）</label>
+                  <input className="input" type="number" placeholder={'如 15'} value={form.dividendPercent} onChange={e => setForm(f => ({ ...f, dividendPercent: e.target.value }))} />
+                </div>
+              </div>
               <label className="label">配息方式</label>
               <select className="input" value={form.dividend} onChange={e => setForm(f => ({ ...f, dividend: e.target.value }))}>
-                <option value="day">day</option>
-                <option value="week">week</option>
-                <option value="month">month</option>
+                <option value="day">每日 (day)</option>
+                <option value="week">每周 (week)</option>
+                <option value="month">每月 (month)</option>
               </select>
               <label className="label">赎回周期（天）</label>
               <input className="input" placeholder={'如 7'} value={form.redeemDays} onChange={e => setForm(f => ({ ...f, redeemDays: e.target.value }))} />
@@ -3637,6 +3691,113 @@ function FundAdmin({ session }) {
           </div>
         </div>
       ) : null}
+      {priceModal.open && priceModal.fund && (
+        <div className="modal">
+          <div className="modal-card" style={{ maxWidth: 400 }}>
+            <h2 className="title" style={{ marginTop: 0 }}>设置市场价格</h2>
+            <div className="form">
+              <div className="desc">基金: {priceModal.fund.code} - {priceModal.fund.nameEs}</div>
+              <div className="desc" style={{ marginTop: 4 }}>认购价: {Number(priceModal.fund.subscribePrice || 0).toLocaleString()}</div>
+              <label className="label" style={{ marginTop: 10 }}>新市场价格</label>
+              <input className="input" type="number" placeholder="输入新的市场价格" value={priceModal.price} onChange={e => setPriceModal(p => ({ ...p, price: e.target.value }))} />
+              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+                <button className="btn" onClick={() => setPriceModal({ open: false, fund: null, price: '' })}>取消</button>
+                <button className="btn primary" onClick={setMarketPrice}>确认设置</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPriceHistory && (
+        <div className="modal">
+          <div className="modal-card" style={{ maxWidth: 500 }}>
+            <h2 className="title" style={{ marginTop: 0 }}>价格变动记录</h2>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 10 }}>
+              <thead>
+                <tr style={{ textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px' }}>价格</th>
+                  <th style={{ padding: '6px 8px' }}>设置人</th>
+                  <th style={{ padding: '6px 8px' }}>时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {priceHistory.map(h => (
+                  <tr key={h.id} style={{ borderTop: '1px solid #e2e8f0' }}>
+                    <td style={{ padding: '6px 8px' }}>{Number(h.price || 0).toLocaleString()}</td>
+                    <td style={{ padding: '6px 8px' }}>{h.setByName || '-'}</td>
+                    <td style={{ padding: '6px 8px' }}>{h.createdAt ? h.createdAt.replace('T', ' ').slice(0, 16) : '-'}</td>
+                  </tr>
+                ))}
+                {priceHistory.length === 0 && (
+                  <tr><td colSpan={3} className="desc" style={{ padding: '10px 8px' }}>暂无记录</td></tr>
+                )}
+              </tbody>
+            </table>
+            <div className="sub-actions" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
+              <button className="btn" onClick={() => setShowPriceHistory(false)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 审批数量弹窗 */}
+      {approveModal.open && approveModal.order && (
+        <div className="modal">
+          <div className="modal-card" style={{ maxWidth: 400 }}>
+            <h2 className="title" style={{ marginTop: 0 }}>审批基金申购</h2>
+            <div className="form">
+              <div style={{ background: '#1e3a5f', padding: 12, borderRadius: 8, marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ color: '#94a3b8' }}>用户</span>
+                  <span style={{ fontWeight: 600, color: '#fff' }}>{approveModal.order.userName || approveModal.order.userId}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ color: '#94a3b8' }}>基金</span>
+                  <span style={{ fontWeight: 600, color: '#fff' }}>{approveModal.order.code}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ color: '#94a3b8' }}>单价</span>
+                  <span style={{ fontWeight: 600, color: '#fff' }}>{Number(approveModal.order.price || 0).toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#94a3b8' }}>申请数量</span>
+                  <span style={{ fontWeight: 600, color: '#fff' }}>{approveModal.order.qty || 1}</span>
+                </div>
+              </div>
+              <label className="label">通过数量</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input 
+                  className="input" 
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={approveModal.approvedQty} 
+                  onChange={e => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    if (val === '') {
+                      setApproveModal(m => ({ ...m, approvedQty: '' }));
+                    } else {
+                      const v = Math.max(1, Math.min(Number(approveModal.order.qty || 1), parseInt(val) || 1));
+                      setApproveModal(m => ({ ...m, approvedQty: v }));
+                    }
+                  }}
+                  onBlur={e => {
+                    const v = Math.max(1, Math.min(Number(approveModal.order.qty || 1), parseInt(e.target.value) || 1));
+                    setApproveModal(m => ({ ...m, approvedQty: v }));
+                  }}
+                />
+                <span className="desc">/ {approveModal.order.qty || 1}</span>
+              </div>
+              <div className="desc" style={{ marginTop: 6 }}>
+                总金额: {(Number(approveModal.order.price || 0) * approveModal.approvedQty).toLocaleString()}
+              </div>
+              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
+                <button className="btn" onClick={() => setApproveModal({ open: false, order: null, approvedQty: 1 })}>取消</button>
+                <button className="btn primary" onClick={() => approveOrder(approveModal.order.id, approveModal.approvedQty)}>确认通过</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
 
   );
