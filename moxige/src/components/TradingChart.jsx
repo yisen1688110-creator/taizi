@@ -3,11 +3,11 @@ import { useI18n } from '../i18n.jsx';
 import SmartTradingChart from './SmartTradingChart.jsx';
 import '../styles/tradingview-chart.css';
 const MARKETS = {
-  mexico: {
-    name: '墨西哥股市',
-    symbol: 'MX$855.74',
+  poland: {
+    name: '波兰股市',
+    symbol: 'PLN 855.74',
     basePrice: 855.74,
-    currency: 'MX$'
+    currency: 'PLN'
   },
   usa: {
     name: '美国股市',
@@ -29,8 +29,8 @@ const TradingChart = ({ onPriceUpdate }) => {
   const [currentPrice, setCurrentPrice] = useState(817.20);
   const candlesRef = useRef([]);
   const [timeframe, setTimeframe] = useState('1D');
-  const [selectedMarket, setSelectedMarket] = useState('mexico');
-  const [selectedStock, setSelectedStock] = useState('AMXL.MX');
+  const [selectedMarket, setSelectedMarket] = useState('poland');
+  const [selectedStock, setSelectedStock] = useState('PKO.WA');
   const [showMarketDropdown, setShowMarketDropdown] = useState(false);
   const [showStockPanel, setShowStockPanel] = useState(false);
   const [hoveredMarket, setHoveredMarket] = useState(null);
@@ -40,15 +40,15 @@ const TradingChart = ({ onPriceUpdate }) => {
 
   // 股票数据
   const stockData = {
-    mexico: [
-      { symbol: 'AMXL.MX', name: 'América Móvil', price: 17.2, change: 0.8 },
-      { symbol: 'WALMEX.MX', name: 'Walmart de México', price: 65.1, change: -0.3 },
-      { symbol: 'BIMBOA.MX', name: 'Grupo Bimbo', price: 77.8, change: 1.2 },
-      { symbol: 'FEMSAUBD.MX', name: 'FEMSA', price: 89.5, change: 0.5 },
-      { symbol: 'GMEXICOB.MX', name: 'Grupo México', price: 45.3, change: -0.7 },
-      { symbol: 'GFNORTEO.MX', name: 'Banorte', price: 123.4, change: 1.1 },
-      { symbol: 'ALSEA.MX', name: 'Alsea', price: 34.2, change: -0.4 },
-      { symbol: 'CEMEXCPO.MX', name: 'CEMEX', price: 56.7, change: 0.9 }
+    poland: [
+      { symbol: 'AMXL.WA', name: 'América Móvil', price: 17.2, change: 0.8 },
+      { symbol: 'WALMEX.WA', name: 'Walmart de México', price: 65.1, change: -0.3 },
+      { symbol: 'BIMBOA.WA', name: 'Grupo Bimbo', price: 77.8, change: 1.2 },
+      { symbol: 'FEMSAUBD.WA', name: 'FEMSA', price: 89.5, change: 0.5 },
+      { symbol: 'GMEXICOB.WA', name: 'Grupo México', price: 45.3, change: -0.7 },
+      { symbol: 'GFNORTEO.WA', name: 'Banorte', price: 123.4, change: 1.1 },
+      { symbol: 'ALSEA.WA', name: 'Alsea', price: 34.2, change: -0.4 },
+      { symbol: 'CEMEXCPO.WA', name: 'CEMEX', price: 56.7, change: 0.9 }
     ],
     usa: [
       { symbol: 'AAPL', name: 'Apple Inc.', price: 180.2, change: 0.5 },
@@ -83,7 +83,7 @@ const TradingChart = ({ onPriceUpdate }) => {
     } else {
       // 如果没有选择股票，显示默认的市场名称
       const defaultStocks = {
-        mexico: 'AMXL.MX',
+        poland: 'AMXL.WA',
         usa: 'NASDAQ',
         crypto: 'BTC'
       };
@@ -200,7 +200,7 @@ const TradingChart = ({ onPriceUpdate }) => {
         switch(selectedMarket) {
           case 'crypto': return 50 + Math.random() * 100;
           case 'usa': return 20 + Math.random() * 40;
-          case 'mexico': return 10 + Math.random() * 20;
+          case 'poland': return 10 + Math.random() * 20;
           default: return 10 + Math.random() * 20;
         }
       };
@@ -210,7 +210,7 @@ const TradingChart = ({ onPriceUpdate }) => {
         switch(selectedMarket) {
           case 'crypto': return { min: 50, max: 500 };
           case 'usa': return { min: 5000000, max: 20000000 };
-          case 'mexico': return { min: 500000, max: 2000000 };
+          case 'poland': return { min: 500000, max: 2000000 };
           default: return { min: 500000, max: 2000000 };
         }
       };
@@ -443,9 +443,9 @@ const TradingChart = ({ onPriceUpdate }) => {
       
       <div className="chart-container professional">
         {(() => {
-          const stock = selectedStock || 'AMXL.MX';
+          const stock = selectedStock || 'AMXL.WA';
           const buildSymbol = () => {
-            if (selectedMarket === 'mexico') return `BMV:${stock}`;
+            if (selectedMarket === 'poland') return `BMV:${stock}`;
             if (selectedMarket === 'usa') return `NASDAQ:${stock}`;
             const base = String(stock).toUpperCase().replace(/USDT$/,'');
             return `BINANCE:${base}USDT`;

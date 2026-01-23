@@ -5,7 +5,7 @@ const path = require('path');
 const id = powerSaveBlocker.start('prevent-display-sleep');
 
 if (process.platform === 'win32') {
-    app.setAppUserModelId('com.ecim.agent');
+    app.setAppUserModelId('com.gqtrade.agent');
 }
 
 function createWindow() {
@@ -23,11 +23,11 @@ function createWindow() {
 
     // Load the agent interface
     // NOTE: User should update this URL if deploying to a different domain
-    win.loadURL('https://ecimapp.net/agent.html?force_desktop=1');
+    win.loadURL('https://gqtrade.app/agent.html?force_desktop=1');
 
     // Handle external links (open in default browser)
     win.webContents.setWindowOpenHandler(({ url }) => {
-        if (url.startsWith('https://ecimapp.net')) {
+        if (url.startsWith('https://gqtrade.app')) {
             return { action: 'allow' };
         }
         shell.openExternal(url);

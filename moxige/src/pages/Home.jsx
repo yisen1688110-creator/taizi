@@ -4,8 +4,8 @@ import { useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav.jsx";
 import { IconLightning } from "../assets/icons.jsx";
 import { useI18n } from "../i18n.jsx";
-import { getQuotes, getCryptoQuotes, getCryptoSpark, getStockSpark, getUsdMxnRate } from "../services/marketData.js";
-import { formatMoney, formatMXN, formatUSDT } from "../utils/money.js";
+import { getQuotes, getCryptoQuotes, getCryptoSpark, getStockSpark, getUsdPlnRate } from "../services/marketData.js";
+import { formatMoney, formatPLN, formatUSDT } from "../utils/money.js";
 import { api } from "../services/api.js";
 
 const TD_BASES = ["BTC","ETH","BNB","SOL","XRP","ADA","DOGE","TON","LTC","TRX"];
@@ -74,7 +74,7 @@ export default function Home() {
   const pushSpark = (mkt, symbol, price) => {
     const n = Number(price || 0);
     if (!Number.isFinite(n) || n <= 0) return;
-    if (mkt === "mx") {
+    if (mkt === "pl") {
       setMxSpark(prev => {
         const arr = Array.isArray(prev[symbol]) ? prev[symbol] : [];
         const next = [...arr, n].slice(-60);
@@ -112,7 +112,7 @@ export default function Home() {
     try { return localStorage.getItem("cryptoCurrency") || "USD"; } catch { return "USD"; }
   });
   // 实时汇率缓存（用于 WebSocket 推送的价格换算）
-  const [usdToMxnRate, setUsdToMxnRate] = useState(18.0);
+  const [usdToPlnRate, setUsdToPlnRate] = useState(18.0);
   const binanceWsRef = useRef(null);
   const finnhubWsRef = useRef(null);
   const twelveWsRef = useRef(null);
@@ -175,11 +175,11 @@ export default function Home() {
   const avatarSrc = normalizeAvatar(session?.avatar || session?.avatarUrl || me?.avatarUrl || me?.avatar || (session?.profile && session.profile.avatarUrl) || "");
   const displayName = me?.name || me?.phone || "Usuario";
   // 余额状态：仅从后端数据库读取；初始化为 0
-  const [balanceMXN, setBalanceMXN] = useState(0);
+  const [balancePLN, setBalancePLN] = useState(0);
   const [balanceUSD, setBalanceUSD] = useState(0);
   const [balanceUSDT, setBalanceUSDT] = useState(0);
-  const balance = balanceMXN || 0;
-  const BALANCE_TEXT = formatMXN(balance, lang);
+  const balance = balancePLN || 0;
+  const BALANCE_TEXT = formatPLN(balance, lang);
 
   // 从后端获取余额；失败时保持为 0，避免使用本地镜像
   const fetchBalances = useCallback(async () => {
@@ -208,11 +208,11 @@ export default function Home() {
       const data = await api.get(`/me/balances`);
       const arr = Array.isArray(data?.balances) ? data.balances : [];
       const map = arr.reduce((m, r) => { m[String(r.currency).toUpperCase()] = Number(r.amount || 0); return m; }, {});
-      setBalanceMXN(Number.isFinite(map.MXN) ? map.MXN : 0);
+      setBalancePLN(Number.isFinite(map.PLN) ? map.PLN : 0);
       setBalanceUSD(Number.isFinite(map.USD) ? map.USD : 0);
       setBalanceUSDT(Number.isFinite(map.USDT) ? map.USDT : 0);
     } catch (_) {
-      setBalanceMXN(0);
+      setBalancePLN(0);
       setBalanceUSD(0);
       setBalanceUSDT(0);
     }
@@ -244,11 +244,11 @@ export default function Home() {
   // 允许未登录状态继续运行行情刷新与日志（配合 localStorage('disable:auth')='1' 测试）
 
   const fetchStocks = async () => {
-    if (DEBUG_LOG) LOG("[Home] fetch MX stocks start");
-    const symbols = ["AMXL.MX","WALMEX.MX","FEMSAUBD.MX","BIMBOA.MX","GMEXICOB.MX","GFNORTEO.MX"];
+    if (DEBUG_LOG) LOG("[Home] fetch PL stocks start");
+    const symbols = ["PKO.WA","PKN.WA","PZU.WA","KGH.WA","CDR.WA","ALR.WA"];
     // 先设置价格；spark 获取失败不应影响价格展示
     try {
-      const list = await getQuotes({ market: "mx", symbols });
+      const list = await getQuotes({ market: "pl", symbols });
       if (DEBUG_LOG) LOG("[Home] fetch MX quotes done", { count: Array.isArray(list) ? list.length : 0, first: Array.isArray(list) ? list[0] : null });
       if (!list.length) throw new Error("empty");
       setStocks(list);
@@ -258,7 +258,7 @@ export default function Home() {
       try {
         const cached = [];
         for (const sym of symbols) {
-          const raw = localStorage.getItem(`td:mx:${sym}`);
+          const raw = localStorage.getItem(`td:pl:${sym}`);
           if (raw) {
             const obj = JSON.parse(raw);
             if (obj?.data) cached.push(obj.data);
@@ -268,18 +268,18 @@ export default function Home() {
         else {
           // 最后兜底：示例数据，避免首次加载为空
           setStocks([
-            { symbol: "AMXL.MX", name: "América Móvil", price: 17.2, changePct: 0.8, volume: 12000000 },
-            { symbol: "WALMEX.MX", name: "Walmart de México", price: 65.1, changePct: -0.3, volume: 9000000 },
-            { symbol: "FEMSAUBD.MX", name: "FEMSA", price: 130.4, changePct: 1.1, volume: 7000000 },
-            { symbol: "BIMBOA.MX", name: "Grupo Bimbo", price: 75.2, changePct: 0.5, volume: 6000000 },
-            { symbol: "GMEXICOB.MX", name: "Grupo México", price: 95.7, changePct: 2.3, volume: 8000000 },
-            { symbol: "GFNORTEO.MX", name: "Banorte", price: 160.9, changePct: -0.6, volume: 5000000 },
+            { symbol: "PKO.WA", name: "PKO Bank Polski", price: 45.2, changePct: 0.8, volume: 12000000 },
+            { symbol: "PKN.WA", name: "PKN Orlen", price: 65.1, changePct: -0.3, volume: 9000000 },
+            { symbol: "PZU.WA", name: "PZU S.A.", price: 42.4, changePct: 1.1, volume: 7000000 },
+            { symbol: "KGH.WA", name: "KGHM Polska Miedź", price: 125.2, changePct: 0.5, volume: 6000000 },
+            { symbol: "CDR.WA", name: "CD Projekt", price: 95.7, changePct: 2.3, volume: 8000000 },
+            { symbol: "ALR.WA", name: "Allegro", price: 32.9, changePct: -0.6, volume: 5000000 },
           ]);
         }
       } catch {}
     }
     // sparkline 请求失败时忽略错误，避免影响价格
-    try { await fetchSparkForStocks(symbols, "mx"); } catch (_) {}
+    try { await fetchSparkForStocks(symbols, "pl"); } catch (_) {}
   };
 
   const fetchUSStocks = async () => {
@@ -320,7 +320,7 @@ export default function Home() {
 
   const fetchMXIndices = async () => {
     try {
-      const list = await getQuotes({ market: "mx", symbols: ["^MXX"] });
+      const list = await getQuotes({ market: "pl", symbols: ["^MXX"] });
       if (Array.isArray(list) && list.length) {
         setMxIndices(list);
         return;
@@ -356,8 +356,8 @@ export default function Home() {
       const seed = TD_BASES.slice(0, 6).map(sym => ({
         id: sym.toLowerCase(), symbol: sym,
         name: CRYPTO_NAME_MAP[sym] || sym,
-        priceUSD: 0, priceMXN: 0, changePct: 0,
-        turnoverUSD: 0, turnoverMXN: 0,
+        priceUSD: 0, pricePLN: 0, changePct: 0,
+        turnoverUSD: 0, turnoverPLN: 0,
       }));
       setCrypto(seed);
     }
@@ -368,12 +368,12 @@ export default function Home() {
   useEffect(() => {
     if (!stocks.length) {
       setStocks([
-        { symbol: "AMXL.MX", name: "América Móvil", price: 17.2, changePct: 0.8, volume: 12000000 },
-        { symbol: "WALMEX.MX", name: "Walmart de México", price: 65.1, changePct: -0.3, volume: 9000000 },
-        { symbol: "FEMSAUBD.MX", name: "FEMSA", price: 130.4, changePct: 1.1, volume: 7000000 },
-        { symbol: "BIMBOA.MX", name: "Grupo Bimbo", price: 75.2, changePct: 0.5, volume: 6000000 },
-        { symbol: "GMEXICOB.MX", name: "Grupo México", price: 95.7, changePct: 2.3, volume: 8000000 },
-        { symbol: "GFNORTEO.MX", name: "Banorte", price: 160.9, changePct: -0.6, volume: 5000000 },
+        { symbol: "AMXL.WA", name: "América Móvil", price: 17.2, changePct: 0.8, volume: 12000000 },
+        { symbol: "WALMEX.WA", name: "Walmart de México", price: 65.1, changePct: -0.3, volume: 9000000 },
+        { symbol: "FEMSAUBD.WA", name: "FEMSA", price: 130.4, changePct: 1.1, volume: 7000000 },
+        { symbol: "BIMBOA.WA", name: "Grupo Bimbo", price: 75.2, changePct: 0.5, volume: 6000000 },
+        { symbol: "GMEXICOB.WA", name: "Grupo México", price: 95.7, changePct: 2.3, volume: 8000000 },
+        { symbol: "GFNORTEO.WA", name: "Banorte", price: 160.9, changePct: -0.6, volume: 5000000 },
       ]);
     }
     if (!usStocks.length) {
@@ -389,22 +389,41 @@ export default function Home() {
   
   }, [stocks.length, usStocks.length]);
   const fetchCrypto = async () => {
+    // 清理可能有问题的缓存
     try {
-      const { rate } = await getUsdMxnRate();
-      setUsdToMxnRate(rate);
+      TD_BASES.forEach(sym => {
+        const k = `td:crypto:${sym}`;
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          try {
+            const obj = JSON.parse(raw);
+            if (obj?.data?.priceUSD === 0 || !obj?.data?.priceUSD) {
+              localStorage.removeItem(k);
+            }
+          } catch { localStorage.removeItem(k); }
+        }
+      });
+    } catch {}
+    
+    try {
+      const { rate } = await getUsdPlnRate();
+      setUsdToPlnRate(rate);
       const nameMap = CRYPTO_NAME_MAP;
       const quotes = await getCryptoQuotes({ symbols: TD_BASES });
+      console.log('[Home] crypto quotes received:', quotes);
       const list = quotes.slice(0, 6).map(q => ({
         id: q.symbol.toLowerCase(),
         symbol: q.symbol,
         name: nameMap[q.symbol] || q.name || q.symbol,
-        priceMXN: Number(q.priceUSD || q.price || 0) * rate,
+        pricePLN: Number(q.priceUSD || q.price || 0) * rate,
         priceUSD: Number(q.priceUSD || q.price || 0),
         changePct: Number(q.changePct || 0),
-        turnoverMXN: Number(q.volume || 0) * rate,
+        turnoverPLN: Number(q.volume || 0) * rate,
         turnoverUSD: Number(q.volume || 0),
       }));
-      if (!list.length) throw new Error("empty");
+      // 检查是否有有效数据（至少有一个价格大于0）
+      const hasValidPrice = list.some(item => item.priceUSD > 0);
+      if (!list.length || !hasValidPrice) throw new Error("empty or invalid");
       setCrypto(list);
       // 获取 5m × 60 根 K 线作为波形图（90 秒缓存）
       const sparkMap = {};
@@ -436,17 +455,17 @@ export default function Home() {
     } catch (_) {
       // 兜底 CoinGecko（极端情况）
       try {
-        const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=mxn&order=market_cap_desc&per_page=6&page=1&sparkline=true&price_change_percentage=24h`;
+        const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=pln&order=market_cap_desc&per_page=6&page=1&sparkline=true&price_change_percentage=24h`;
         const markets = await fetch(url).then(r=>r.json());
-        const { rate } = await getUsdMxnRate();
+        const { rate } = await getUsdPlnRate();
         const list = markets.map(m => ({
           id: m.id,
           name: m.name,
           symbol: m.symbol.toUpperCase(),
-          priceMXN: m.current_price,
+          pricePLN: m.current_price,
           priceUSD: Number(m.current_price) / rate,
           changePct: m.price_change_percentage_24h,
-          turnoverMXN: m.total_volume,
+          turnoverPLN: m.total_volume,
           turnoverUSD: Number(m.total_volume) / rate,
           spark: (m.sparkline_in_7d?.price || [])
         }));
@@ -456,9 +475,14 @@ export default function Home() {
         list.forEach(m => { sparkMap[m.symbol] = m.spark; });
         setCryptoSpark(sparkMap);
       } catch {
+        console.log('[Home] Using static crypto fallback');
         const fallback = [
-          { id: "bitcoin", name: "Bitcoin", symbol: "BTC", priceMXN: 1200000, priceUSD: 65000, changePct: 2.1, turnoverMXN: 50000000000, turnoverUSD: 2700000000, spark: [1100000,1120000,1150000,1140000,1160000,1200000] },
-          { id: "ethereum", name: "Ethereum", symbol: "ETH", priceMXN: 40000, priceUSD: 2200, changePct: -1.3, turnoverMXN: 20000000000, turnoverUSD: 1100000000, spark: [42000,41000,40500,40000,39800,40200] },
+          { id: "bitcoin", name: "Bitcoin", symbol: "BTC", pricePLN: 418000, priceUSD: 104500, changePct: 2.35, turnoverPLN: 128000000000, turnoverUSD: 32000000000, spark: [102000,103000,103500,104000,104200,104500] },
+          { id: "ethereum", name: "Ethereum", symbol: "ETH", pricePLN: 13120, priceUSD: 3280, changePct: 1.85, turnoverPLN: 60000000000, turnoverUSD: 15000000000, spark: [3200,3220,3250,3260,3270,3280] },
+          { id: "bnb", name: "BNB", symbol: "BNB", pricePLN: 2780, priceUSD: 695, changePct: 0.92, turnoverPLN: 7200000000, turnoverUSD: 1800000000, spark: [680,685,690,692,694,695] },
+          { id: "solana", name: "Solana", symbol: "SOL", pricePLN: 1008, priceUSD: 252, changePct: 3.15, turnoverPLN: 18000000000, turnoverUSD: 4500000000, spark: [240,245,248,250,251,252] },
+          { id: "xrp", name: "XRP", symbol: "XRP", pricePLN: 12.48, priceUSD: 3.12, changePct: -0.45, turnoverPLN: 20800000000, turnoverUSD: 5200000000, spark: [3.15,3.14,3.13,3.12,3.11,3.12] },
+          { id: "cardano", name: "Cardano", symbol: "ADA", pricePLN: 4.08, priceUSD: 1.02, changePct: 1.28, turnoverPLN: 3800000000, turnoverUSD: 950000000, spark: [0.98,0.99,1.00,1.01,1.01,1.02] },
         ];
         setCrypto(fallback);
         const sparkMap = {};
@@ -470,11 +494,11 @@ export default function Home() {
 
   // 移除指数卡片后，无需维护 cryptoIndices
 
-  // 每 10 分钟刷新一次 USD→MXN 汇率，供 WebSocket 推送换算
+  // 每 10 分钟刷新一次 USD→PLN 汇率，供 WebSocket 推送换算
   useEffect(() => {
     let cancelled = false;
     const updateRate = async () => {
-      try { const { rate } = await getUsdMxnRate(); if (!cancelled) setUsdToMxnRate(rate); } catch {}
+      try { const { rate } = await getUsdPlnRate(); if (!cancelled) setUsdToPlnRate(rate); } catch {}
     };
     updateRate();
     const id = setInterval(updateRate, 10 * 60 * 1000);
@@ -510,10 +534,10 @@ export default function Home() {
               name: nameMap[base] || m.name || base,
               symbol: base,
               priceUSD,
-              priceMXN: priceUSD * usdToMxnRate,
+              pricePLN: priceUSD * usdToPlnRate,
               changePct,
               turnoverUSD: quoteVolUSD > 0 ? quoteVolUSD : m.turnoverUSD,
-              turnoverMXN: (quoteVolUSD > 0 ? quoteVolUSD : (m.turnoverUSD || 0)) * usdToMxnRate,
+              turnoverPLN: (quoteVolUSD > 0 ? quoteVolUSD : (m.turnoverUSD || 0)) * usdToPlnRate,
             };
           } else {
             // 若列表尚未包含该币种，直接插入
@@ -522,10 +546,10 @@ export default function Home() {
               symbol: base,
               name: nameMap[base] || base,
               priceUSD,
-              priceMXN: priceUSD * usdToMxnRate,
+              pricePLN: priceUSD * usdToPlnRate,
               changePct,
               turnoverUSD: quoteVolUSD > 0 ? quoteVolUSD : 0,
-              turnoverMXN: (quoteVolUSD > 0 ? quoteVolUSD : 0) * usdToMxnRate,
+              turnoverPLN: (quoteVolUSD > 0 ? quoteVolUSD : 0) * usdToPlnRate,
             });
           }
           return arr;
@@ -536,7 +560,7 @@ export default function Home() {
     ws.onerror = () => { /* 忽略错误，依赖轮询兜底 */ };
     return () => { try { ws.close(); } catch {} binanceWsRef.current = null; };
   
-  }, [usdToMxnRate]);
+  }, [usdToPlnRate]);
 
   // 可选：接入 Finnhub WebSocket 更新美股（需要 VITE_FINNHUB_TOKEN）
   useEffect(() => {
@@ -571,7 +595,7 @@ export default function Home() {
     return () => { try { ws.close(); } catch {} finnhubWsRef.current = null; };
   }, []);
 
-  // 接入 Twelve Data WebSocket 实时更新美股与墨西哥股（使用相同 apikey，无需单独 WS key）
+  // 接入 Twelve Data WebSocket 实时更新美股与波兰股（使用相同 apikey，无需单独 WS key）
   useEffect(() => {
     // 若已存在连接则不重复建立；若已配置 Finnhub 则不重复对美股建立 TD WS，避免双源重复
     if (twelveWsRef.current) return;
@@ -584,27 +608,27 @@ export default function Home() {
 
     // 订阅列表（与页面展示保持一致）
     const US_SYMBOLS = ["AAPL","MSFT","AMZN","GOOGL","TSLA","META"];
-    // 注意：BMV 为 EOD 交易所，Twelve Data 不提供 BMV WebSocket；墨西哥股票仅使用 REST 轮询
-    // const MX_SYMBOLS = ["AMXL.MX","WALMEX.MX","FEMSAUBD.MX","BIMBOA.MX","GMEXICOB.MX","GFNORTEO.MX"];
+    // 注意：BMV 为 EOD 交易所，Twelve Data 不提供 BMV WebSocket；波兰股票仅使用 REST 轮询
+    // const MX_SYMBOLS = ["AMXL.WA","WALMEX.WA","FEMSAUBD.WA","BIMBOA.WA","GMEXICOB.WA","GFNORTEO.WA"];
     // 指数不通过 TD WS 订阅，避免 ETF 价格覆盖自定义指数数据
 
     const usToWs = (s) => (s === "BRK-B" ? "BRK.B" : s);
     // const mxToWs = (s) => {
-    //   let base = String(s).replace(/\.MX$/,""");
+    //   let base = String(s).replace(/\.WA$/,""");
     //   if (base === "TLEVISA.CPO") base = "TLEVISACPO";
     //   return `${base}:BMV`;
     // };
     const wsSymbols = [];
     if (!hasFinnhub) wsSymbols.push(...US_SYMBOLS.map(usToWs));
-    // 不添加墨西哥股票到 WS 订阅（BMV WS 不可用）
+    // 不添加波兰股票到 WS 订阅（BMV WS 不可用）
     // 不订阅指数：指数价格由自定义 API/REST 获取
 
     const wsToLocal = (s) => {
-      // 墨西哥 BMV 不支持 WS：保留兼容映射但不再触发
+      // 波兰 BMV 不支持 WS：保留兼容映射但不再触发
       // if (/:BMV$/.test(s)) {
       //   let base = s.replace(/:BMV$/,'');
       //   if (base === "TLEVISACPO") base = "TLEVISA.CPO";
-      //   return `${base}.MX`;
+      //   return `${base}.WA`;
       // }
       // BRK.B -> BRK-B（如后续需要）
       if (s === "BRK.B") return "BRK-B";
@@ -627,10 +651,10 @@ export default function Home() {
           if (!price) return;
           const localSym = wsToLocal(sym);
           // 不处理指数的 WS 更新（避免 ETF 价格覆盖）
-          if (/\.MX$/.test(localSym)) {
+          if (/\.WA$/.test(localSym)) {
             if (DEBUG_LOG) console.debug("[Home] TD WS MX price", { symbol: localSym, price });
             setStocks(prev => prev.map(row => row.symbol === localSym ? { ...row, price } : row));
-            pushSpark("mx", localSym, price);
+            pushSpark("pl", localSym, price);
             tdMxLastTickRef.current = Date.now();
           } else if (!hasFinnhub) {
             // 若未启用 Finnhub，则用 TD WS 更新美股
@@ -680,7 +704,7 @@ export default function Home() {
           } catch (_) {}
         }));
       }
-      if (which === "mx") setMxSpark(prev => ({ ...prev, ...map }));
+      if (which === "pl") setMxSpark(prev => ({ ...prev, ...map }));
       else setUsSpark(prev => ({ ...prev, ...map }));
     } catch (_) {
       // ignore
@@ -689,10 +713,15 @@ export default function Home() {
 
   const refreshingRef = useRef(false);
   const refreshDataRef = useRef(null);
-  const refreshData = async () => {
+  const isFirstLoadRef = useRef(true);
+  
+  const refreshData = async (isBackground = false) => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
-    setLoading(true); setError("");
+    if (!isBackground && isFirstLoadRef.current) {
+      setLoading(true);
+    }
+    setError("");
     try {
       // 顺序执行，避免并发导致网络请求被浏览器中断
       await fetchMXIndices();
@@ -710,15 +739,15 @@ export default function Home() {
         const needUsSpark = usSymbolsForSpark.filter(sym => !Array.isArray(usSpark[sym]) || usSpark[sym].length < 10);
         if (needUsSpark.length) await fetchSparkForStocks(needUsSpark, "us");
       } catch {}
-      // 墨西哥股：始终使用 REST 轮询（TD WS 不支持 BMV/XMEX 推送）
+      // 波兰股：始终使用 REST 轮询（TD WS 不支持 BMV/XMEX 推送）
       const mxWsSilent = true; // TD WS不含BMV，始终走REST
       if (DEBUG_LOG) LOG("[Home] mx refresh decision", { mxWsSilent, willFetch: true });
       await fetchStocks();
-      // 墨西哥股：WS 活跃但趋势缺失时，回填 spark（使用缓存避免频繁请求）
+      // 波兰股：WS 活跃但趋势缺失时，回填 spark（使用缓存避免频繁请求）
       try {
-        const mxSymbolsForSpark = ["AMXL.MX","WALMEX.MX","FEMSAUBD.MX","BIMBOA.MX","GMEXICOB.MX","GFNORTEO.MX"];
-        const needMxSpark = mxSymbolsForSpark.filter(sym => !Array.isArray(mxSpark[sym]) || mxSpark[sym].length < 10);
-        if (needMxSpark.length) await fetchSparkForStocks(needMxSpark, "mx");
+        const plSymbolsForSpark = ["PKO.WA","PKN.WA","PZU.WA","KGH.WA","CDR.WA","ALR.WA"];
+        const needPlSpark = plSymbolsForSpark.filter(sym => !Array.isArray(mxSpark[sym]) || mxSpark[sym].length < 10);
+        if (needPlSpark.length) await fetchSparkForStocks(needPlSpark, "pl");
       } catch {}
       // 加密：若 WS 不活跃或列表为空，则进行 REST 刷新
       if (!hasBinance) {
@@ -727,14 +756,15 @@ export default function Home() {
         await fetchCrypto();
       }
       setUpdatedAt(Date.now());
+      isFirstLoadRef.current = false;
     }
-    catch (_e) { setError(t("fetchError")); }
+    catch (_e) { if (!isBackground) setError(t("fetchError")); }
     finally { setLoading(false); refreshingRef.current = false; }
   };
   refreshDataRef.current = refreshData;
   // 首次加载
   useEffect(() => {
-    const first = () => { try { refreshDataRef.current?.(); } catch {} };
+    const first = () => { try { refreshDataRef.current?.(false); } catch {} };
     first();
   }, []);
 
@@ -753,7 +783,7 @@ export default function Home() {
         const j = await r.json().catch(()=>({ items: [] }));
         let list = Array.isArray(j?.items) ? j.items.slice(0, 3) : [];
         if (!list.length) {
-          const r2 = await fetch(`/api/news/mx?lang=${encodeURIComponent(lang)}`).catch(()=>null);
+          const r2 = await fetch(`/api/news/pl?lang=${encodeURIComponent(lang)}`).catch(()=>null);
           const j2 = r2 ? await r2.json().catch(()=>({ items: [] })) : { items: [] };
           list = Array.isArray(j2.items) ? j2.items.slice(0, 3) : [];
         }
@@ -944,44 +974,25 @@ export default function Home() {
     };
   }, [newsCarousel.length]);
 
-  // 自动刷新：自适应轮询，页面不可见时暂停
-  // 说明：墨股（BMV/XMEX）仅支持 REST；为避免 Twelve Data 出现 429，我们将首页默认轮询下调到 5s。
-  // 可通过环境变量或 localStorage 调整：
-  // - VITE_HOME_POLL_MS（毫秒）或 localStorage['poll:home:ms']
+  // 自动刷新 - 后台静默刷新，不显示 loading
   useEffect(() => {
-    const readPollMs = () => {
-      try {
-        const envMs = Number(import.meta.env?.VITE_HOME_POLL_MS || 0);
-        const lsMs = Number(localStorage.getItem('poll:home:ms') || 0);
-        const val = Number.isFinite(envMs) && envMs > 0 ? envMs : (Number.isFinite(lsMs) && lsMs > 0 ? lsMs : 5000);
-        return val;
-      } catch { return 5000; }
+    const tick = () => { 
+      if (!document.hidden) { 
+        try { refreshDataRef.current?.(true); } catch {}
+      } 
     };
-    let pollMs = readPollMs();
-    const tick = () => { if (!document.hidden) { try { refreshDataRef.current?.(); } catch {} } };
-    let id = setInterval(tick, pollMs);
-    // 监听 storage 中轮询配置的变化，动态调整（便于线上调参）
-    const onStorage = (e) => {
-      if (e?.key === 'poll:home:ms') {
-        try { const next = Number(e.newValue || 0); if (Number.isFinite(next) && next > 0) {
-          clearInterval(id);
-          pollMs = next;
-          id = setInterval(tick, pollMs);
-        }} catch {}
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    return () => { clearInterval(id); window.removeEventListener('storage', onStorage); };
+    const id = setInterval(tick, 60000); // 60 秒刷新一次
+    return () => clearInterval(id);
   }, []);
 
   // 计算热门列表与是否显示成交金额（若无法计算则隐藏）
   const calcTurnover = useCallback((s) => {
-    if (market === "crypto") return cryptoCurrency === "USD" ? Number(s.turnoverUSD || 0) : Number(s.turnoverMXN || 0);
+    if (market === "crypto") return cryptoCurrency === "USD" ? Number(s.turnoverUSD || 0) : Number(s.turnoverPLN || 0);
     return Number(s.volume || 0) * Number(s.price || 0);
   }, [market, cryptoCurrency]);
   const getSpark = useCallback((s) => {
     if (market === "crypto") return cryptoSpark[s.symbol] || s.spark || [];
-    return (market === "mx" ? mxSpark[s.symbol] : usSpark[s.symbol]) || [];
+    return (market === "pl" ? mxSpark[s.symbol] : usSpark[s.symbol]) || [];
   }, [market, mxSpark, usSpark, cryptoSpark]);
   const calcMomentum = useCallback((s) => {
     const pts = getSpark(s).slice(-24);
@@ -992,7 +1003,7 @@ export default function Home() {
     return (last - first) / Math.abs(first);
   }, [getSpark]);
   const currentPopular = useMemo(() => {
-    const base = (market === "crypto" ? crypto : (market === "mx" ? stocks : usStocks));
+    const base = (market === "crypto" ? crypto : (market === "pl" ? stocks : usStocks));
     const arr = base.slice();
     if (popularSort === "momentum") {
       return arr.sort((a, b) => calcMomentum(b) - calcMomentum(a));
@@ -1011,14 +1022,14 @@ export default function Home() {
             {/* 头像 + 用户名并排：用户名置于头像右侧 */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, marginBottom: 10 }}>
               <div className="avatar-wrap" style={{ alignSelf: 'flex-start' }}>
-                <img className="avatar" src={avatarSrc || "/logo.png"} alt="avatar" onError={(e)=>{ try { e.currentTarget.src = '/logo.png'; } catch {} }} />
+                <img className="avatar" src={avatarSrc || "/logo.jpg"} alt="avatar" onError={(e)=>{ try { e.currentTarget.src = '/logo.jpg'; } catch {} }} />
               </div>
               <div className="user-name" style={{ fontSize: 14, color: '#e6f1ff' }}>{displayName}</div>
             </div>
             <div className="wallet-grid" style={{ gridTemplateColumns:'1fr' }}>
               <div>
-                <div className="label">MXN</div>
-                <div className="big-amount">{formatMXN(balanceMXN, lang)}</div>
+                <div className="label">PLN</div>
+                <div className="big-amount">{formatPLN(balancePLN, lang)}</div>
               </div>
             </div>
             {/* 移除资产类型说明 */}
@@ -1074,7 +1085,7 @@ export default function Home() {
                       objectFit: 'cover',
                       display: 'block',
                     }} 
-                    onError={(e) => { e.currentTarget.src = '/logo.png'; }}
+                    onError={(e) => { e.currentTarget.src = '/logo.jpg'; }}
                   />
                   {/* 标题遮罩 */}
                   <div style={{ 
@@ -1125,6 +1136,60 @@ export default function Home() {
 
       {/* 2) 热门（当日成交量排序） */}
       <div className="card borderless-card">
+        {/* 市场选择器 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+          <button 
+            className={`pill ${market === "us" ? "active" : ""}`} 
+            onClick={() => setMarket("us")}
+            style={{ 
+              padding: "8px 16px", 
+              fontSize: 14, 
+              fontWeight: market === "us" ? 600 : 400,
+              background: market === "us" ? "var(--accent)" : "rgba(255,255,255,0.06)",
+              border: market === "us" ? "1px solid var(--accent)" : "1px solid rgba(255,255,255,0.1)",
+              color: market === "us" ? "#fff" : "var(--text-secondary)",
+              borderRadius: 20,
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+          >
+            🇺🇸 {t("marketUS") || "US Stocks"}
+          </button>
+          <button 
+            className={`pill ${market === "pl" ? "active" : ""}`} 
+            onClick={() => setMarket("pl")}
+            style={{ 
+              padding: "8px 16px", 
+              fontSize: 14, 
+              fontWeight: market === "pl" ? 600 : 400,
+              background: market === "pl" ? "var(--accent)" : "rgba(255,255,255,0.06)",
+              border: market === "pl" ? "1px solid var(--accent)" : "1px solid rgba(255,255,255,0.1)",
+              color: market === "pl" ? "#fff" : "var(--text-secondary)",
+              borderRadius: 20,
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+          >
+            🇵🇱 {t("marketPL") || "PL Stocks"}
+          </button>
+          <button 
+            className={`pill ${market === "crypto" ? "active" : ""}`} 
+            onClick={() => setMarket("crypto")}
+            style={{ 
+              padding: "8px 16px", 
+              fontSize: 14, 
+              fontWeight: market === "crypto" ? 600 : 400,
+              background: market === "crypto" ? "var(--accent)" : "rgba(255,255,255,0.06)",
+              border: market === "crypto" ? "1px solid var(--accent)" : "1px solid rgba(255,255,255,0.1)",
+              color: market === "crypto" ? "#fff" : "var(--text-secondary)",
+              borderRadius: 20,
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+          >
+            ₿ {t("marketCrypto") || "Crypto"}
+          </button>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h1 className="title" style={{ marginTop: 0 }}>{t("popularByVolumeTitle")}</h1>
           <span style={{ marginLeft: "auto" }} />
@@ -1135,7 +1200,7 @@ export default function Home() {
           {market === "crypto" && (
             <div style={{ display: "flex", gap: 8, marginLeft: 10 }}>
               <button className={`pill ${cryptoCurrency === "USD" ? "active" : ""}`} onClick={() => setCryptoCurrency("USD")} aria-pressed={cryptoCurrency === "USD"}>USD</button>
-              <button className={`pill ${cryptoCurrency === "MXN" ? "active" : ""}`} onClick={() => setCryptoCurrency("MXN")} aria-pressed={cryptoCurrency === "MXN"}>MXN</button>
+              <button className={`pill ${cryptoCurrency === "PLN" ? "active" : ""}`} onClick={() => setCryptoCurrency("PLN")} aria-pressed={cryptoCurrency === "PLN"}>PLN</button>
             </div>
           )}
           </div>
@@ -1170,8 +1235,8 @@ export default function Home() {
                 <td className="desc">{s.symbol}</td>
                 <td>{s.name}</td>
                 <td>{formatMoney(
-                  market === "crypto" ? (cryptoCurrency === "USD" ? s.priceUSD : s.priceMXN) : s.price,
-                  market === "crypto" ? cryptoCurrency : (market === "mx" ? "MXN" : "USD"),
+                  market === "crypto" ? (cryptoCurrency === "USD" ? s.priceUSD : s.pricePLN) : s.price,
+                  market === "crypto" ? cryptoCurrency : (market === "pl" ? "PLN" : "USD"),
                   lang
                 )}</td>
                 <td style={{ color: (s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a" }}>
@@ -1181,12 +1246,12 @@ export default function Home() {
                   {market === "crypto" ? (
                     <Sparkline data={cryptoSpark[s.symbol] || s.spark || []} color={(s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a"} />
                   ) : (
-                    <Sparkline data={(market === "mx" ? mxSpark[s.symbol] : usSpark[s.symbol]) || []} color={(s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a"} />
+                    <Sparkline data={(market === "pl" ? mxSpark[s.symbol] : usSpark[s.symbol]) || []} color={(s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a"} />
                   )}
                 </td>
               </tr>
             ))}
-            {(market === "crypto" ? crypto : (market === "mx" ? stocks : usStocks)).length === 0 && (
+            {(market === "crypto" ? crypto : (market === "pl" ? stocks : usStocks)).length === 0 && (
               <tr>
                 <td className="desc" colSpan={5}>--</td>
               </tr>
@@ -1214,7 +1279,7 @@ export default function Home() {
             </tr>
           </thead>
           <tbody>
-            {(market === "crypto" ? crypto.slice().sort((a,b)=> (b.changePct||0)-(a.changePct||0)) : (market === "mx" ? stocks : usStocks).slice().sort((a,b)=> (b.changePct||0)-(a.changePct||0))).map((s) => (
+            {(market === "crypto" ? crypto.slice().sort((a,b)=> (b.changePct||0)-(a.changePct||0)) : (market === "pl" ? stocks : usStocks).slice().sort((a,b)=> (b.changePct||0)-(a.changePct||0))).map((s) => (
               <tr
                 key={s.symbol || s.id}
                 style={{ cursor: 'pointer' }}
@@ -1233,7 +1298,7 @@ export default function Home() {
                   {market === "crypto" ? (
                     <Sparkline data={cryptoSpark[s.symbol] || s.spark || []} color={(s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a"} />
                   ) : (
-                    <Sparkline data={(market === "mx" ? mxSpark[s.symbol] : usSpark[s.symbol]) || []} color={(s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a"} />
+                    <Sparkline data={(market === "pl" ? mxSpark[s.symbol] : usSpark[s.symbol]) || []} color={(s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a"} />
                   )}
                 </td>
                 <td style={{ color: (s.changePct ?? 0) >= 0 ? "#5cff9b" : "#ff5c7a" }}>
@@ -1241,7 +1306,7 @@ export default function Home() {
                 </td>
               </tr>
             ))}
-            {(market === "crypto" ? crypto : (market === "mx" ? stocks : usStocks)).length === 0 && (
+            {(market === "crypto" ? crypto : (market === "pl" ? stocks : usStocks)).length === 0 && (
               <tr>
                 <td className="desc" colSpan={4}>--</td>
               </tr>
@@ -1257,11 +1322,11 @@ export default function Home() {
 function normalizeAvatar(u) {
   try {
     const s = String(u || '').trim();
-    if (!s) return '/logo.png';
+    if (!s) return '/logo.jpg';
     if (/^data:image\/(png|jpeg);base64,/i.test(s)) return s;
     if (/^https?:\/\//i.test(s)) return s;
     if (s.startsWith('/')) return s;
     if (/^[\w\-/.]+$/.test(s)) return `/uploads/${s.replace(/^\/+/, '')}`;
-    return '/logo.png';
-  } catch { return '/logo.png'; }
+    return '/logo.jpg';
+  } catch { return '/logo.jpg'; }
 }

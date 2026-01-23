@@ -18,8 +18,8 @@ function saveLastAuth(payload) {
   } catch {}
 }
 
-export async function registerPhone({ phone, password, name }) {
-  const res = await api.post('/auth/register_phone', { phone, password, name });
+export async function registerPhone({ phone, password, name, inviteCode }) {
+  const res = await api.post('/auth/register_phone', { phone, password, name, inviteCode });
   if (res?.user) saveSession(res.user);
   if (phone) saveLastAuth({ phone });
   return res;

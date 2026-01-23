@@ -1,6 +1,6 @@
-# ECIM Agent Desktop App
+# GQ Agent Desktop App
 
-This is a wrapper for the ECIM Agent web interface.
+This is a wrapper for the GQ Agent web interface.
 
 ## Build Instructions (Windows)
 

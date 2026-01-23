@@ -129,9 +129,9 @@ export default function Wallets() {
   };
 
   return (
-    <div className="screen top-align">
-      <div className="card">
-        <h1 className="title">{t('walletsTitle') || 'Dirección de billetera'}</h1>
+    <div className="screen top-align" style={{ padding: 0, width: '100%', maxWidth: '100%' }}>
+      <div style={{ padding: '16px', width: '100%', boxSizing: 'border-box', paddingBottom: 100 }}>
+        <h1 className="title" style={{ marginTop: 0 }}>{t('walletsTitle') || 'Dirección de billetera'}</h1>
         <div className="desc muted" style={{ marginTop: 4 }}>{t('walletsDesc') || 'Vincule su dirección para retiros'}</div>
 
         {/* 网络切换按钮 */}

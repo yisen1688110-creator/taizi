@@ -29,6 +29,28 @@ export default defineConfig({
         secure: true,
         rewrite: (path) => path.replace(/^\/yf/, ''),
       },
+      // Proxy to IM (customer service) system
+      '/im-api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/im-api/, ''),
+        ws: true, // Enable WebSocket proxy for Socket.IO
+      },
+      // Proxy to Binance API to bypass CORS
+      '/binance-api': {
+        target: 'https://api.binance.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/binance-api/, ''),
+      },
+      // Proxy to OKX API to bypass CORS
+      '/okx-api': {
+        target: 'https://www.okx.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/okx-api/, ''),
+      },
     },
   },
   // Keep preview port consistent with dev server (5173)

@@ -29,9 +29,9 @@ export default function Support() {
   const url = useMemo(() => {
     const phone = encodeURIComponent(pickPhone(session));
     const name = encodeURIComponent(session?.name || '');
-    const avatar = encodeURIComponent(session?.avatarUrl || '/logo.png');
-    const placeholder = encodeURIComponent(lang === 'es' ? 'Escribir mensaje' : 'Enter message');
-    const sendLabel = encodeURIComponent(lang === 'es' ? 'Enviar' : 'Send');
+    const avatar = encodeURIComponent(session?.avatarUrl || '/logo.jpg');
+    const placeholder = encodeURIComponent(lang === 'zh' ? '输入消息' : (lang === 'pl' ? 'Wpisz wiadomość' : 'Enter message'));
+    const sendLabel = encodeURIComponent(lang === 'zh' ? '发送' : (lang === 'pl' ? 'Wyślij' : 'Send'));
     const v = Date.now();
     const base = imBase.replace(/\/$/, '');
     let origin = '';

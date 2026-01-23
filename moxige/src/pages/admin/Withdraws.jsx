@@ -89,7 +89,7 @@ export default function AdminWithdraws({ embedded = false }) {
       <select className="input" value={currency} onChange={e=>setCurrency(e.target.value)}>
         <option value="all">全部币种</option>
         <option value="USD">USD</option>
-        <option value="MXN">MXN</option>
+        <option value="PLN">PLN</option>
         <option value="USDT">USDT</option>
       </select>
       <select className="input" value={status} onChange={e=>setStatus(e.target.value)}>

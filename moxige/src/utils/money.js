@@ -1,9 +1,9 @@
-// 统一的货币与数字格式化工具，确保西语界面 MXN 显示为 MX$
+// 统一的货币与数字格式化工具，确保波兰语界面 PLN 显示为 zł
 export function localeFromLang(lang) {
-  return lang === "es" ? "es-MX" : "en-US";
+  return lang === "pl" ? "pl-PL" : (lang === "zh" ? "zh-CN" : "en-US");
 }
 
-export function formatMXN(amount, lang = "en") {
+export function formatPLN(amount, lang = "en") {
   try {
     const locale = localeFromLang(lang);
     const formatted = new Intl.NumberFormat(locale, {
@@ -11,14 +11,14 @@ export function formatMXN(amount, lang = "en") {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(Number(amount || 0));
-    return `MX$${formatted}`;
+    return `${formatted} zł`;
   } catch (_) {
-    return `MX$${Number(amount || 0).toFixed(2)}`;
+    return `${Number(amount || 0).toFixed(2)} zł`;
   }
 }
 
 export function formatUSDT(amount, lang = "en") {
-  // USDT 与 USD 1:1，按货币符号前置格式化，为西语显示为 "US$" 前缀
+  // USDT 与 USD 1:1，按货币符号前置格式化
   try {
     return formatMoney(amount, "USD", lang);
   } catch (_) {
@@ -30,8 +30,8 @@ export function formatUSDT(amount, lang = "en") {
 export function formatMoney(amount, currency = "USD", lang = "en") {
   const locale = localeFromLang(lang);
   try {
-    if (String(currency).toUpperCase() === "MXN") {
-      return formatMXN(amount, lang);
+    if (String(currency).toUpperCase() === "PLN") {
+      return formatPLN(amount, lang);
     }
     return new Intl.NumberFormat(locale, {
       style: "currency",

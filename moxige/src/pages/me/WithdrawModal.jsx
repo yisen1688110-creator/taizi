@@ -8,7 +8,7 @@ export default function WithdrawModal({ onClose }) {
   const [bankAccount, setBankAccount] = useState('')
   const [usdtAddress, setUsdtAddress] = useState('')
   const [usdtNetwork, setUsdtNetwork] = useState('')
-  const [balance, setBalance] = useState({ usd: 0, mxn: 0, usdt: 0 })
+  const [balance, setBalance] = useState({ usd: 0, pln: 0, usdt: 0 })
   const [records, setRecords] = useState([])
   const [error, setError] = useState('')
   const [toast, setToast] = useState({ show:false, text:'', type:'ok' })
@@ -52,7 +52,7 @@ export default function WithdrawModal({ onClose }) {
           <label>币种</label>
           <select value={currency} onChange={onCurrencyChange}>
             <option value="USD">USD</option>
-            <option value="MXN">MXN</option>
+            <option value="PLN">PLN</option>
             <option value="USDT">USDT</option>
           </select>
           {currency !== 'USDT' ? (
@@ -70,7 +70,7 @@ export default function WithdrawModal({ onClose }) {
           )}
           <label>金额</label>
           <input className="input" type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="提现金额" />
-          <div className="desc">余额：USD {balance.usd} / MXN {balance.mxn} / USDT {balance.usdt}</div>
+          <div className="desc">余额：USD {balance.usd} / PLN {balance.pln} / USDT {balance.usdt}</div>
           {error ? <div className="error">{error}</div> : null}
           <button className="btn primary" onClick={submit}>提交</button>
           <div className="section">

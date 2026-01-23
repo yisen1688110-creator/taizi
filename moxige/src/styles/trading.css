@@ -1,9 +1,12 @@
-/* 交易页面样式 - 简约商业风 */
+/* 交易页面样式 - 深色金融风 - 全屏铺满 */
 .trading-page {
   min-height: 100vh;
-  background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%);
+  background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 50%, #0f172a 100%);
   padding: 12px;
   padding-bottom: 100px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* 移动端Swap页面全宽适配 */
@@ -11,6 +14,8 @@
   .trading-page {
     padding: 8px;
     padding-bottom: 100px;
+    width: 100%;
+    max-width: 100%;
   }
   .trading-page .chart-section,
   .trading-page .trading-card,
@@ -19,6 +24,8 @@
     margin-left: 0;
     margin-right: 0;
     border-radius: var(--radius);
+    width: 100%;
+    max-width: 100%;
   }
 }
 
@@ -47,27 +54,27 @@
 }
 
 .market-dropdown-trigger {
-  background: rgba(255,255,255,0.95);
+  background: rgba(255,255,255,0.05);
   border-radius: 16px;
   padding: 16px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
   backdrop-filter: blur(10px);
   transition: all 0.3s ease;
-  border: 2px solid transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .market-dropdown-trigger:hover {
-  border-color: #667eea;
+  border-color: var(--accent);
   transform: translateY(-2px);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+  box-shadow: 0 12px 40px rgba(59, 130, 246, 0.3);
 }
 
 .selected-market {
-  color: #333;
+  color: var(--text);
   font-weight: 600;
   font-size: 16px;
 }
@@ -87,10 +94,11 @@
   top: calc(100% + 8px);
   left: 0;
   right: 0;
-  background: white;
+  background: rgba(17, 24, 39, 0.95);
   border-radius: 16px;
-  box-shadow: 0 12px 48px rgba(0,0,0,0.15);
-  backdrop-filter: blur(10px);
+  box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   z-index: 1000;
   margin-top: 4px;
   overflow: hidden;
@@ -110,9 +118,9 @@
 
 .market-type-tabs {
   display: flex;
-  background: #f8f9fa;
+  background: rgba(255, 255, 255, 0.03);
   padding: 8px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .market-tab {
@@ -121,7 +129,7 @@
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #666;
+  color: var(--muted);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -129,14 +137,14 @@
 }
 
 .market-tab:hover {
-  background: rgba(102, 126, 234, 0.1);
-  color: #667eea;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent);
 }
 
 .market-tab.active {
-  background: #667eea;
+  background: var(--accent);
   color: white;
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.4);
 }
 
 .market-options {
@@ -190,8 +198,8 @@
   justify-content: space-between;
   padding: 12px 14px;
   border-radius: var(--radius);
-  background: #ffffff;
-  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: var(--shadow);
 }
 .wallet-compact .wallet-item .label {
@@ -211,15 +219,19 @@
   }
 }
 
-/* 成交记录页面：让整体铺满（提高优先级覆盖 .screen 默认居中） */
+/* 成交记录页面：全屏铺满 */
 .screen.trading-screen {
   align-items: stretch !important;
   justify-content: flex-start !important;
-  padding: 8px !important;
+  padding: 0 !important;
   padding-bottom: 80px !important;
   max-width: 100% !important;
   width: 100% !important;
   box-sizing: border-box !important;
+}
+.screen.trading-screen .fullscreen-container {
+  padding: 12px;
+  padding-bottom: 100px;
 }
 
 /* 交易页面全宽布局 */
@@ -265,20 +277,23 @@
 
 .trades-page-header {
   width: 100%;
-  max-width: var(--card-w);
+  max-width: 100%;
   margin: 8px 0 0 0;
+  padding-left: 48px; /* 为返回按钮留出空间 */
 }
 
 .trades-title {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+  color: var(--text);
   color: #a8b3cf;
 }
 
 .trades-page-grid {
   width: 100%;
-  max-width: var(--card-w);
+  max-width: 100%;
+  margin: 0;
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
@@ -289,27 +304,32 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-x: auto;
+  width: 100%;
 }
 
 .deal-header, .deal-row {
   display: grid;
-  grid-template-columns: 1.2fr 1.4fr 1.4fr 1fr 0.8fr;
-  gap: 8px;
+  grid-template-columns: 1.2fr 0.8fr 0.8fr 1fr 1fr;
+  gap: 6px;
   align-items: center;
+  min-width: 0;
+  font-size: 12px;
 }
 
 .deal-header {
   color: var(--muted);
-  font-size: 12px;
-  padding: 8px 10px;
+  font-size: 11px;
+  padding: 8px;
   border-bottom: 1px solid var(--card-border);
 }
 
 .deal-row {
-  padding: 10px;
+  padding: 10px 8px;
   border-radius: var(--radius-sm);
   background: var(--card-bg);
   border: 1px solid var(--card-border);
+  font-size: 13px;
 }
 
 /* 市场选择器区域 */
@@ -837,9 +857,9 @@
   align-items: center;
   justify-content: center;
   min-height: 300px;
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius-sm);
-  border: 2px dashed var(--card-border);
+  border: 2px dashed rgba(255, 255, 255, 0.1);
 }
 
 .chart-mock {
@@ -861,8 +881,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #ffffff;
-  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius);
   padding: 12px 16px;
   box-shadow: var(--shadow);
@@ -894,26 +914,44 @@
 }
 
 .close-btn {
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  color: var(--text); 
+  border: 1px solid #f59e0b;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #ffffff;
+  font-weight: 600;
   border-radius: var(--radius-sm); 
-  padding: 8px 12px; 
+  padding: 8px 16px; 
   cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
 }
 .close-btn:hover { 
-  background: rgba(59, 130, 246, 0.1);
-  border-color: var(--accent);
-  color: var(--accent); 
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  border-color: #fbbf24;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+  transform: translateY(-1px);
+}
+.close-btn:disabled {
+  background: #4b5563;
+  border-color: #374151;
+  color: #9ca3af;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
 .trading-card {
-  background: #ffffff;
+  background: rgba(17, 24, 39, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: var(--radius-lg);
-  padding: 20px;
-  border: 1px solid var(--card-border);
+  padding: 16px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: var(--shadow-xl);
+  max-width: 100%;
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .trading-card h3 {
@@ -936,9 +974,9 @@
   align-items: center;
   justify-content: center;
   min-height: 200px;
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius-sm);
-  border: 2px dashed var(--card-border);
+  border: 2px dashed rgba(255, 255, 255, 0.1);
   padding: 20px;
 }
 
@@ -1051,8 +1089,8 @@
 .price-tab {
   flex: 1;
   padding: 10px 16px;
-  background: #f1f5f9;
-  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 14px;
@@ -1087,8 +1125,8 @@
 
 .form-input {
   padding: 12px 16px;
-  background: #f8fafc;
-  border: 1px solid var(--card-border);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 16px;
@@ -1097,8 +1135,8 @@
 .form-input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
-  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .form-input::placeholder {
@@ -1143,9 +1181,9 @@
   font-size: 12px;
   font-style: italic;
   padding: 12px;
-  background: #f1f5f9;
+  background: rgba(255, 255, 255, 0.03);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--card-border);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 /* 响应式设计 */

@@ -16,7 +16,16 @@ const BASE = (() => {
     const port = isBrowser ? String(location.port || '') : '';
     const host = isBrowser ? String(location.hostname || '') : '';
     const isDevLocal = isBrowser && (port === '5173' || port === '5174') && (host === 'localhost' || host === '127.0.0.1');
-    if (isDevLocal) return normalizeBase('/api');
+    
+    // 5174 端口（管理后台）直接连接后端，不依赖 Vite 代理
+    if (isDevLocal && port === '5174') {
+      return 'http://127.0.0.1:5210/api';
+    }
+    // 5173 端口使用 Vite 代理
+    if (isDevLocal && port === '5173') {
+      return normalizeBase('/api');
+    }
+    
     try {
       const override = String(localStorage.getItem('api:base:override') || '').trim();
       if (override) return normalizeBase(override);
@@ -236,7 +245,7 @@ export async function fetchBalancesUnified() {
   const arr = Array.isArray(r?.balances) ? r.balances : [];
   const map = arr.reduce((m, it) => { m[String(it.currency || '').toUpperCase()] = Number(it.amount || 0); return m; }, {});
   return {
-    mxn: Number(map.MXN || 0),
+    pln: Number(map.PLN || 0),
     usd: Number(map.USD || 0),
     usdt: Number(map.USDT || 0),
     disabled: !!r?.disabled,

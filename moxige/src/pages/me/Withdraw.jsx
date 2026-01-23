@@ -7,7 +7,7 @@ import { useI18n } from "../../i18n.jsx";
 export default function Withdraw() {
   const nav = useNavigate();
   const { t } = useI18n();
-  const [currency, setCurrency] = useState('MXN');
+  const [currency, setCurrency] = useState('PLN');
   const [amount, setAmount] = useState('');
   const [methodType, setMethodType] = useState('bank');
   const [bankAccount, setBankAccount] = useState('');
@@ -17,7 +17,7 @@ export default function Withdraw() {
   const [error, setError] = useState('');
   const [wallets, setWallets] = useState([]);
   const [bankCards, setBankCards] = useState([]);
-  const [balances, setBalances] = useState({ mxn: 0 });
+  const [balances, setBalances] = useState({ pln: 0 });
   const [toast, setToast] = useState({ show: false, text: '', type: 'ok' });
 
   useEffect(() => { loadRecords(); loadBindings(); loadBalances(); }, []);
@@ -41,7 +41,7 @@ export default function Withdraw() {
       const r = await api.get('/me/balances');
       const arr = Array.isArray(r?.balances) ? r.balances : [];
       const map = arr.reduce((m, it) => { m[String(it.currency || '').toUpperCase()] = Number(it.amount || 0); return m; }, {});
-      setBalances({ mxn: Number(map.MXN||0) });
+      setBalances({ pln: Number(map.PLN||0) });
     } catch { /* 保持现值，避免误显示 */ }
   }
   async function loadBindings() {
@@ -73,11 +73,11 @@ export default function Withdraw() {
   async function submit() {
     setError('');
     try {
-      const curBal = Number(balances.mxn||0);
+      const curBal = Number(balances.pln||0);
       const amt = Number(amount||0);
       if (!Number.isFinite(amt) || amt <= 0) { setError(t('errorAmountInvalid') || 'Invalid amount'); return; }
       if (amt > curBal) { setError(t('errorInsufficientBalance') || 'Insufficient balance'); return; }
-      const payload = { currency: 'MXN', amount: Number(amount||0), method_type: 'bank', bank_account: bankAccount };
+      const payload = { currency: 'PLN', amount: Number(amount||0), method_type: 'bank', bank_account: bankAccount };
       const res = await meWithdrawCreate(payload);
       const createdId = res?.id || res?.withdraw_id || `wd_${Date.now()}`;
       // hold funds immediately (frontend fallback)
@@ -159,7 +159,7 @@ export default function Withdraw() {
           <label>{t('amountLabel')}</label>
           <input className="input" type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder={t('amountLabel')} />
           <div className="desc muted" style={{ marginTop: 6 }}>
-            {t('balanceLabel') || '余额'}：{Number(balances.mxn||0).toFixed(2)} MXN
+            {t('balanceLabel') || '余额'}：{Number(balances.pln||0).toFixed(2)} PLN
           </div>
           {error ? <div className="error">{error}</div> : null}
           <div className="sub-actions" style={{ justifyContent: 'space-between' }}>

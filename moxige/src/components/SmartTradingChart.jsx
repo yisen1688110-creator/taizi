@@ -2,23 +2,28 @@ import React, { useState, useEffect, useCallback } from 'react';
 import TradingViewWidget from './TradingViewWidget';
 import NativeKlineChart from './NativeKlineChart';
 import YahooFinanceChart from './YahooFinanceChart';
+import YahooKlineChart from './YahooKlineChart';
 import { useI18n } from '../i18n.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 
-const SmartTradingChart = ({ symbol, height = 400, period = '1mo', interval = '1d' }) => {
+const SmartTradingChart = ({ symbol, height = 400, period = '1mo', interval = '1d', onPriceUpdate }) => {
   // 根据符号前缀判断市场类型
   const getMarketType = (symbol) => {
     if (!symbol) return 'unknown';
-    if (symbol.includes('BMV:')) return 'mexico';
+    // 波兰市场：WSE (Warsaw Stock Exchange) 或 BMV
+    if (symbol.includes('WSE:') || symbol.includes('BMV:')) return 'poland';
     if (symbol.includes('NASDAQ:') || symbol.includes('NYSE:')) return 'usa';
     if (symbol.includes('BINANCE:') || symbol.includes('COINBASE:')) return 'crypto';
     return 'unknown';
   };
 
-  // 初始化时即根据市场类型选择数据源，避免墨股初次渲染触发 TradingView 错误
+  // 初始化时即根据市场类型选择数据源
   const initialDataSource = (() => {
     const mt = getMarketType(symbol);
-    return mt === 'mexico' ? 'native' : 'tradingview';
+    // 波兰市场用 Yahoo Finance 图表，加密用原生图表，其他用 TradingView
+    if (mt === 'poland') return 'yahoo';
+    if (mt === 'crypto') return 'native';
+    return 'tradingview';
   })();
 
   const [dataSource, setDataSource] = useState(initialDataSource); // 'tradingview' | 'native' | 'yahoo'
@@ -28,7 +33,7 @@ const SmartTradingChart = ({ symbol, height = 400, period = '1mo', interval = '1
 
   const marketType = getMarketType(symbol);
   
-  // 墨西哥股市默认使用 Yahoo Finance（BMV 无 WS，Yahoo 作为主数据源/回退）
+  // 波兰股市默认使用 Yahoo Finance（BMV 无 WS，Yahoo 作为主数据源/回退）
   
 
   // 规范化 interval 以符合 TradingView 的取值
@@ -54,10 +59,14 @@ const SmartTradingChart = ({ symbol, height = 400, period = '1mo', interval = '1
       // 每次数据源重算时清理错误，避免旧的 TradingView 初始化错误影响 Yahoo 渲染
       setError(null);
 
-      if (marketType === 'mexico') {
-        // 墨西哥市场改用 TwelveData 驱动的原生图表
+      if (marketType === 'poland') {
+        // 波兰市场使用 Yahoo Finance 图表
+        setDataSource('yahoo');
+      } else if (marketType === 'crypto') {
+        // 加密货币使用自定义实时K线图（OKX API）
         setDataSource('native');
       } else {
+        // 美股使用 TradingView
         setDataSource('tradingview');
       }
     };
@@ -71,7 +80,7 @@ const SmartTradingChart = ({ symbol, height = 400, period = '1mo', interval = '1
     try { console.error('TradingView error:', err); } catch {}
     // 收敛为受控回退：墨股优先使用 Yahoo；其他市场回退至原生图
     const mt = marketType;
-    if (mt === 'mexico') {
+    if (mt === 'poland') {
       setDataSource('yahoo');
     } else {
       setDataSource('native');
@@ -154,18 +163,18 @@ const SmartTradingChart = ({ symbol, height = 400, period = '1mo', interval = '1
         {dataSource === 'native' ? (
           <div style={{ position: 'relative' }}>
             <NativeKlineChart 
-              symbol={symbol.replace('BMV:', '')}
-              market={marketType === 'mexico' ? 'mx' : 'us'}
+              symbol={marketType === 'crypto' ? symbol.replace('BINANCE:', '') : symbol.replace('BMV:', '')}
+              market={marketType === 'crypto' ? 'crypto' : (marketType === 'poland' ? 'pl' : 'us')}
               height={height}
+              onPriceUpdate={onPriceUpdate}
             />
           </div>
         ) : dataSource === 'yahoo' ? (
           <div style={{ position: 'relative' }}>
-            <YahooFinanceChart
-              symbol={symbol.replace('BMV:', '')}
+            <YahooKlineChart
+              symbol={symbol.replace('WSE:', '').replace('BMV:', '')}
               height={height}
-              period={period}
-              interval={interval}
+              onPriceUpdate={onPriceUpdate}
             />
           </div>
         ) : (

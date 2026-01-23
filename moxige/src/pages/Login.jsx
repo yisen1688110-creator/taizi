@@ -1,17 +1,20 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useI18n } from "../i18n.jsx";
 import { loginPhone } from "../services/auth.js";
 import { api } from "../services/api.js";
+import AuthShell, { authInputStyles as S } from "../components/auth/AuthShell.jsx";
 
 export default function Login() {
-  const { t } = useI18n();
+  const { lang, t } = useI18n();
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const cardRef = useRef(null);
+  const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState(null);
   const navigate = useNavigate();
+
   const isAdminEnv = (() => {
     try {
       const host = (typeof window !== "undefined" && window.location.hostname) || "";
@@ -23,9 +26,19 @@ export default function Login() {
     }
   })();
 
-  // 通过 URL 参数注入后端 API Base，避免登录请求命中前端路由并返回整页 HTML
-  // 用法示例：/login?apibase=https://api.example.com/api
-  // 同时持久化到 localStorage，便于后续页面复用
+  // 多语言标题
+  const texts = {
+    title: lang === "zh" ? "登录账户" : lang === "en" ? "Sign In" : "Zaloguj się",
+    subtitle: lang === "zh" 
+      ? "输入您的凭据以访问您的账户" 
+      : lang === "en" 
+        ? "Enter your credentials to access your account"
+        : "Wprowadź swoje dane, aby uzyskać dostęp do konta",
+    noAccount: lang === "zh" ? "还没有账户？" : lang === "en" ? "Don't have an account?" : "Nie masz konta?",
+    register: lang === "zh" ? "立即注册" : lang === "en" ? "Sign up" : "Zarejestruj się",
+  };
+
+  // 通过 URL 参数注入后端 API Base
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search || "");
@@ -38,43 +51,24 @@ export default function Login() {
     } catch {}
   }, []);
 
-  const handleMove = (e) => {
-    const el = cardRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width - 0.5;
-    const y = (e.clientY - rect.top) / rect.height - 0.5;
-    el.style.setProperty("--rx", `${(-y * 6).toFixed(2)}deg`);
-    el.style.setProperty("--ry", `${(x * 8).toFixed(2)}deg`);
-    el.style.setProperty("--tx", `${(x * 8).toFixed(2)}px`);
-    el.style.setProperty("--ty", `${(y * 8).toFixed(2)}px`);
-  };
-  const handleLeave = () => {
-    const el = cardRef.current;
-    if (!el) return;
-    el.style.setProperty("--rx", `0deg`);
-    el.style.setProperty("--ry", `0deg`);
-    el.style.setProperty("--tx", `0px`);
-    el.style.setProperty("--ty", `0px`);
-  };
-
   const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
-    // 后台环境：暂时不在此页处理（管理员端端口专用页面）
+
     if (isAdminEnv) {
       setError("请在后台登录页使用管理员账号登录");
       return;
     }
 
-    // 客户环境：使用本地手机号登录
     if (!/^\d{10}$/.test(phone)) { setError(t("errorPhone")); return; }
     if (!password || password.length < 6) { setError(t("errorPassword")); return; }
+
+    setLoading(true);
     try {
       const res = await loginPhone({ phone, password });
       const user = res?.user || null;
       if (!user) throw new Error("Login failed");
-      // 更新本地镜像用户表：使用后端数值 ID，避免前端生成的 u_* ID
+
       const users = JSON.parse(localStorage.getItem("users") || "[]");
       const idx = users.findIndex((u) => u.phone === phone);
       const backendId = Number(user.id);
@@ -89,7 +83,6 @@ export default function Login() {
       };
       if (idx !== -1) users[idx] = newEntry; else users.push(newEntry);
       localStorage.setItem("users", JSON.stringify(users));
-      // 会话直接使用后端返回的用户对象，确保 id 为数值 ID
       localStorage.setItem("sessionUser", JSON.stringify({ ...user }));
       navigate("/home");
     } catch (err) {
@@ -107,72 +100,101 @@ export default function Login() {
       const raw = String(err?.message || "");
       const looksHtml = /<html[\s>]/i.test(raw) || /<!DOCTYPE html>/i.test(raw);
       if (looksHtml || raw.length > 500) {
-        console.error("Login error (HTML or long message)", err);
-        setError("登录失败：后端未返回 JSON（可能是反向代理未配置或 API 地址错误）。请设置 apibase 或联系管理员。");
+        setError("登录失败：后端未返回 JSON");
       } else {
         setError(raw || (t("loginWrongPassword") || t("errorPassword")));
       }
+    } finally {
+      setLoading(false);
     }
   };
 
+  const getInputStyle = (field) => ({
+    ...S.input,
+    ...(focusedField === field ? S.inputFocus : {}),
+    ...(error && field === "phone" && !/^\d{10}$/.test(phone) ? S.inputError : {}),
+  });
+
   return (
-    <div className="screen" style={{ padding: '20px 16px', minHeight: '100vh', justifyContent: 'center' }}>
-      {/* logo 区域 */}
-      <div className="logo-area enter" style={{ height: 'auto', maxHeight: 140, marginBottom: 16 }}>
-        <img className="logo-img" alt="logo" src="/logo.png" style={{ width: 100, height: 100 }} />
-      </div>
-
-      <div ref={cardRef} className="card" style={{ width: '100%', maxWidth: 360, padding: '24px 20px' }} onMouseMove={handleMove} onMouseLeave={handleLeave}>
-        <h1 className="title" style={{ fontSize: 22, marginBottom: 16 }}>{t("loginTitle")}</h1>
-
-        <form onSubmit={handleLogin} className="form" style={{ gap: 12 }}>
+    <AuthShell title={texts.title} subtitle={texts.subtitle}>
+      <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column" }}>
           {isAdminEnv ? (
-            <>
-              <label className="label">{t("email")}</label>
+          <div style={S.inputGroup}>
+            <label style={S.label}>{t("email")}</label>
               <input
                 type="email"
-                className="input"
+              style={getInputStyle("email")}
                 placeholder={t("placeholderEmail")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+              onFocus={() => setFocusedField("email")}
+              onBlur={() => setFocusedField(null)}
               />
-            </>
+          </div>
           ) : (
-            <>
-              <label className="label">{t("phone")}</label>
+          <div style={S.inputGroup}>
+            <label style={S.label}>{t("phone")}</label>
               <input
                 type="tel"
                 inputMode="numeric"
                 pattern="\d*"
-                className="input"
+              style={getInputStyle("phone")}
                 placeholder={t("placeholderPhone")}
                 value={phone}
                 onChange={(e) => {
                   const v = e.target.value.replace(/\D/g, "");
                   setPhone(v.slice(0, 10));
                 }}
+              onFocus={() => setFocusedField("phone")}
+              onBlur={() => setFocusedField(null)}
               />
-            </>
+          </div>
           )}
 
-          <label className="label">{t("password")}</label>
+        <div style={S.inputGroup}>
+          <label style={S.label}>{t("password")}</label>
           <input
             type="password"
-            className="input"
+            style={getInputStyle("password")}
             placeholder={t("placeholderPassword")}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onFocus={() => setFocusedField("password")}
+            onBlur={() => setFocusedField(null)}
           />
-
-          {error && <div className="error">{error}</div>}
-
-          <button className="btn primary" type="submit">{t("submitLogin")}</button>
-        </form>
-
-        <div className="sub-actions">
-          <Link className="link" to="/register">{t("registerLink")}</Link>
         </div>
-      </div>
-    </div>
+
+        {error && <div style={S.error}>{error}</div>}
+
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            ...S.primaryBtn,
+            opacity: loading ? 0.7 : 1,
+            cursor: loading ? "not-allowed" : "pointer",
+          }}
+          onMouseEnter={(e) => {
+            if (!loading) Object.assign(e.target.style, S.primaryBtnHover);
+          }}
+          onMouseLeave={(e) => {
+            Object.assign(e.target.style, { transform: "none", boxShadow: S.primaryBtn.boxShadow });
+          }}
+          onMouseDown={(e) => {
+            if (!loading) Object.assign(e.target.style, S.primaryBtnActive);
+          }}
+          onMouseUp={(e) => {
+            if (!loading) Object.assign(e.target.style, S.primaryBtnHover);
+          }}
+        >
+          {loading ? "..." : t("submitLogin")}
+        </button>
+      </form>
+
+      <p style={S.linkText}>
+        {texts.noAccount}
+        <Link to="/register" style={S.link}>{texts.register}</Link>
+      </p>
+    </AuthShell>
   );
 }

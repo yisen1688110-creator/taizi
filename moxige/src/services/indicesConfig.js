@@ -1,1 +1,1 @@
-export const mxIndicesSymbols = ["^MXX"];
+export const plIndicesSymbols = ["^WIG20"];

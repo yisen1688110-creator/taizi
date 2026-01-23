@@ -16,6 +16,8 @@
   align-items: stretch !important;
   justify-content: flex-start !important;
   padding-top: 0 !important;
+  background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 50%, #0f172a 100%) !important;
+  min-height: 100vh;
 }
 .market-tabs { 
   display: flex;
@@ -30,17 +32,24 @@
   box-shadow: none;
 }
 
-/* 固定导航栏样式 - 蓝白风格 */
+/* 市场页面标题颜色 */
+.market-screen .title,
+.market-content .title {
+  color: var(--text);
+}
+
+/* 固定导航栏样式 - 深色金融风 */
 .market-navigation-fixed {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%);
-  backdrop-filter: blur(10px);
-  border-bottom: none;
-  box-shadow: none;
+  background: rgba(10, 14, 23, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
   display: flex;
   justify-content: flex-start;
 }
@@ -58,11 +67,14 @@
   gap: 0;
   /* 为移动端留出顶部固定导航空间 */
   padding-top: calc(var(--nav-space-mobile) + 0.5rem);
-  max-width: var(--container-max);
+  max-width: 100%;
   width: 100%;
-  margin: 0 auto;
-  padding-left: 8px;
-  padding-right: 8px;
+  margin: 0;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 100px;
+  background: transparent;
+  box-sizing: border-box;
 }
 
 /* 市场页面无卡片边框样式 */
@@ -76,25 +88,25 @@
 /* 桌面端优化 - 保持固定导航栏 */
 @media (min-width: 768px) {
   .market-navigation-fixed {
-    position: fixed; /* 桌面端也使用固定定位 */
+    position: fixed;
     top: 0;
     left: 0;
     right: 0;
     z-index: 100;
-    background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%);
-    backdrop-filter: blur(10px);
-    border-bottom: none;
-    box-shadow: none;
+    background: rgba(10, 14, 23, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
   }
   
   .market-content {
     /* 桌面端为固定导航栏留出空间 */
     padding-top: calc(var(--nav-space-desktop) + 0.5rem);
-    max-width: var(--container-max);
-    margin-left: auto;
-    margin-right: auto;
-    padding-left: 2vw; /* 横向采用百分比，避免过窄 */
-    padding-right: 2vw;
+    max-width: 100%;
+    margin: 0;
+    padding-left: 24px;
+    padding-right: 24px;
   }
   
   .market-tabs {
@@ -207,11 +219,29 @@
 }
 .search-label {
   min-width: clamp(110px, 24vw, 180px);
+  color: var(--text-secondary);
+}
+
+/* 描述文字颜色 */
+.market-screen .desc,
+.market-content .desc {
+  color: var(--text-secondary);
 }
 .search-input {
   flex: 1;
   min-width: 220px;
   width: 100%;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: var(--text) !important;
+}
+.search-input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+.search-input::placeholder {
+  color: var(--muted) !important;
 }
 .suggestion-list {
   position: absolute;
@@ -241,13 +271,13 @@
   .search-input { min-width: 180px; }
 }
 
-/* 默认 pill - 蓝白商务风 */
+/* 默认 pill - 深色金融风 */
 .pill { 
   height: 36px; 
   padding: 0 16px; 
   border-radius: var(--radius); 
-  border: 1px solid var(--card-border); 
-  background: #ffffff; 
+  border: 1px solid rgba(255, 255, 255, 0.1); 
+  background: rgba(255, 255, 255, 0.05); 
   color: var(--text); 
   cursor: pointer; 
   transition: all 0.2s ease;
@@ -257,14 +287,14 @@
 }
 .pill:hover { 
   border-color: var(--accent); 
-  background: var(--accent-light);
+  background: rgba(59, 130, 246, 0.15);
   color: var(--accent);
 }
 .pill.active { 
   border-color: var(--accent); 
   background: var(--accent);
   color: #ffffff;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.4);
 }
 
 /* pill-group 容器 */
@@ -350,11 +380,12 @@
   position: absolute;
   top: 100%;
   left: 0;
-  background: #ffffff;
-  backdrop-filter: blur(10px);
-  border: 1px solid var(--card-border);
+  background: rgba(17, 24, 39, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   min-width: 200px;
   z-index: 1000;
   margin-top: 0;
@@ -539,7 +570,11 @@
   .market-tabs .pill { flex: 1 1 30%; min-width: 6rem; }
   .market-navigation-fixed .card { min-height: var(--nav-space-mobile); padding-block: 0.75rem; }
   /* 小屏幕为固定导航栏留出空间，并额外下移首卡边框 */
-  .market-content { padding-top: calc(var(--nav-space-mobile) + 1.25rem); }
+  .market-content { 
+    padding-top: calc(var(--nav-space-mobile) + 1.25rem);
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 }
 
 /* Chips 行与建议列表美化 */
@@ -551,26 +586,38 @@
   flex-wrap: wrap;
 }
 .pill.chip {
-  height: 26px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   font-size: 12px;
   border-radius: 999px;
-  border: 1px solid #2b3f66;
-  background: rgba(28,44,72,0.6);
-  color: #e3e8f7;
-  box-shadow: 0 4px 10px rgba(91,141,239,0.14);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--text);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
 }
 .pill.chip:hover {
-  border-color: #5b8def;
-  filter: brightness(1.08);
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.2);
 }
 .pill.pill-mini {
   height: 24px;
   padding: 0 8px;
   font-size: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+.pill.pill-mini:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .pill.pill-mini.chip-remove {
-  background: rgba(28,44,72,0.55);
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--error);
+}
+.pill.pill-mini.chip-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
 }
 
 /* 优化收藏图标显示 */
@@ -586,17 +633,35 @@
   transform: scale(1.1);
 }
 
-/* 表格文字大小优化 */
+/* 表格样式 - 深色金融风 */
 .data-table {
   font-size: 14px;
+  background: rgba(17, 24, 39, 0.6);
+  border-radius: var(--radius);
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
 }
 .data-table th {
   font-size: 13px;
   font-weight: 600;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 10px;
 }
 .data-table td {
   font-size: 14px;
   line-height: 1.4;
+  color: var(--text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 12px 10px;
+}
+.data-table tr:hover td {
+  background: rgba(59, 130, 246, 0.05);
+}
+.data-table tr:last-child td {
+  border-bottom: none;
 }
 
 /* 表格在窄屏保持布局稳固，允许自动换行并避免挤出屏幕 */

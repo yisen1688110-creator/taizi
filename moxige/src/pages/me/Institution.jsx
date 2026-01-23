@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api } from "../../services/api.js";
-import { formatMoney, formatMXN, formatUSDT } from "../../utils/money.js";
+import { formatMoney, formatPLN, formatUSDT } from "../../utils/money.js";
 import { formatMinute } from "../../utils/date.js";
 
-import { getQuotes, getCryptoQuotes, getStockSpark, getUsdMxnRate } from "../../services/marketData.js";
+import { getQuotes, getCryptoQuotes, getStockSpark, getUsdPlnRate } from "../../services/marketData.js";
 import "../../styles/profile.css";
 
 // 机构账户页（按原型布局实现，保留占位与接口钩子）
@@ -19,8 +19,8 @@ export default function Institution() {
   });
 
   // 顶部头像与资金（MX / USD / USDT）
-  const [avatarUrl, setAvatarUrl] = useState("/logo.png");
-  const [funds, setFunds] = useState({ mxn: 0, usd: 0, usdt: 0 });
+  const [avatarUrl, setAvatarUrl] = useState("/logo.jpg");
+  const [funds, setFunds] = useState({ pln: 0, usd: 0, usdt: 0 });
   const [tradeDisabled, setTradeDisabled] = useState(false);
   const [creditScore, setCreditScore] = useState(100);
   const [creditModal, setCreditModal] = useState(false);
@@ -31,7 +31,7 @@ export default function Institution() {
   const fileInputRef = useRef(null);
 
   // 机构简介占位：头像+名称+文案（对接后台）
-  const [org, setOrg] = useState({ avatar: "/logo.png", name: t("instOrgNameDefault"), desc: t("instOrgDescDefault") });
+  const [org, setOrg] = useState({ avatar: "/logo.jpg", name: t("instOrgNameDefault"), desc: t("instOrgDescDefault") });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("current"); // current | done
   const [orders, setOrders] = useState([]); // 用户认购的大宗订单（后端）
@@ -45,12 +45,7 @@ export default function Institution() {
     try { window.addEventListener('resize', onResize); } catch { }
     return () => { try { window.removeEventListener('resize', onResize); } catch { } };
   }, []);
-  const [locked, setLocked] = useState(false);
-  const [inviteCode, setInviteCode] = useState('');
-  const [inviteError, setInviteError] = useState('');
-  const [verifying, setVerifying] = useState(false);
-  const [refCode, setRefCode] = useState('');
-  const [usdToMxnRate, setUsdToMxnRate] = useState(18.0);
+  const [usdToPlnRate, setUsdToPlnRate] = useState(18.0);
 
   // labels（国际化）
   const labels = useMemo(() => ({
@@ -67,13 +62,13 @@ export default function Institution() {
   function normalizeAvatar(u) {
     try {
       const s = String(u || '').trim();
-      if (!s) return '/logo.png';
+      if (!s) return '/logo.jpg';
       if (/^data:image\/(png|jpeg);base64,/i.test(s)) return s;
       if (/^https?:\/\//i.test(s)) return s;
       if (s.startsWith('/')) return s;
       if (/^[\w\-/.]+$/.test(s)) return `/uploads/${s.replace(/^\/+/, '')}`;
-      return '/logo.png';
-    } catch { return '/logo.png'; }
+      return '/logo.jpg';
+    } catch { return '/logo.jpg'; }
   }
 
   // 加载账户资金：与个人中心逻辑保持一致，从后端 /admin/users/:id/balances 获取
@@ -115,7 +110,7 @@ export default function Institution() {
         const map = arr.reduce((m, r) => { m[String(r.currency).toUpperCase()] = Number(r.amount || 0); return m; }, {});
         if (stopped) return;
         setFunds({
-          mxn: Number.isFinite(map.MXN) ? map.MXN : 0,
+          pln: Number.isFinite(map.PLN) ? map.PLN : 0,
           usd: Number.isFinite(map.USD) ? map.USD : 0,
           usdt: Number.isFinite(map.USDT) ? map.USDT : 0,
         });
@@ -124,23 +119,23 @@ export default function Institution() {
           const debts = JSON.parse(localStorage.getItem('credit:debts') || '[]');
           const uidKey = Number(session?.id) || String(session?.phone || '');
           const now = Date.now();
-          let nextMxn = Number.isFinite(map.MXN) ? map.MXN : 0;
+          let nextPln = Number.isFinite(map.PLN) ? map.PLN : 0;
           let changed = false;
           const nextDebts = debts.map(d => {
             if ((d.uid === uidKey || String(d.uid) === String(uidKey)) && d.status === 'active' && Number(d.dueAt || 0) <= now) {
-              nextMxn = Number(nextMxn) - Number(d.amount || 0);
+              nextPln = Number(nextPln) - Number(d.amount || 0);
               changed = true;
               return { ...d, status: 'settled', settledAt: now };
             }
             return d;
           });
           if (changed) {
-            setFunds(prev => ({ ...prev, mxn: nextMxn }));
+            setFunds(prev => ({ ...prev, pln: nextPln }));
             localStorage.setItem('credit:debts', JSON.stringify(nextDebts));
-            if (nextMxn < 0) {
+            if (nextPln < 0) {
               setTradeDisabled(true);
               try { localStorage.setItem(`inst:blocked:${uidKey}`, '1'); } catch { }
-              setToast({ show: true, type: 'warn', text: lang === 'zh' ? '你已丧失机构账户资格，如有疑问，请联系客服' : (lang === 'es' ? 'Has perdido la calificación institucional, contacta soporte' : 'You have lost institution qualification, please contact support') });
+              setToast({ show: true, type: 'warn', text: lang === 'zh' ? '你已丧失机构账户资格，如有疑问，请联系客服' : (lang === 'pl' ? 'Straciłeś kwalifikację instytucjonalną, skontaktuj się z pomocą' : 'You have lost institution qualification, please contact support') });
               setTimeout(() => setToast({ show: false, type: 'warn', text: '' }), 4000);
             }
           }
@@ -150,8 +145,8 @@ export default function Institution() {
       } finally { if (!stopped) setLoading(false); }
 
       try {
-        const { rate } = await getUsdMxnRate();
-        if (rate > 0 && !stopped) setUsdToMxnRate(rate);
+        const { rate } = await getUsdPlnRate();
+        if (rate > 0 && !stopped) setUsdToPlnRate(rate);
       } catch { }
     }
     fetchBalances();
@@ -191,7 +186,6 @@ export default function Institution() {
       }
     }
     fetchOrg();
-    (async () => { try { const r = await api.get('/me/invite/code'); setRefCode(String(r?.code || '')); } catch { } })();
     return () => { stopped = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -217,15 +211,6 @@ export default function Institution() {
 
   // 加载用户的大宗订单卡片与状态
   useEffect(() => {
-    // 首次访问校验是否已解锁
-    (async () => {
-      try {
-        const me = await api.get('/me');
-        const assigned = me?.user?.assigned_operator_id ?? null;
-        try { localStorage.setItem('sessionUser', JSON.stringify(me.user)); } catch { }
-        setLocked(!(assigned != null));
-      } catch { setLocked(true); }
-    })();
     let stopped = false;
     async function fetchOrders() {
       try {
@@ -278,12 +263,6 @@ export default function Institution() {
 
           // Fallback for missing US quotes (e.g. invalid key or rate limit)
           const missingUs = usSymbols.filter(s => !(next[`us:${s}`]?.price > 0));
-          if (missingUs.length > 0) {
-            console.log('Missing US quotes:', missingUs);
-            // DEBUG: Show toast for first missing symbol
-            setToast({ show: true, type: 'info', text: `Debug: Fetching fallback for ${missingUs[0]}...` });
-            setTimeout(() => setToast({ show: false, type: 'info', text: '' }), 3000);
-          }
 
           for (const s of missingUs) {
             try {
@@ -292,10 +271,8 @@ export default function Institution() {
               const prevClose = Array.isArray(closes) && closes.length ? Number(closes[closes.length - 1] || 0) : 0;
               if (Number.isFinite(prevClose) && prevClose > 0) {
                 next[`us:${s}`] = { price: prevClose, changePct: 0 };
-                setToast({ show: true, type: 'ok', text: `Debug: Fallback success for ${s}: ${prevClose}` });
               } else {
-                setToast({ show: true, type: 'error', text: `Debug: Fallback failed for ${s}` });
-                // Last resort: try localStorage cache from previous successful fetches
+                // Fallback: try localStorage cache from previous successful fetches
                 try {
                   const raw = JSON.parse(localStorage.getItem(`td:us:${s}`) || 'null');
                   const d = raw?.data;
@@ -303,9 +280,7 @@ export default function Institution() {
                   if (p > 0) next[`us:${s}`] = { price: p, changePct: Number(d?.changePct ?? d?.percent_change ?? 0) };
                 } catch { }
               }
-            } catch (e) {
-              setToast({ show: true, type: 'error', text: `Debug: Error ${s}: ${e.message}` });
-            }
+            } catch { }
           }
         }
       } catch { }
@@ -354,10 +329,10 @@ export default function Institution() {
   }
   function statusLabel(s) {
     const v = String(s || 'pending');
-    if (v === 'done') return (lang === 'zh' ? '已完成' : (lang === 'es' ? 'Completado' : 'Completed'));
-    if (v === 'approved') return (lang === 'zh' ? '已批准' : (lang === 'es' ? 'Aprobado' : 'Approved'));
-    if (v === 'rejected') return (lang === 'zh' ? '已拒绝' : (lang === 'es' ? 'Rechazado' : 'Rejected'));
-    return (lang === 'zh' ? '待审核' : (lang === 'es' ? 'Pendiente' : 'Pending'));
+    if (v === 'done') return (lang === 'zh' ? '已完成' : (lang === 'pl' ? 'Zakończone' : 'Completed'));
+    if (v === 'approved') return (lang === 'zh' ? '已批准' : (lang === 'pl' ? 'Zatwierdzone' : 'Approved'));
+    if (v === 'rejected') return (lang === 'zh' ? '已拒绝' : (lang === 'pl' ? 'Odrzucone' : 'Rejected'));
+    return (lang === 'zh' ? '待审核' : (lang === 'pl' ? 'Oczekujące' : 'Pending'));
   }
   function isLocked(o) {
     if (o.locked === false) return false;
@@ -367,10 +342,10 @@ export default function Institution() {
   }
   async function sell(o) {
     try {
-      if (o.status !== 'approved') { setToast({ show: true, type: 'error', text: lang === 'zh' ? '仅已批准订单可卖出' : (lang === 'es' ? 'Solo órdenes aprobadas' : 'Only approved orders') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+      if (o.status !== 'approved') { setToast({ show: true, type: 'error', text: lang === 'zh' ? '仅已批准订单可卖出' : (lang === 'pl' ? 'Tylko zatwierdzone zlecenia' : 'Only approved orders') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
       if (isLocked(o)) {
         const until = o.lockUntil || o.lock_until;
-        setToast({ show: true, type: 'error', text: (lang === 'zh' ? '目前订单锁定中，解锁时间: ' : (lang === 'es' ? 'Orden bloqueada hasta: ' : 'Order locked until: ')) + formatMinute(until) });
+        setToast({ show: true, type: 'error', text: (lang === 'zh' ? '目前订单锁定中，解锁时间: ' : (lang === 'pl' ? 'Zlecenie zablokowane do: ' : 'Order locked until: ')) + formatMinute(until) });
         setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000);
         return;
       }
@@ -389,7 +364,7 @@ export default function Institution() {
           const tryBinance = new Promise(async (resolve) => {
             try {
               const pair = `${base}USDT`;
-              const j = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`).then(r => r.json()).catch(() => null);
+              const j = await fetch(`/binance-api/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`).then(r => r.json()).catch(() => null);
               const p = Number(j?.lastPrice ?? j?.weightedAvgPrice ?? j?.prevClosePrice ?? 0);
               resolve(Number.isFinite(p) && p > 0 ? p : NaN);
             } catch { resolve(NaN); }
@@ -422,72 +397,57 @@ export default function Institution() {
         const fallback = currentPriceFor(o);
         return Number.isFinite(fallback) && fallback > 0 ? fallback : Number(o.blockPrice || o.price || 0);
       })();
-      if (!Number.isFinite(cur) || cur <= 0) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '当前价格不可用' : (lang === 'es' ? 'Precio actual no disponible' : 'Current price unavailable') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+      if (!Number.isFinite(cur) || cur <= 0) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '当前价格不可用' : (lang === 'pl' ? 'Aktualna cena niedostępna' : 'Current price unavailable') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
       await api.post(`/me/institution/block/orders/${o.id}/sell`, { currentPrice: cur });
-      setToast({ show: true, type: 'ok', text: lang === 'zh' ? '卖出成功，订单已完成' : (lang === 'es' ? 'Venta exitosa, orden completada' : 'Sold successfully, order completed') });
+      setToast({ show: true, type: 'ok', text: lang === 'zh' ? '卖出成功，订单已完成' : (lang === 'pl' ? 'Sprzedano pomyślnie, zlecenie zakończone' : 'Sold successfully, order completed') });
       setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
       // Freeze local order PnL immediately
       setOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: 'done', finalPrice: cur } : x));
     } catch (e) {
       const msg = (e && (e.message || (e.response && (e.response.data?.error || e.response.data?.message)))) || String(e);
-      setToast({ show: true, type: 'error', text: (lang === 'zh' ? '卖出失败: ' : (lang === 'es' ? 'Fallo de venta: ' : 'Sell failed: ')) + msg });
+      setToast({ show: true, type: 'error', text: (lang === 'zh' ? '卖出失败: ' : (lang === 'pl' ? 'Sprzedaż nie powiodła się: ' : 'Sell failed: ')) + msg });
       setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000);
     }
   }
 
   return (
-    <div className="screen top-align">
-      {locked && (
-        <div className="modal">
-          <div className="modal-card">
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>{t('inviteTitle') || '请输入你的机构邀请码'}</div>
-            <input className="input" placeholder={t('invitePlaceholder') || '请输入你的机构邀请码'} value={inviteCode} onChange={e => setInviteCode(e.target.value)} />
-            {inviteError && <div className="error" style={{ marginTop: 8 }}>{inviteError}</div>}
-            <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
-              <button className="btn" onClick={() => nav('/me')}>{t('inviteCancel') || (lang === 'es' ? 'Cancelar' : 'Cancel')}</button>
-              <button className="btn primary" disabled={verifying} onClick={async () => {
-                setInviteError('');
-                const code = String(inviteCode || '').trim();
-                if (!code) { setInviteError(t('inviteInvalid') || '邀请码无效'); return; }
-                setVerifying(true);
-                try {
-                  await api.post('/me/invite/verify', { code });
-                  const me = await api.get('/me');
-                  try { localStorage.setItem('sessionUser', JSON.stringify(me.user)); } catch { }
-                  setLocked(false);
-                } catch (err) {
-                  const msg = String(err?.message || '').toLowerCase();
-                  if (msg.includes('invalid')) setInviteError(t('inviteInvalid') || '邀请码错误');
-                  else if (msg.includes('already')) setInviteError(t('inviteAlready') || '已解锁');
-                  else setInviteError(String(err?.message || err));
-                } finally { setVerifying(false); }
-              }}>{t('inviteSubmit') || (lang === 'es' ? 'Confirmar' : 'Submit')}</button>
-            </div>
-          </div>
-        </div>
-      )}
+    <div className="screen top-align inst-screen" style={{ padding: 0 }}>
       {toast?.show && (
         <div style={{ position: 'fixed', top: 10, left: 0, right: 0, display: 'grid', placeItems: 'center', zIndex: 1000 }}>
           <div style={{ padding: '8px 12px', borderRadius: 10, background: toast.type === 'error' ? '#7a2a2a' : '#274a36', color: '#fff', boxShadow: '0 4px 14px rgba(0,0,0,.2)' }}>{toast.text}</div>
         </div>
       )}
+      {/* 返回按钮 */}
+      <div className="inst-back-bar">
+        <button
+          onClick={() => nav(-1)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 20, padding: '8px 14px', cursor: 'pointer', color: '#e5e7eb', fontSize: 13
+          }}
+        >
+          <span style={{ fontSize: 16 }}>←</span>
+          <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+        </button>
+      </div>
       <div className="inst-container">
         {/* 顶部：头像 + 用户资金 */}
         <div className="inst-card">
           <div className="profile-top-card" style={{ marginTop: 0 }}>
             <div className="top-left" style={{ minWidth: 90 }}>
               <div className="avatar-wrap">
-                <img className="avatar" src={avatarUrl || "/logo.png"} alt="avatar" onError={(e) => { try { e.currentTarget.src = '/logo.png'; } catch { } }} />
+                <img className="avatar" src={avatarUrl || "/logo.jpg"} alt="avatar" onError={(e) => { try { e.currentTarget.src = '/logo.jpg'; } catch { } }} />
               </div>
               <div className="top-name" style={{ fontSize: 11, maxWidth: 90, wordBreak: 'normal', hyphens: 'none' }}>{labels.title}</div>
             </div>
             <div className="top-right" style={{ position: 'relative' }}>
-              <div className="top-title">{lang === 'zh' ? '资产' : (lang === 'es' ? 'Fondos' : 'Funds')}</div>
+              <div className="top-title">{lang === 'zh' ? '资产' : (lang === 'pl' ? 'Fundusze' : 'Funds')}</div>
               <div className="funds-list">
-                <div className="fund-row"><span className="label">MX</span><span className="value">{formatMXN(funds.mxn, lang)}</span></div>
-                <div className="fund-row"><span className="label">{lang === 'zh' ? '信用积分' : (lang === 'es' ? 'Puntaje de crédito' : 'Credit Score')}</span><span className="value">{creditScore}</span></div>
+                <div className="fund-row"><span className="label">PLN</span><span className="value">{formatPLN(funds.pln, lang)}</span></div>
+                <div className="fund-row"><span className="label">{lang === 'zh' ? '信用积分' : (lang === 'pl' ? 'Punktacja kredytowa' : 'Credit Score')}</span><span className="value">{creditScore}</span></div>
               </div>
-              {tradeDisabled && <div className="desc" style={{ marginTop: 6, color: '#ff6b6b' }}>{lang === 'es' ? 'Operación deshabilitada' : 'Trading disabled'}</div>}
+              {tradeDisabled && <div className="desc" style={{ marginTop: 6, color: '#ff6b6b' }}>{lang === 'zh' ? '交易已禁用' : (lang === 'pl' ? 'Handel wyłączony' : 'Trading disabled')}</div>}
             </div>
           </div>
         </div>
@@ -495,7 +455,7 @@ export default function Institution() {
         {/* 机构简介占位：头像 + 名称 + 文案介绍 */}
         <div className="inst-card">
           <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-            <img src={normalizeAvatar(org.avatar)} alt="org-avatar" style={{ width: 64, height: 64, minWidth: 64, borderRadius: 12, border: '2px solid var(--card-border)', objectFit: 'cover', background: 'var(--card-bg)' }} onError={(e) => { try { e.currentTarget.src = '/logo.png'; } catch { } }} />
+            <img src={normalizeAvatar(org.avatar)} alt="org-avatar" style={{ width: 64, height: 64, minWidth: 64, borderRadius: 12, border: '2px solid var(--card-border)', objectFit: 'cover', background: 'var(--card-bg)' }} onError={(e) => { try { e.currentTarget.src = '/logo.jpg'; } catch { } }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: 6 }}>{org.name}</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, wordBreak: 'break-word' }}>{org.desc}</div>
@@ -520,7 +480,7 @@ export default function Institution() {
             </div>
             <div className="icon-item" onClick={() => setCreditModal(true)}>
               <div className="icon-circle">💳</div>
-              <div className="icon-label">{lang === 'zh' ? '信用金' : (lang === 'es' ? 'Crédito' : 'Credit')}</div>
+              <div className="icon-label">{lang === 'zh' ? '信用金' : (lang === 'pl' ? 'Kredyt' : 'Credit')}</div>
             </div>
           </div>
         </div>
@@ -540,29 +500,29 @@ export default function Institution() {
                 <div style={{ display: 'grid', gap: 4, minWidth: 0, wordBreak: 'break-word' }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{String(o.market).toUpperCase()} · {String(o.symbol).toUpperCase()}</div>
                   <div className="desc" style={{ color: '#64748b' }}>
-                    {lang === 'zh' ? '价格' : (lang === 'es' ? 'Precio' : 'Price')}: {o.market === 'crypto' ? formatUSDT(Number(o.blockPrice || o.price || 0), lang) : formatMoney(Number(o.blockPrice || o.price || 0) * usdToMxnRate, 'MXN', lang)}
+                    {lang === 'zh' ? '价格' : (lang === 'pl' ? 'Cena' : 'Price')}: {o.market === 'crypto' ? formatUSDT(Number(o.blockPrice || o.price || 0), lang) : formatMoney(Number(o.blockPrice || o.price || 0) * usdToPlnRate, 'PLN', lang)}
                     {' · '}
-                    {lang === 'zh' ? '数量' : (lang === 'es' ? 'Cantidad' : 'Qty')}: {Number(o.qty || 0)}
+                    {lang === 'zh' ? '数量' : (lang === 'pl' ? 'Ilość' : 'Qty')}: {Number(o.qty || 0)}
                     {' · '}
-                    {lang === 'zh' ? '总额' : (lang === 'es' ? 'Total' : 'Total')}: {o.market === 'crypto' ? formatUSDT(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), lang) : formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)) * usdToMxnRate, 'MXN', lang)}
+                    {lang === 'zh' ? '总额' : (lang === 'pl' ? 'Razem' : 'Total')}: {o.market === 'crypto' ? formatUSDT(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)), lang) : formatMoney(Number((o.blockPrice || o.price || 0) * Number(o.qty || 0)) * usdToPlnRate, 'PLN', lang)}
                   </div>
                   <div className="desc" style={{ color: '#64748b' }}>
-                    {lang === 'zh' ? '锁定至' : (lang === 'es' ? 'Bloqueado hasta' : 'Lock Until')}: {o.locked === false ? (lang === 'zh' ? '已解锁' : (lang === 'es' ? 'Desbloqueado' : 'Unlocked')) : formatMinute(o.lockUntil || o.lock_until)}
+                    {lang === 'zh' ? '锁定至' : (lang === 'pl' ? 'Zablokowane do' : 'Lock Until')}: {o.locked === false ? (lang === 'zh' ? '已解锁' : (lang === 'pl' ? 'Odblokowane' : 'Unlocked')) : formatMinute(o.lockUntil || o.lock_until)}
                     {tab === 'current' ? (
-                      <> {' · '} {lang === 'zh' ? '当前价' : (lang === 'es' ? 'Precio actual' : 'Current')}: {o.market === 'crypto' ? formatUSDT(currentPriceFor(o) || 0, lang) : formatMoney((currentPriceFor(o) || 0) * usdToMxnRate, 'MXN', lang)} </>
+                      <> {' · '} {lang === 'zh' ? '当前价' : (lang === 'pl' ? 'Aktualna cena' : 'Current')}: {o.market === 'crypto' ? formatUSDT(currentPriceFor(o) || 0, lang) : formatMoney((currentPriceFor(o) || 0) * usdToPlnRate, 'PLN', lang)} </>
                     ) : null}
                   </div>
                   <div className="desc" style={{ color: '#64748b' }}>
-                    {lang === 'zh' ? '提交于' : (lang === 'es' ? 'Enviado' : 'Submitted')}: {formatMinute(Number(o.ts || Date.now()))}
+                    {lang === 'zh' ? '提交于' : (lang === 'pl' ? 'Przesłano' : 'Submitted')}: {formatMinute(Number(o.ts || Date.now()))}
                   </div>
                 </div>
                 <div style={{ display: 'grid', justifyItems: (isMobile ? 'start' : 'end'), alignContent: 'start', gap: 6, minWidth: 0, paddingRight: (isMobile ? 0 : 6), paddingTop: (isMobile ? 8 : 0) }}>
                   <span className="tag" style={{ background: statusColor(o.status), color: '#fff' }}>{statusLabel(o.status)}</span>
                   <div style={{ fontSize: 18, fontWeight: 700, color: profitColor(o) }}>{pnlPct(o)}%</div>
-                  <div style={{ fontSize: 14, color: profitColor(o) }}>{o.market === 'crypto' ? formatUSDT(pnlValue(o), lang) : formatMoney(Number(pnlValue(o)) * usdToMxnRate, 'MXN', lang)}</div>
+                  <div style={{ fontSize: 14, color: profitColor(o) }}>{o.market === 'crypto' ? formatUSDT(pnlValue(o), lang) : formatMoney(Number(pnlValue(o)) * usdToPlnRate, 'PLN', lang)}</div>
                   {tab === 'current' && (
                     <button className="btn primary slim" disabled={tradeDisabled || o.status !== 'approved'} onClick={() => sell(o)}>
-                      {lang === 'zh' ? '卖出' : (lang === 'es' ? 'Vender' : 'Sell')}
+                      {lang === 'zh' ? '卖出' : (lang === 'pl' ? 'Sprzedaj' : 'Sell')}
                     </button>
                   )}
                 </div>
@@ -576,38 +536,38 @@ export default function Institution() {
       {creditModal && (
         <div className="modal" role="dialog" aria-modal="true" onClick={() => setCreditModal(false)}>
           <div className="modal-card" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
-            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'zh' ? '信用贷款申请' : (lang === 'es' ? 'Solicitud de crédito' : 'Credit Application')}</h2>
-            <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? `你当前的信用积分为：${creditScore}` : (lang === 'es' ? `Tu puntaje de crédito: ${creditScore}` : `Your credit score: ${creditScore}`)}</div>
+            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'zh' ? '信用贷款申请' : (lang === 'pl' ? 'Wniosek kredytowy' : 'Credit Application')}</h2>
+            <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? `你当前的信用积分为：${creditScore}` : (lang === 'pl' ? `Twój wynik kredytowy: ${creditScore}` : `Your credit score: ${creditScore}`)}</div>
             <div style={{ position: 'absolute', right: 12, top: 12 }}>
               <button className="pill" onClick={async () => { try { const r = await api.get('/me/credit/apps'); const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : []); const list = arr.length ? arr : JSON.parse(localStorage.getItem('credit:apps') || '[]'); setCreditHistory(Array.isArray(list) ? list : []); } catch { try { const list = JSON.parse(localStorage.getItem('credit:apps') || '[]'); setCreditHistory(Array.isArray(list) ? list : []); } catch { setCreditHistory([]); } } setCreditHistoryOpen(true); }}>
-                {lang === 'zh' ? '申请记录' : (lang === 'es' ? 'Historial' : 'Records')}
+                {lang === 'zh' ? '申请记录' : (lang === 'pl' ? 'Historia' : 'Records')}
               </button>
             </div>
             <div className="form" style={{ marginTop: 10 }}>
-              <label className="label">{lang === 'zh' ? '姓名' : (lang === 'es' ? 'Nombre' : 'Name')}</label>
+              <label className="label">{lang === 'zh' ? '姓名' : (lang === 'pl' ? 'Imię' : 'Name')}</label>
               <input className="input" value={creditForm.name} onChange={e => setCreditForm(p => ({ ...p, name: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '电话号码' : (lang === 'es' ? 'Teléfono' : 'Phone')}</label>
+              <label className="label">{lang === 'zh' ? '电话号码' : (lang === 'pl' ? 'Telefon' : 'Phone')}</label>
               <input className="input" value={creditForm.phone} onChange={e => setCreditForm(p => ({ ...p, phone: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '街道 + 门牌号' : (lang === 'es' ? 'Calle + número' : 'Street + No.')}</label>
+              <label className="label">{lang === 'zh' ? '街道 + 门牌号' : (lang === 'pl' ? 'Ulica + numer' : 'Street + No.')}</label>
               <input className="input" value={creditForm.address} onChange={e => setCreditForm(p => ({ ...p, address: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '邮编' : (lang === 'es' ? 'Código postal' : 'ZIP')}</label>
+              <label className="label">{lang === 'zh' ? '邮编' : (lang === 'pl' ? 'Kod pocztowy' : 'ZIP')}</label>
               <input className="input" value={creditForm.zip} onChange={e => setCreditForm(p => ({ ...p, zip: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '城市/市镇' : (lang === 'es' ? 'Ciudad/Pueblo' : 'City/Town')}</label>
+              <label className="label">{lang === 'zh' ? '城市/市镇' : (lang === 'pl' ? 'Miasto' : 'City/Town')}</label>
               <input className="input" value={creditForm.city} onChange={e => setCreditForm(p => ({ ...p, city: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '州' : (lang === 'es' ? 'Estado' : 'State')}</label>
+              <label className="label">{lang === 'zh' ? '州' : (lang === 'pl' ? 'Województwo' : 'State')}</label>
               <input className="input" value={creditForm.state} onChange={e => setCreditForm(p => ({ ...p, state: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '借款金额（比索）' : (lang === 'es' ? 'Monto (MXN)' : 'Amount (MXN)')}</label>
+              <label className="label">{lang === 'zh' ? '借款金额（比索）' : (lang === 'pl' ? 'Kwota (PLN)' : 'Amount (PLN)')}</label>
               <input className="input" type="number" value={creditForm.amount} onChange={e => setCreditForm(p => ({ ...p, amount: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '资金使用周期' : (lang === 'es' ? 'Periodo de uso' : 'Usage period')}</label>
+              <label className="label">{lang === 'zh' ? '资金使用周期' : (lang === 'pl' ? 'Okres użytkowania' : 'Usage period')}</label>
               <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8 }}>
-                <input className="input" type="number" min={1} step={1} placeholder={lang === 'es' ? 'Cantidad' : 'Value'} value={creditForm.periodValue} onChange={e => setCreditForm(p => ({ ...p, periodValue: e.target.value }))} onBlur={e => { const v = Math.max(1, Number(e.target.value || 1)); setCreditForm(p => ({ ...p, periodValue: String(v) })); }} />
+                <input className="input" type="number" min={1} step={1} placeholder={lang === 'zh' ? '数值' : (lang === 'pl' ? 'Wartość' : 'Value')} value={creditForm.periodValue} onChange={e => setCreditForm(p => ({ ...p, periodValue: e.target.value }))} onBlur={e => { const v = Math.max(1, Number(e.target.value || 1)); setCreditForm(p => ({ ...p, periodValue: String(v) })); }} />
                 <select className="input" value={creditForm.periodUnit} onChange={e => setCreditForm(p => ({ ...p, periodUnit: e.target.value }))}>
-                  <option value="year">{lang === 'zh' ? '年' : (lang === 'es' ? 'Año' : 'Year')}</option>
-                  <option value="month">{lang === 'zh' ? '月' : (lang === 'es' ? 'Mes' : 'Month')}</option>
-                  <option value="day">{lang === 'zh' ? '日' : (lang === 'es' ? 'Día' : 'Day')}</option>
+                  <option value="year">{lang === 'zh' ? '年' : (lang === 'pl' ? 'Rok' : 'Year')}</option>
+                  <option value="month">{lang === 'zh' ? '月' : (lang === 'pl' ? 'Miesiąc' : 'Month')}</option>
+                  <option value="day">{lang === 'zh' ? '日' : (lang === 'pl' ? 'Dzień' : 'Day')}</option>
                 </select>
               </div>
-              <div className="desc" style={{ marginTop: 8 }}>{lang === 'zh' ? '可以提供你的资产证明，有助于提升你的实际审批金额' : (lang === 'es' ? 'Proporcione prueba de activos para mejorar la aprobación' : 'Provide asset proof to improve approval')}</div>
+              <div className="desc" style={{ marginTop: 8 }}>{lang === 'zh' ? '可以提供你的资产证明，有助于提升你的实际审批金额' : (lang === 'pl' ? 'Podaj dowód aktywów, aby poprawić zatwierdzenie' : 'Provide asset proof to improve approval')}</div>
               <input ref={fileInputRef} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} type="file" accept="image/*" multiple onChange={async (e) => {
                 try {
                   const files = Array.from(e.target.files || []);
@@ -628,25 +588,25 @@ export default function Institution() {
                   </div>
                 )}
               </div>
-              <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? '最多5张' : (lang === 'es' ? 'Hasta 5 imágenes' : 'Up to 5 images')}</div>
+              <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? '最多5张' : (lang === 'pl' ? 'Do 5 zdjęć' : 'Up to 5 images')}</div>
               <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
-                <button className="btn" onClick={() => setCreditModal(false)}>{lang === 'zh' ? '取消' : (lang === 'es' ? 'Cancelar' : 'Cancel')}</button>
+                <button className="btn" onClick={() => setCreditModal(false)}>{lang === 'zh' ? '取消' : (lang === 'pl' ? 'Anuluj' : 'Cancel')}</button>
                 <button className="btn primary" disabled={creditSubmitting} onClick={async () => {
                   try {
                     setCreditSubmitting(true);
                     const payload = { score: creditScore, ...creditForm };
                     await api.post('/me/credit/apply', payload);
                     setCreditModal(false);
-                    setToast({ show: true, type: 'ok', text: lang === 'zh' ? '提交成功，请等待审核' : (lang === 'es' ? 'Enviado, espere aprobación' : 'Submitted, wait for approval') });
+                    setToast({ show: true, type: 'ok', text: lang === 'zh' ? '提交成功，请等待审核' : (lang === 'pl' ? 'Przesłano, oczekuj na zatwierdzenie' : 'Submitted, wait for approval') });
                     setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 2000);
                   } catch (e) {
                     const msg = String(e?.message || e);
-                    setToast({ show: true, type: 'error', text: (lang === 'zh' ? '提交失败: ' : (lang === 'es' ? 'Fallo: ' : 'Failed: ')) + msg });
+                    setToast({ show: true, type: 'error', text: (lang === 'zh' ? '提交失败: ' : (lang === 'pl' ? 'Nie powiodło się: ' : 'Failed: ')) + msg });
                     setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 3000);
                   } finally {
                     setCreditSubmitting(false);
                   }
-                }}>{creditSubmitting ? (lang === 'zh' ? '提交中...' : (lang === 'es' ? 'Enviando...' : 'Submitting...')) : (lang === 'zh' ? '提交' : (lang === 'es' ? 'Enviar' : 'Submit'))}</button>
+                }}>{creditSubmitting ? (lang === 'zh' ? '提交中...' : (lang === 'pl' ? 'Przesyłanie...' : 'Submitting...')) : (lang === 'zh' ? '提交' : (lang === 'pl' ? 'Prześlij' : 'Submit'))}</button>
               </div>
             </div>
           </div>
@@ -655,20 +615,20 @@ export default function Institution() {
       {creditHistoryOpen && (
         <div className="modal" role="dialog" aria-modal="true" onClick={() => setCreditHistoryOpen(false)}>
           <div className="modal-card" style={{ maxWidth: 680 }} onClick={(e) => e.stopPropagation()}>
-            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'zh' ? '申请记录' : (lang === 'es' ? 'Historial de crédito' : 'Credit records')}</h2>
+            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'zh' ? '申请记录' : (lang === 'pl' ? 'Historia kredytowa' : 'Credit records')}</h2>
             <div style={{ display: 'grid', gap: 8 }}>
               {(creditHistory || []).map((it) => (
                 <div key={it.id} className="card flat" style={{ padding: '8px 10px' }}>
-                  <div className="desc">{lang === 'zh' ? '姓名' : (lang === 'es' ? 'Nombre' : 'Name')}: {it.name}</div>
-                  <div className="desc">{lang === 'zh' ? '金额' : (lang === 'es' ? 'Monto' : 'Amount')}: {Number(it.amount || 0)}</div>
-                  <div className="desc">{lang === 'zh' ? '状态' : (lang === 'es' ? 'Estado' : 'Status')}: {String(it.status || 'pending')}</div>
-                  <div className="desc">{lang === 'zh' ? '时间' : (lang === 'es' ? 'Hora' : 'Time')}: {new Date(it.ts || Date.now()).toLocaleString(lang === 'es' ? 'es-MX' : (lang === 'zh' ? 'zh-CN' : 'en-US'))}</div>
+                  <div className="desc">{lang === 'zh' ? '姓名' : (lang === 'pl' ? 'Imię' : 'Name')}: {it.name}</div>
+                  <div className="desc">{lang === 'zh' ? '金额' : (lang === 'pl' ? 'Kwota' : 'Amount')}: {Number(it.amount || 0)}</div>
+                  <div className="desc">{lang === 'zh' ? '状态' : (lang === 'pl' ? 'Status' : 'Status')}: {String(it.status || 'pending')}</div>
+                  <div className="desc">{lang === 'zh' ? '时间' : (lang === 'pl' ? 'Czas' : 'Time')}: {new Date(it.ts || Date.now()).toLocaleString(lang === 'pl' ? 'pl-PL' : (lang === 'zh' ? 'zh-CN' : 'en-US'))}</div>
                 </div>
               ))}
-              {(creditHistory || []).length === 0 && (<div className="desc">{lang === 'zh' ? '暂无记录' : (lang === 'es' ? 'Sin registros' : 'No records')}</div>)}
+              {(creditHistory || []).length === 0 && (<div className="desc">{lang === 'zh' ? '暂无记录' : (lang === 'pl' ? 'Brak rekordów' : 'No records')}</div>)}
             </div>
             <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
-              <button className="btn" onClick={() => setCreditHistoryOpen(false)}>{lang === 'zh' ? '关闭' : (lang === 'es' ? 'Cerrar' : 'Close')}</button>
+              <button className="btn" onClick={() => setCreditHistoryOpen(false)}>{lang === 'zh' ? '关闭' : (lang === 'pl' ? 'Zamknij' : 'Close')}</button>
             </div>
           </div>
         </div>

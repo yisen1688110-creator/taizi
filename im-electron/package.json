@@ -1,7 +1,7 @@
 {
-    "name": "ecim-agent-desktop",
+    "name": "gq-agent-desktop",
     "version": "1.0.0",
-    "description": "ECIM Agent Desktop Client",
+    "description": "GQ Agent Desktop Client",
     "main": "main.js",
     "author": "MXG",
     "scripts": {
@@ -15,8 +15,8 @@
         "electron-builder": "^24.9.1"
     },
     "build": {
-        "appId": "com.ecim.agent",
-        "productName": "ECIM Agent",
+        "appId": "com.gqtrade.agent",
+        "productName": "GQ Agent",
         "mac": {
             "target": null
         },

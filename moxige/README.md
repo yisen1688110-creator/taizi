@@ -1,4 +1,4 @@
-# Moxige App (React + Vite)
+# GQ Trade App (React + Vite)
 
 本项目为演示性前后端端口隔离与登录流程的 React + Vite 单页应用，包含前台用户登录/注册与后台员工面板（内嵌登录）。默认语言为西班牙语（墨西哥），可在前台切换为英语。
 

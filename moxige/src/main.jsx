@@ -19,10 +19,10 @@ function seedDefaultAndMigrate() {
       ensure(u, "assignedAdminId", null);
       ensure(u, "assignedOperatorId", null);
       ensure(u, "avatarUrl", null);
-      ensure(u, "balanceMXN", 0);
+      ensure(u, "balancePLN", 0);
     });
     if (!users.find((u) => u.role === "super")) {
-      users.push({ id: "super-1", phone: "0000000000", name: "Super Admin", password: "admin123", role: "super", avatarUrl: null, balanceMXN: 0 });
+      users.push({ id: "super-1", phone: "0000000000", name: "Super Admin", password: "admin123", role: "super", avatarUrl: null, balancePLN: 0 });
       changed = true;
     }
     if (changed) localStorage.setItem("users", JSON.stringify(users));

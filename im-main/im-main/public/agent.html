@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>客服控制台</title>
+  <title>GQ Trade - 客服控制台</title>
   <link rel="icon" href="/im-api/tiny.png" />
   <style>
     html,
@@ -18,7 +18,7 @@
     body {
       font-family: ui-sans-serif, system-ui, -apple-system;
       margin: 0;
-      background: #f5f6f8
+      background: #f5f7fb
     }
 
     .container {
@@ -30,8 +30,8 @@
 
     .sidebar {
       width: 280px;
-      background: #f0f3f9;
-      border-right: 1px solid #e5e8ef;
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
       display: flex;
       flex-direction: column
     }
@@ -50,8 +50,13 @@
       padding: 8px 12px;
       border: 0;
       border-radius: 6px;
-      background: #2860ff;
-      color: #fff
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer
+    }
+    
+    .sidebar-btn:hover {
+      background: #1d4ed8
     }
 
     .conversation-list {
@@ -63,17 +68,17 @@
       display: flex;
       justify-content: space-between;
       padding: 10px 12px;
-      border-bottom: 1px solid #e8ecf3;
+      border-bottom: 1px solid #e2e8f0;
       cursor: pointer;
       background: transparent
     }
 
     .conversation-item:hover {
-      background: #e9eefc
+      background: #f0f4f8
     }
 
     .read-pill {
-      background: #1ea7ff;
+      background: #2563eb;
       color: #fff;
       border-radius: 10px;
       padding: 0 6px;
@@ -96,7 +101,7 @@
 
     .ci-name {
       font-weight: 600;
-      color: #1a1f36;
+      color: #1e293b;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -107,7 +112,7 @@
 
     .ci-meta {
       font-size: 12px;
-      color: #6b7280;
+      color: #64748b;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis
@@ -120,15 +125,15 @@
     }
 
     .dot.online {
-      background: #2ecc71
+      background: #16a34a
     }
 
     .dot.offline {
-      background: #c4c9d5
+      background: #cbd5e1
     }
 
     .unread-badge {
-      background: #2860ff;
+      background: #2563eb;
       color: #fff;
       border-radius: 10px;
       padding: 0 6px;
@@ -147,8 +152,8 @@
 
     .rightbar {
       width: 280px;
-      background: #f0f3f9;
-      border-left: 1px solid #e5e8ef;
+      background: #ffffff;
+      border-left: 1px solid #e2e8f0;
       display: flex;
       flex-direction: column
     }
@@ -156,7 +161,7 @@
     .rightbar-title {
       padding: 12px;
       font-weight: 600;
-      color: #fff
+      color: #1e293b
     }
 
     .note-editor {
@@ -201,19 +206,19 @@
       position: absolute;
       top: 40px;
       right: 8px;
-      background: #0f1c2d;
-      color: #e6edf7;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, .45);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       min-width: 160px;
       z-index: 10000;
       user-select: none
     }
 
     .card-menu .popup-item {
-      color: #e6edf7;
-      background: #0f1c2d;
+      color: #1e293b;
+      background: #ffffff;
       border-radius: 8px;
       -webkit-tap-highlight-color: transparent;
       outline: none
@@ -226,24 +231,24 @@
     }
 
     .card-menu .popup-item:hover {
-      background: #173152
+      background: #f0f4f8
     }
 
     .note-card {
-      background: #fff;
-      border: 1px solid #e5e8ef;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
       border-radius: 12px;
       padding: 10px
     }
 
     .note-card-head {
       font-size: 12px;
-      color: #6b7280;
+      color: #64748b;
       margin-bottom: 6px
     }
 
     .note-card-body {
-      color: #1a1f36;
+      color: #1e293b;
       line-height: 1.5;
       white-space: pre-wrap;
       word-break: break-all;
@@ -255,8 +260,8 @@
 
     .header {
       padding: 12px;
-      background: #fff;
-      border-bottom: 1px solid #eee;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
       display: flex;
       align-items: center;
       justify-content: space-between
@@ -277,11 +282,12 @@
     }
 
     .name {
-      font-weight: 600
+      font-weight: 600;
+      color: #1e293b
     }
 
     .phone {
-      color: #666;
+      color: #64748b;
       font-size: 12px
     }
 
@@ -297,23 +303,23 @@
     }
 
     .badge.online {
-      background: #d7f7e8;
-      color: #137a3d
+      background: #dcfce7;
+      color: #16a34a
     }
 
     .badge.offline {
-      background: #eef1f6;
-      color: #6b7280
+      background: #f1f5f9;
+      color: #64748b
     }
 
     .badge.read {
-      background: #d7f7e8;
-      color: #137a3d
+      background: #dcfce7;
+      color: #16a34a
     }
 
     .badge.unread {
-      background: #fff2cc;
-      color: #7a5e00
+      background: #fef3c7;
+      color: #d97706
     }
 
     .note {
@@ -354,8 +360,8 @@
 
     .composer {
       padding: 12px;
-      background: #fff;
-      border-top: 1px solid #eee;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
       display: flex;
       gap: 8px
     }
@@ -363,10 +369,24 @@
     input,
     textarea {
       padding: 8px 10px;
-      border: 1px solid #ddd;
+      border: 1px solid #e2e8f0;
       border-radius: 6px;
       flex: 1;
-      resize: none
+      resize: none;
+      background: #ffffff;
+      color: #1e293b
+    }
+    
+    input::placeholder,
+    textarea::placeholder {
+      color: #94a3b8
+    }
+    
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
     }
 
     textarea {
@@ -377,8 +397,13 @@
       padding: 8px 12px;
       border: 0;
       border-radius: 6px;
-      background: #2860ff;
-      color: #fff
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer
+    }
+    
+    button:hover {
+      background: #1d4ed8
     }
 
     .msg {
@@ -389,14 +414,15 @@
 
     .msg.me {
       margin-left: auto;
-      background: #2860ff;
+      background: #2563eb;
       color: #fff
     }
 
     .msg.other {
       margin-right: auto;
-      background: #e9eefc;
-      color: #1a1f36
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #e2e8f0
     }
 
     .msg.flash {
@@ -404,9 +430,9 @@
     }
 
     .reply {
-      background: rgba(0, 0, 0, .12);
-      color: #1a1f36;
-      border-left: 3px solid #3b82f6;
+      background: rgba(37, 99, 235, 0.08);
+      color: #1e293b;
+      border-left: 3px solid #2563eb;
       border-radius: 8px;
       padding: 6px 8px;
       margin-bottom: 6px;
@@ -564,8 +590,12 @@
       width: 36px;
       height: 36px;
       border-radius: 8px;
-      background: #2860ff;
+      background: #2563eb;
       color: #fff
+    }
+    
+    .icon-btn:hover {
+      background: #1d4ed8
     }
 
     .popup-menu {
@@ -581,16 +611,20 @@
     }
 
     .popup-menu.card-menu {
-      background: #0f1c2d;
-      border-color: #1b2c48;
-      color: #e6edf7
+      background: #ffffff;
+      border-color: #e2e8f0;
+      color: #1e293b
     }
 
     .popup-item {
       padding: 8px 10px;
       cursor: pointer;
       display: block;
-      color: #1a1f36
+      color: #1e293b
+    }
+    
+    .popup-item:hover {
+      background: #f0f4f8
     }
 
     .emoji-item {
@@ -620,18 +654,19 @@
       left: 12px;
       right: 120px;
       bottom: 68px;
-      background: #0f1c2d;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 8px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08)
     }
 
     .reply-preview-text {
-      color: #e6edf7;
+      color: #1e293b;
       font-size: 12px;
       opacity: .9;
       overflow: hidden;
@@ -640,7 +675,7 @@
     }
 
     .reply-preview-cancel {
-      background: #3b82f6;
+      background: #2563eb;
       color: #fff;
       border: 0;
       border-radius: 6px;
@@ -665,7 +700,7 @@
       height: 36px;
       padding: 0;
       border-radius: 18px;
-      background: #2da1e9;
+      background: #2563eb;
       display: flex;
       align-items: center;
       justify-content: center
@@ -733,14 +768,14 @@
     .menu-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 28, 45, .6);
+      background: rgba(0, 0, 0, .3);
       z-index: 9998
     }
 
     .preview-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 28, 45, .6);
+      background: rgba(0, 0, 0, .4);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -748,10 +783,10 @@
     }
 
     .preview-box {
-      background: #0f1c2d;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 12px;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, .45);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
       padding: 12px;
       max-width: 90vw
     }
@@ -771,24 +806,24 @@
     }
 
     .preview-actions button {
-      background: #0f1c2d;
-      color: #e6edf7;
-      border: 1px solid #1b2c48;
+      background: #f8fafc;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 8px 12px
     }
 
     .preview-actions button:hover {
-      background: #173152
+      background: #f0f4f8
     }
 
     .msg-menu {
       position: fixed;
-      background: #0f1c2d;
-      color: #e6edf7;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, .45);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       min-width: 140px;
       z-index: 10002;
       padding: 6px 0
@@ -801,11 +836,11 @@
     }
 
     .msg-menu-item.danger {
-      color: #ff4d4f;
+      color: #dc2626;
     }
 
     .msg-menu-item:hover {
-      background: #f0f0f0;
+      background: #f0f4f8;
     }
 
     /* Conversation Context Menu */
@@ -843,7 +878,7 @@
   </style>
 </head>
 
-<body class="theme-dark">
+<body class="theme-light">
   <div class="container">
     <div class="sidebar">
       <div class="sidebar-top">

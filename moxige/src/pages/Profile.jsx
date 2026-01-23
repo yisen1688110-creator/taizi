@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n.jsx";
 import { api } from "../services/api.js";
 import "../styles/profile.css";
-import { formatMoney, formatMXN, formatUSDT } from "../utils/money.js";
+import { formatMoney, formatPLN, formatUSDT } from "../utils/money.js";
 
 function readSession() {
   try { return JSON.parse(localStorage.getItem("sessionUser") || "null"); } catch { return null; }
@@ -35,10 +35,6 @@ export default function Profile() {
   const [users, setUsers] = useState(() => readUsers());
   const [, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showInvite, setShowInvite] = useState(false);
-  const [inviteCode, setInviteCode] = useState("");
-  const [inviteError, setInviteError] = useState("");
-  const [verifying, setVerifying] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -67,19 +63,19 @@ export default function Profile() {
   function normalizeAvatar(u) {
     try {
       const s = String(u || '').trim();
-      if (!s) return '/logo.png';
+      if (!s) return '/logo.jpg';
       if (/^data:image\/(png|jpeg);base64,/i.test(s)) return s;
       if (/^https?:\/\//i.test(s)) return s;
       if (s.startsWith('/')) return s;
       if (/^[\w\-/.]+$/.test(s)) return `/uploads/${s.replace(/^\/+/, '')}`;
-      return '/logo.png';
-    } catch { return '/logo.png'; }
+      return '/logo.jpg';
+    } catch { return '/logo.jpg'; }
   }
   const [avatarUrl, setAvatarUrl] = useState(() => normalizeAvatar(session?.avatar || session?.avatarUrl || (user?.avatar || user?.avatarUrl) || (JSON.parse(localStorage.getItem('avatarUrl') || 'null') || '')));
   const fileInputRef = useRef(null);
 
-  // 资金（MXN / USD / USDT），从后端余额接口匹配真实数据（与 Home/Swap 同源逻辑）
-  const [funds, setFunds] = useState({ mxn: 0, usd: 0, usdt: 0 });
+  // 资金（PLN / USD / USDT），从后端余额接口匹配真实数据（与 Home/Swap 同源逻辑）
+  const [funds, setFunds] = useState({ pln: 0, usd: 0, usdt: 0 });
   useEffect(() => {
     let stopped = false;
     async function fetchBalances() {
@@ -110,20 +106,20 @@ export default function Profile() {
           const activeHolds = Array.isArray(holds) ? holds.filter(h => h.status === 'active') : [];
           const sumHold = (cur) => activeHolds.filter(h => String(h.currency) === cur).reduce((s, h) => s + Number(h.amount || 0), 0);
           setFunds({
-            mxn: (Number.isFinite(map.MXN) ? map.MXN : 0) - sumHold('MXN'),
+            pln: (Number.isFinite(map.PLN) ? map.PLN : 0) - sumHold('PLN'),
             usd: (Number.isFinite(map.USD) ? map.USD : 0),
             usdt: (Number.isFinite(map.USDT) ? map.USDT : 0),
           });
         } catch {
           setFunds({
-            mxn: Number.isFinite(map.MXN) ? map.MXN : 0,
+            pln: Number.isFinite(map.PLN) ? map.PLN : 0,
             usd: Number.isFinite(map.USD) ? map.USD : 0,
             usdt: Number.isFinite(map.USDT) ? map.USDT : 0,
           });
         }
       } catch (_) {
         if (stopped) return;
-        setFunds({ mxn: 0, usd: 0, usdt: 0 });
+        setFunds({ pln: 0, usd: 0, usdt: 0 });
       } finally { if (!stopped) setLoading(false); }
     }
     fetchBalances();
@@ -140,8 +136,8 @@ export default function Profile() {
   const onAvatarSelected = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!validators.imageType(file)) { alert(lang === 'es' ? 'Formato inválido (JPG/PNG)' : 'Invalid format (JPG/PNG)'); return; }
-    if (!validators.imageSize(file)) { alert(lang === 'es' ? 'Imagen > 2MB' : 'Image > 2MB'); return; }
+    if (!validators.imageType(file)) { alert(lang === 'pl' ? 'Formato inválido (JPG/PNG)' : 'Invalid format (JPG/PNG)'); return; }
+    if (!validators.imageSize(file)) { alert(lang === 'pl' ? 'Imagen > 2MB' : 'Image > 2MB'); return; }
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result;
@@ -205,121 +201,144 @@ export default function Profile() {
 
 
 
+  // 功能菜单项 - 6个保持两行3列对称
+  const menuItems = [
+    { icon: '✏️', label: t('profileSettings'), path: '/me/settings' },
+    { icon: '💳', label: t('profileBankCards'), path: '/me/cards' },
+    { icon: '📜', label: t('profileHistory'), path: '/trades' },
+    { icon: '🛟', label: t('profileSupport'), path: '/me/support', badge: unreadCount },
+    { icon: '🏢', label: t('profileInstitution'), path: '/me/institution' },
+    { icon: '💼', label: t('profileWallets') || (lang === 'zh' ? '钱包' : 'Wallets'), path: '/me/wallets' },
+  ];
+
   return (
-    <div className="screen borderless profile-screen">
-      <div className="profile-container">
-        {/* 顶部：头像 + 账户资金 + 提现按钮 */}
-        <div className="profile-top-card">
-          <div className="top-left">
-            <div className="avatar-wrap" onClick={onPickAvatar} role="button" aria-label="change-avatar" title={lang === 'es' ? 'Cambiar avatar' : 'Change avatar'}>
-              <img className="avatar" src={avatarUrl || "/logo.png"} alt="avatar" />
-              <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" onChange={onAvatarSelected} style={{ display: 'none' }} />
-            </div>
-            <div className="top-name">{user?.name || user?.phone || (lang === 'es' ? 'Usuario' : 'User')}</div>
-          </div>
-          <div className="top-right">
-            <div className="top-title">{lang === 'es' ? 'Cuenta de fondos:' : 'Account Funds:'}</div>
-            <div className="funds-and-action">
-              <div className="funds-list">
-                <div className="fund-row"><span className="label">MX</span><span className="value">{formatMXN(funds.mxn, lang)}</span></div>
-              </div>
-              <button className="btn withdraw-btn" onClick={() => nav('/me/withdraw')}>{lang === 'es' ? 'Retirar' : 'Withdraw'}</button>
-            </div>
-          </div>
+    <div className="screen profile-screen" style={{ 
+      width: '100%', boxSizing: 'border-box',
+      display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+      minHeight: '100vh', padding: 0, paddingBottom: 80, background: 'transparent',
+      margin: 0
+    }}>
+      {/* 内容容器 - 铺满宽度 */}
+      <div style={{ 
+        width: '100%', 
+        margin: 0,
+        padding: 0,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1
+      }}>
+      {/* 顶部：头像居中 + 用户名 - 铺满宽度 */}
+      <div style={{ 
+        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+        padding: '20px 16px', width: '100%', boxSizing: 'border-box',
+        background: 'rgba(17,24,39,0.4)', borderBottom: '1px solid rgba(255,255,255,0.06)'
+      }}>
+        <div 
+          onClick={onPickAvatar} 
+          style={{ 
+            width: 72, height: 72, borderRadius: '50%', overflow: 'hidden',
+            border: '3px solid rgba(59,130,246,0.4)', cursor: 'pointer',
+            boxShadow: '0 0 16px rgba(59,130,246,0.2)'
+          }}
+        >
+          <img src={avatarUrl || "/logo.jpg"} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg" onChange={onAvatarSelected} style={{ display: 'none' }} />
         </div>
-
-        {/* 中部：功能入口网格 */}
-        <div className="profile-menu-card">
-          <div className="icon-grid">
-            <div className="icon-item" onClick={() => nav('/me/settings')} aria-label="account-settings">
-              <div className="icon-circle">✏️</div>
-              <div className="icon-label">{lang === 'es' ? 'Configuración' : 'Settings'}</div>
-            </div>
-            <div className="icon-item" onClick={() => nav('/me/cards')} aria-label="linked-bank-cards">
-              <div className="icon-circle">💳</div>
-              <div className="icon-label">{lang === 'es' ? 'Tarjeta bancaria' : 'Bank Cards'}</div>
-            </div>
-            <div className="icon-item" onClick={() => nav('/trades')}>
-              <div className="icon-circle">📜</div>
-              <div className="icon-label">{lang === 'es' ? 'Historial' : 'History'}</div>
-            </div>
-            <div className="icon-item" onClick={() => {
-              try { localStorage.setItem('im:unread_count', '0'); window.dispatchEvent(new Event('im:unread')); } catch { }
-              nav('/me/support');
-            }}>
-              <div className="icon-circle" style={{ position: 'relative' }}>
-                🛟
-                {unreadCount > 0 && <div style={{ position: 'absolute', top: -5, right: -5, background: '#ef4444', color: '#fff', fontSize: 10, height: 16, minWidth: 16, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '1px solid #fff' }}>{unreadCount > 99 ? '99+' : unreadCount}</div>}
-              </div>
-              <div className="icon-label">{lang === 'es' ? 'Soporte' : 'Support'}</div>
-            </div>
-            {/* 机构账户入口 */}
-            <div className="icon-item" onClick={async () => {
-              try {
-                const sess = (() => { try { return JSON.parse(localStorage.getItem('sessionUser') || 'null'); } catch { return null; } })();
-                const blocked = (() => { try { const key = (sess?.id || sess?.phone || 'guest'); return !!localStorage.getItem(`inst:blocked:${key}`); } catch { return false; } })();
-                if (blocked) { alert(lang === 'zh' ? '你已丧失机构账户资格，如有疑问，请联系客服' : (lang === 'es' ? 'Has perdido la calificación institucional, contacta soporte' : 'You have lost institution qualification, please contact support')); return; }
-                if (sess && sess.assigned_operator_id != null) return nav('/me/institution');
-                const me = await api.get('/me');
-                const assigned = me?.user?.assigned_operator_id ?? null;
-                try { localStorage.setItem('sessionUser', JSON.stringify(me.user)); } catch { }
-                if (assigned != null) return nav('/me/institution');
-                setInviteCode("");
-                setInviteError("");
-                setShowInvite(true);
-              } catch (e) { setError(String(e?.message || e)); }
-            }} aria-label="institution-account">
-              <div className="icon-circle">🏢</div>
-              <div className="icon-label">{lang === 'es' ? 'Institución' : 'Institution'}</div>
-            </div>
-          </div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: '#e5e7eb', marginTop: 10 }}>
+          {user?.name || user?.phone || t('profileUser')}
         </div>
+      </div>
 
-        {/* 底部：版本和退出 */}
-        <div className="profile-footer">
-          <div className="version-text">V1.0.1</div>
-          <button className="btn logout-btn" onClick={async () => {
+      {/* 资金卡片 - 铺满宽度无圆角 */}
+      <div style={{ 
+        background: 'rgba(17,24,39,0.6)', borderRadius: 0, padding: '16px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)', width: '100%', boxSizing: 'border-box',
+        display: 'flex', flexDirection: 'column', alignItems: 'center'
+      }}>
+        <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8, textAlign: 'center' }}>
+          {t('profileAccountFunds')}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 14, color: '#3b82f6', fontWeight: 600 }}>PLN</span>
+          <span style={{ fontSize: 24, fontWeight: 700, color: '#e5e7eb' }}>{formatPLN(funds.pln, lang)}</span>
+        </div>
+        <button 
+          onClick={() => nav('/me/withdraw')}
+          style={{
+            background: 'rgba(59,130,246,0.15)', color: '#3b82f6',
+            border: '1px solid rgba(59,130,246,0.3)', padding: '10px 24px',
+            borderRadius: 20, fontWeight: 500, fontSize: 13, cursor: 'pointer'
+          }}
+        >{t('profileWithdraw')}</button>
+      </div>
+
+      {/* 功能菜单 - 铺满宽度 */}
+      <div style={{ 
+        background: 'rgba(17,24,39,0.6)', borderRadius: 0, padding: '16px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)', width: '100%', boxSizing: 'border-box'
+      }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          {menuItems.map((item, idx) => (
+            <div 
+              key={idx} 
+              onClick={() => {
+                if (item.path === '/me/support') {
+                  try { localStorage.setItem('im:unread_count', '0'); window.dispatchEvent(new Event('im:unread')); } catch { }
+                }
+                nav(item.path);
+              }}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                padding: '16px 8px', borderRadius: 10, cursor: 'pointer',
+                background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(255,255,255,0.06)'
+              }}
+            >
+              <div style={{ 
+                width: 44, height: 44, borderRadius: 12, 
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22, background: 'rgba(59,130,246,0.12)', 
+                border: '1px solid rgba(59,130,246,0.2)', position: 'relative'
+              }}>
+                {item.icon}
+                {item.badge > 0 && (
+                  <div style={{ 
+                    position: 'absolute', top: -4, right: -4, 
+                    background: '#ef4444', color: '#fff', fontSize: 9, 
+                    height: 16, minWidth: 16, borderRadius: 8, 
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                    padding: '0 4px', border: '2px solid #0d1220', fontWeight: 600
+                  }}>{item.badge > 99 ? '99+' : item.badge}</div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#e5e7eb', textAlign: 'center' }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 底部：版本和退出 */}
+      <div style={{ 
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+        padding: '20px 16px', marginTop: 'auto', width: '100%', boxSizing: 'border-box'
+      }}>
+        <div style={{ fontSize: 11, color: '#6b7280' }}>V1.0.1</div>
+        <button 
+          onClick={async () => {
             try { await api.post('/auth/logout', {}); } catch { }
             try { localStorage.removeItem('sessionUser'); localStorage.removeItem('token'); localStorage.removeItem('csrf:token'); } catch { }
             try { nav('/login'); } catch { }
-          }}>{lang === 'es' ? 'Cerrar sesión' : 'Log Out'}</button>
-          {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
-        </div>
+          }}
+          style={{
+            background: 'rgba(255,255,255,0.05)', color: '#9ca3af',
+            border: '1px solid rgba(255,255,255,0.08)', padding: '10px 32px',
+            borderRadius: 20, fontWeight: 500, fontSize: 13, cursor: 'pointer'
+          }}
+        >{t('profileLogout')}</button>
+        {error && <div style={{ color: '#ef4444', marginTop: 8 }}>{error}</div>}
+      </div>
       </div>
       <BottomNav />
-
-      {showInvite && (
-        <div className="modal" onClick={() => { if (!verifying) setShowInvite(false); }}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">{t('inviteTitle') || '请输入你的机构邀请码'}</div>
-            <div className="modal-body">
-              <input className="input" placeholder={t('invitePlaceholder') || '请输入你的机构邀请码'} value={inviteCode} onChange={e => setInviteCode(e.target.value)} />
-              {inviteError && <div className="error" style={{ marginTop: 8 }}>{inviteError}</div>}
-            </div>
-            <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn" onClick={() => { if (!verifying) setShowInvite(false); }}>{t('inviteCancel') || (lang === 'es' ? 'Cancelar' : 'Cancel')}</button>
-              <button className="btn primary" disabled={verifying} onClick={async () => {
-                setInviteError("");
-                const code = String(inviteCode || '').trim();
-                if (!code) { setInviteError(t('inviteInvalid') || '邀请码无效'); return; }
-                setVerifying(true);
-                try {
-                  await api.post('/me/invite/verify', { code });
-                  const me = await api.get('/me');
-                  try { localStorage.setItem('sessionUser', JSON.stringify(me.user)); } catch { }
-                  setShowInvite(false);
-                  nav('/me/institution');
-                } catch (err) {
-                  const msg = String(err?.message || '').toLowerCase();
-                  if (msg.includes('invalid')) setInviteError(t('inviteInvalid') || '邀请码错误');
-                  else if (msg.includes('already')) setInviteError(t('inviteAlready') || '已解锁');
-                  else setInviteError(String(err?.message || err));
-                } finally { setVerifying(false); }
-              }}>{t('inviteSubmit') || (lang === 'es' ? 'Confirmar' : 'Submit')}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

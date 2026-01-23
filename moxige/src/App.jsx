@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
+import Onboarding from "./pages/Onboarding.jsx";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import Admin from "./pages/Admin.jsx";
@@ -150,6 +151,21 @@ export default function App() {
     if (!authed) return <Navigate to="/login" replace />;
     return children;
   }
+
+  // 根路由重定向逻辑：
+  // 1. 已登录 → /home
+  // 2. 首次访问（未看过引导） → /onboarding
+  // 3. 已看过引导 → /login
+  function RootRedirect() {
+    let authed = false;
+    let seenOnboarding = false;
+    try { authed = !!String(localStorage.getItem('token') || '').trim(); } catch { authed = false; }
+    try { seenOnboarding = localStorage.getItem('onboarding:seen') === '1'; } catch { seenOnboarding = false; }
+    
+    if (authed) return <Navigate to="/home" replace />;
+    if (seenOnboarding) return <Navigate to="/login" replace />;
+    return <Navigate to="/onboarding" replace />;
+  }
   if (!healthOk) {
     const retry = async () => {
       if (retrying) return;
@@ -189,6 +205,7 @@ export default function App() {
               </>
             ) : (
               <>
+                <Route path="/onboarding" element={<Onboarding />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 <Route path="/home" element={<Home />} />
@@ -220,7 +237,8 @@ export default function App() {
                 <Route path="/my-institution" element={<Navigate to="/me/institution" replace />} />
                 <Route path="/me/withdraw" element={<RequireAuth><MeWithdraw /></RequireAuth>} />
                 <Route path="/me/withdraw/records" element={<RequireAuth><MeWithdrawRecords /></RequireAuth>} />
-                <Route path="/" element={<Navigate to="/home" replace />} />
+                {/* 根路由：已登录用户 → 首页，首次访问 → 开屏引导，已看过引导 → 登录 */}
+                <Route path="/" element={<RootRedirect />} />
                 {/* 前端端口不存在 /admin */}
                 <Route path="/admin" element={<NotFound />} />
                 <Route path="*" element={<NotFound />} />

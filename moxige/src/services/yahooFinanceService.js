@@ -1,5 +1,5 @@
-// Yahoo Finance API Service for Mexican Stocks
-// Provides real-time and historical data for BMV (Mexican Stock Exchange) stocks
+// Yahoo Finance API Service for Polish Stocks
+// Provides real-time and historical data for BMV (Polish Stock Exchange) stocks
 
 class YahooFinanceService {
   constructor() {
@@ -16,7 +16,7 @@ class YahooFinanceService {
 
   /**
    * Get current stock price and basic info
-   * @param {string} symbol - Stock symbol (e.g., 'ALSEA.MX', 'CEMEXCPO.MX')
+   * @param {string} symbol - Stock symbol (e.g., 'PKO.WA', 'PKN.WA')
    * @returns {Promise<Object>} Stock data
    */
   async getCurrentPrice(symbol) {
@@ -57,10 +57,10 @@ class YahooFinanceService {
 
       return stockData;
     } catch (error) {
-      // Fallback: AMXL.MX may be unavailable on Yahoo; try AMXB.MX
-      if (/AMXL\.MX$/i.test(symbol)) {
+      // Fallback: PKO.WA may be unavailable on Yahoo; try PKO.WA
+      if (/PKO\.WA$/i.test(symbol)) {
         try {
-          const fb = 'AMXB.MX';
+          const fb = 'PKO.WA';
           const data = await this.fetchJsonWithFallback(`${fb}?interval=1d&range=1d`);
           const result = data.chart.result[0];
           const meta = result.meta;
@@ -84,7 +84,7 @@ class YahooFinanceService {
           this.cache.set(cacheKey, { data: stockData, timestamp: Date.now() });
           return stockData;
         } catch (e2) {
-          console.error(`Fallback fetch data for AMXB.MX failed:`, e2);
+          console.error(`Fallback fetch data for PKO.WA failed:`, e2);
         }
       }
       console.error(`Error fetching data for ${symbol}:`, error);
@@ -135,10 +135,10 @@ class YahooFinanceService {
 
       return historicalData;
     } catch (error) {
-      // Fallback for AMXL.MX → AMXB.MX when Yahoo returns 404/Not Found
-      if (/AMXL\.MX$/i.test(symbol)) {
+      // Fallback for PKO.WA → PKO.WA when Yahoo returns 404/Not Found
+      if (/PKO\.WA$/i.test(symbol)) {
         try {
-          const fb = 'AMXB.MX';
+          const fb = 'PKO.WA';
           const data = await this.fetchJsonWithFallback(`${fb}?interval=${interval}&range=${period}`);
           const result = data.chart.result[0];
           const timestamps = result.timestamp;
@@ -159,7 +159,7 @@ class YahooFinanceService {
           this.cache.set(`historical_${fb}_${period}_${interval}`, { data: historicalData, timestamp: Date.now() });
           return historicalData;
         } catch (e2) {
-          console.error(`Fallback historical fetch for AMXB.MX failed:`, e2);
+          console.error(`Fallback historical fetch for PKO.WA failed:`, e2);
         }
       }
       console.error(`Error fetching historical data for ${symbol}:`, error);
@@ -203,22 +203,22 @@ class YahooFinanceService {
   }
 
   /**
-   * Get Mexican stock symbols mapping
-   * @returns {Object} Symbol mapping for Mexican stocks
+   * Get Polish stock symbols mapping
+   * @returns {Object} Symbol mapping for Polish stocks
    */
-  getMexicanStockSymbols() {
+  getPolishStockSymbols() {
     return {
-      'ALSEA': 'ALSEA.MX',
-      'CEMEX': 'CEMEXCPO.MX',
-      'CEMEX/CPO': 'CEMEXCPO.MX',
-      'AMX/L': 'AMXB.MX',
-      'AMXL': 'AMXB.MX',
-      'BIMBO/A': 'BIMBOA.MX',
-      'WALMEX': 'WALMEX.MX',
-      'GFNORTE': 'GFNORTEO.MX',
-      'FEMSA': 'FEMSAUBD.MX',
-      'TLEVISA': 'TLEVISACPO.MX',
-      'GMEXICOB': 'GMEXICOB.MX'
+      'PKO': 'PKO.WA',
+      'PKN': 'PKN.WA',
+      'PKN/CPO': 'PKN.WA',
+      'PKO': 'PKO.WA',
+      'PKO': 'PKO.WA',
+      'BIMBO/A': 'PZU.WA',
+      'KGH': 'KGH.WA',
+      'GFNORTE': 'CDR.WA',
+      'FEMSA': 'ALR.WA',
+      'TLEVISA': 'LPP.WA',
+      'DNP': 'DNP.WA'
     };
   }
 
@@ -228,12 +228,12 @@ class YahooFinanceService {
    * @returns {string} Yahoo Finance symbol
    */
   convertToYahooSymbol(symbol) {
-    const mapping = this.getMexicanStockSymbols();
+    const mapping = this.getPolishStockSymbols();
     const s = String(symbol || '').trim();
     if (!s) return '';
     // Avoid double suffix or already Yahoo-style input
-    if (/\.MX$/i.test(s)) return s;
-    return mapping[s] || `${s}.MX`;
+    if (/\.WA$/i.test(s)) return s;
+    return mapping[s] || `${s}.WA`;
   }
 
   // Internal: fetch JSON with local fallback when preview server lacks proxy

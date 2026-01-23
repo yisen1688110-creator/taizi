@@ -3,14 +3,14 @@ import { useNavigate } from "react-router-dom";
 import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api } from "../../services/api.js";
-import { formatMXN, formatMoney, formatUSDT } from "../../utils/money.js";
+import { formatPLN, formatMoney, formatUSDT } from "../../utils/money.js";
 
 export default function InviteDashboard() {
   const { t, lang } = useI18n();
   const nav = useNavigate();
   const [wallets, setWallets] = useState([]);
   const [items, setItems] = useState([]);
-  const [stats, setStats] = useState({ invitedCount: 0, activeCount: 0, totals: { MXN:{released:0,frozen:0}, USD:{released:0,frozen:0}, USDT:{released:0,frozen:0} }, series: [] });
+  const [stats, setStats] = useState({ invitedCount: 0, activeCount: 0, totals: { PLN:{released:0,frozen:0}, USD:{released:0,frozen:0}, USDT:{released:0,frozen:0} }, series: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [amount, setAmount] = useState('');
@@ -34,18 +34,18 @@ export default function InviteDashboard() {
 
   const withdraw = async () => {
     const amt = Number(amount);
-    if (!['MXN','USD','USDT'].includes(currency)) { alert('请选择币种'); return; }
+    if (!['PLN','USD','USDT'].includes(currency)) { alert('请选择币种'); return; }
     if (!Number.isFinite(amt) || amt <= 0) { alert('请输入提现金额'); return; }
     try { await api.post('/me/invite/withdraw', { currency, amount: amt }); alert(lang==='zh'?'提现成功':(lang==='es'?'Retiro exitoso':'Withdrawn')); setAmount(''); await fetchAll(); } catch (e) { alert(String(e?.message||e)); }
   };
 
-  const fmt = (curr, v) => curr==='MXN' ? formatMXN(v, lang) : (curr==='USDT' ? formatUSDT(v, lang) : formatMoney(v, 'USD', lang));
+  const fmt = (curr, v) => curr==='PLN' ? formatPLN(v, lang) : (curr==='USDT' ? formatUSDT(v, lang) : formatMoney(v, 'USD', lang));
   const fmtRemain = (ms) => { if (!Number.isFinite(ms)) return '-'; const d=Math.floor(ms/86400000); const h=Math.floor((ms%86400000)/3600000); const m=Math.floor((ms%3600000)/60000); return `${d>0?d+'天':''}${h>0?h+'小时':''}${m>0?m+'分':''}` || `${m}分`; };
 
   return (
-    <div className="screen top-align">
-      <div className="card">
-        <h1 className="title">{lang==='zh'? '我的邀请系统' : (lang==='es'? 'Mi sistema de invitación' : 'My Invite System')}</h1>
+    <div className="screen top-align" style={{ padding: 0, width: '100%', maxWidth: '100%' }}>
+      <div style={{ padding: '16px', width: '100%', boxSizing: 'border-box', paddingBottom: 100 }}>
+        <h1 className="title" style={{ marginTop: 0 }}>{lang==='zh'? '我的邀请系统' : (lang==='es'? 'Mi sistema de invitación' : 'My Invite System')}</h1>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom: 10 }}>
           <div className="sub-card">
             <div className="desc">{lang==='zh'?'邀请人数':'Invited'}</div>
@@ -59,8 +59,8 @@ export default function InviteDashboard() {
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
           <div className="sub-card">
             <div className="desc">MX</div>
-            <div style={{ fontWeight:700 }}>{fmt('MXN', balMap.MXN || 0)}</div>
-            <div className="desc" style={{ marginTop:4 }}>{lang==='zh'?'累计':'Total'}：{fmt('MXN', (stats.totals?.MXN?.released||0)+(stats.totals?.MXN?.frozen||0))}</div>
+            <div style={{ fontWeight:700 }}>{fmt('PLN', balMap.PLN || 0)}</div>
+            <div className="desc" style={{ marginTop:4 }}>{lang==='zh'?'累计':'Total'}：{fmt('PLN', (stats.totals?.PLN?.released||0)+(stats.totals?.PLN?.frozen||0))}</div>
           </div>
           <div className="sub-card">
             <div className="desc">USD</div>
@@ -77,7 +77,7 @@ export default function InviteDashboard() {
           <label className="label">{lang==='zh'?'提现到主钱包':(lang==='es'?'Retirar a la cartera principal':'Withdraw to main wallet')}</label>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
             <select className="input" value={currency} onChange={e=>setCurrency(e.target.value)}>
-              <option value="MXN">MXN</option>
+              <option value="PLN">PLN</option>
               <option value="USD">USD</option>
               <option value="USDT">USDT</option>
             </select>
@@ -87,7 +87,7 @@ export default function InviteDashboard() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
+      <div style={{ background: 'rgba(17,24,39,0.6)', borderRadius: 0, padding: '16px', width: '100%', boxSizing: 'border-box', borderBottom: '1px solid rgba(255,255,255,0.06)', marginTop: 0 }}>
         <div className="section-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <h2 className="title" style={{ margin:0 }}>{lang==='zh'?'近30天已解冻佣金':'Released commissions in last 30 days'}</h2>
         </div>
@@ -116,7 +116,7 @@ export default function InviteDashboard() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
+      <div style={{ background: 'rgba(17,24,39,0.6)', borderRadius: 0, padding: '16px', width: '100%', boxSizing: 'border-box', borderBottom: '1px solid rgba(255,255,255,0.06)', marginTop: 0 }}>
         <div className="section-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <h2 className="title" style={{ margin:0 }}>{lang==='zh'?'佣金记录':(lang==='es'?'Registros de comisión':'Commission Records')}</h2>
           <button className="btn" onClick={fetchAll}>{loading ? (lang==='zh'?'刷新中…':(lang==='es'?'Actualizando…':'Refreshing…')) : (lang==='zh'?'刷新':(lang==='es'?'Actualizar':'Refresh'))}</button>

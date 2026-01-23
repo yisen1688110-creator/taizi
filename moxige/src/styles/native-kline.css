@@ -1,313 +1,390 @@
-/* TradingView风格的K线图样式 */
-.native-kline-chart {
-  background: #0B1426;
-  border-radius: 8px;
-  overflow: hidden;
-  position: relative;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
+/* TradingView 风格 K线图样式 */
 
-/* 工具栏样式 */
-.chart-toolbar {
+.tv-kline {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
   background: #131722;
-  border-bottom: 1px solid #2A2E39;
-  height: 40px;
+  border-radius: 4px;
+  overflow: hidden;
+  color: #d1d4dc;
 }
 
-.toolbar-left {
+/* 顶部工具栏 */
+.tv-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-}
-
-.toolbar-right {
-  display: flex;
-  align-items: center;
+  padding: 6px 10px;
+  background: #1e222d;
+  border-bottom: 1px solid #2a2e39;
   gap: 12px;
+  min-height: 36px;
 }
 
-/* 交易对信息 */
-.symbol-info {
+.tv-symbol-section {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.symbol {
-  color: #D1D4DC;
+.tv-symbol-name {
+  font-size: 14px;
   font-weight: 600;
-  font-size: 14px;
-}
-
-.exchange {
-  color: #787B86;
-  font-size: 12px;
-  background: #2A2E39;
-  padding: 2px 6px;
-  border-radius: 3px;
-}
-
-/* 时间周期选择器 */
-.timeframe-selector {
-  display: flex;
-  gap: 2px;
-}
-
-.timeframe-btn {
-  background: transparent;
-  border: none;
-  color: #787B86;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.timeframe-btn:hover {
-  background: #2A2E39;
-  color: #D1D4DC;
-}
-
-.timeframe-btn.active {
-  background: #2962FF;
-  color: white;
-}
-
-/* 图表类型选择器 */
-.chart-type-selector {
-  display: flex;
-  gap: 4px;
-}
-
-.chart-type-btn {
-  background: transparent;
-  border: 1px solid #2A2E39;
-  color: #787B86;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 14px;
-}
-
-.chart-type-btn:hover {
-  border-color: #434651;
-  color: #D1D4DC;
-}
-
-.chart-type-btn.active {
-  background: #2962FF;
-  border-color: #2962FF;
-  color: white;
-}
-
-/* 工具按钮 */
-.chart-tools {
-  display: flex;
-  gap: 4px;
-}
-
-.tool-btn {
-  background: transparent;
-  border: 1px solid #2A2E39;
-  color: #787B86;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 12px;
-}
-
-.tool-btn:hover {
-  border-color: #434651;
-  color: #D1D4DC;
-  background: #2A2E39;
-}
-
-/* 价格信息面板 */
-.price-info-panel {
-  position: absolute;
-  top: 50px;
-  left: 12px;
+  color: #d1d4dc;
   display: flex;
   align-items: center;
-  gap: 12px;
-  background: rgba(19, 23, 34, 0.8);
-  padding: 6px 12px;
-  border-radius: 4px;
-  backdrop-filter: blur(10px);
-  z-index: 10;
+  gap: 6px;
 }
 
-.price-label {
-  color: #787B86;
+.tv-symbol-icon {
+  color: #2962ff;
+  font-size: 10px;
+}
+
+/* 实时数据指示器 */
+.tv-live-indicator {
+  color: #787b86;
+  font-size: 10px;
+  transition: all 0.3s ease;
+}
+
+.tv-live-indicator.active {
+  color: #26a69a;
+  animation: tv-live-pulse 1.5s ease-in-out infinite;
+  text-shadow: 0 0 6px rgba(38, 166, 154, 0.8);
+}
+
+@keyframes tv-live-pulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+.tv-symbol-badge {
   font-size: 11px;
+  padding: 2px 6px;
+  background: #2a2e39;
+  border-radius: 3px;
+  color: #787b86;
   font-weight: 500;
 }
 
-.price-value {
-  color: #D1D4DC;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: 'Courier New', monospace;
+.tv-symbol-badge.tv-badge-d {
+  background: #2962ff;
+  color: #fff;
 }
 
-/* K线图画布 */
-.kline-canvas {
-  background: transparent;
-  cursor: crosshair;
+.tv-live-dot {
+  color: #26a69a;
+  font-size: 8px;
+  animation: tv-pulse 1s ease-in-out infinite;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .chart-toolbar {
-    padding: 6px 8px;
-    height: 36px;
-  }
-  
-  .toolbar-left {
-    gap: 8px;
-  }
-  
-  .toolbar-right {
-    gap: 6px;
-  }
-  
-  .timeframe-selector {
-    display: none;
-  }
-  
-  .symbol {
-    font-size: 13px;
-  }
-  
-  .exchange {
-    font-size: 11px;
-  }
-  
-  .price-info-panel {
-    top: 42px;
-    left: 8px;
-    gap: 8px;
-    padding: 4px 8px;
-  }
-  
-  .price-label {
-    font-size: 10px;
-  }
-  
-  .price-value {
-    font-size: 11px;
-  }
+.tv-polling-dot {
+  color: #f0b90b;
+  font-size: 10px;
+  animation: tv-spin 2s linear infinite;
 }
 
-/* 加载状态 */
-.chart-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #787B86;
-  font-size: 14px;
+@keyframes tv-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
-.loading-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #2A2E39;
-  border-top: 2px solid #2962FF;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-right: 8px;
-}
-
-@keyframes spin {
+@keyframes tv-spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
 
-/* 错误状态 */
-.chart-error {
+/* 实时价格显示 */
+.tv-live-price {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 12px;
+}
+
+.tv-price-value {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: all 0.15s ease;
+}
+
+.tv-price-value.tv-up {
+  color: #26a69a;
+  text-shadow: 0 0 8px rgba(38, 166, 154, 0.5);
+}
+
+.tv-price-value.tv-down {
+  color: #ef5350;
+  text-shadow: 0 0 8px rgba(239, 83, 80, 0.5);
+}
+
+.tv-price-change {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-price-change.tv-up {
+  background: rgba(38, 166, 154, 0.2);
+  color: #26a69a;
+}
+
+.tv-price-change.tv-down {
+  background: rgba(239, 83, 80, 0.2);
+  color: #ef5350;
+}
+
+.tv-timeframes {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.tv-tf-btn {
+  background: transparent;
+  border: none;
+  color: #787b86;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+  font-weight: 500;
+}
+
+.tv-tf-btn:hover {
+  background: #2a2e39;
+  color: #d1d4dc;
+}
+
+.tv-tf-btn.active {
+  background: #2962ff;
+  color: #fff;
+}
+
+.tv-indicators {
+  display: flex;
+  gap: 4px;
+}
+
+.tv-ind-btn {
+  background: transparent;
+  border: 1px solid #2a2e39;
+  color: #787b86;
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+}
+
+.tv-ind-btn:hover {
+  border-color: #363a45;
+  color: #d1d4dc;
+}
+
+/* OHLC 数据行 */
+.tv-ohlc-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px 4px 40px;
+  background: #131722;
+  gap: 16px;
+  font-size: 12px;
+  border-bottom: 1px solid #1e222d;
+}
+
+.tv-ohlc-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tv-ohlc-label {
+  color: #787b86;
+  font-weight: 500;
+}
+
+.tv-up {
+  color: #26a69a;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-down {
+  color: #ef5350;
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-vol-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.tv-vol-label {
+  color: #787b86;
+  font-weight: 500;
+}
+
+.tv-vol-value {
+  color: #5d606b;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 左侧工具栏 */
+.tv-left-toolbar {
+  position: absolute;
+  left: 0;
+  top: 85px;
   display: flex;
   flex-direction: column;
+  background: #1e222d;
+  border-right: 1px solid #2a2e39;
+  z-index: 10;
+}
+
+.tv-tool-btn {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: #787b86;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  color: #FF4444;
-  text-align: center;
-  padding: 20px;
+  transition: all 0.15s ease;
 }
 
-.error-icon {
-  font-size: 24px;
-  margin-bottom: 8px;
+.tv-tool-btn:hover {
+  background: #2a2e39;
+  color: #d1d4dc;
 }
 
-.error-message {
-  font-size: 14px;
-  margin-bottom: 12px;
+/* 图表容器 */
+.tv-chart-container {
+  flex: 1;
+  position: relative;
+  margin-left: 32px;
 }
 
-.error-retry {
-  background: #2962FF;
-  border: none;
-  color: white;
-  padding: 8px 16px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.2s ease;
-}
-
-.error-retry:hover {
-  background: #1E53E5;
-}
-
-/* 十字线样式 */
-.crosshair-line {
-  position: absolute;
-  pointer-events: none;
-  z-index: 5;
-}
-
-.crosshair-horizontal {
+.tv-canvas {
+  display: block;
   width: 100%;
-  height: 1px;
-  background: #787B86;
-  opacity: 0.5;
-}
-
-.crosshair-vertical {
-  width: 1px;
   height: 100%;
-  background: #787B86;
-  opacity: 0.5;
 }
 
-/* 价格标签 */
-.price-tag {
-  position: absolute;
-  background: #2962FF;
-  color: white;
-  padding: 2px 6px;
-  border-radius: 2px;
+/* 底部状态栏 */
+.tv-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px 4px 40px;
+  background: #1e222d;
+  border-top: 1px solid #2a2e39;
   font-size: 11px;
-  font-family: 'Courier New', monospace;
-  z-index: 10;
+  color: #787b86;
+  min-height: 24px;
 }
 
-/* 时间标签 */
-.time-tag {
-  position: absolute;
-  background: #2A2E39;
-  color: #D1D4DC;
+.tv-date-range {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.tv-date-range:hover {
+  color: #d1d4dc;
+}
+
+.tv-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.tv-adj {
   padding: 2px 6px;
-  border-radius: 2px;
-  font-size: 11px;
-  z-index: 10;
+  background: #2a2e39;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tv-adj:hover {
+  background: #363a45;
+}
+
+/* 响应式 */
+@media (max-width: 600px) {
+  .tv-header {
+    padding: 4px 8px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .tv-symbol-name {
+    font-size: 13px;
+  }
+
+  .tv-timeframes {
+    margin-left: 0;
+    flex: 1;
+    justify-content: flex-end;
+  }
+
+  .tv-tf-btn {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+
+  .tv-indicators {
+    display: none;
+  }
+
+  .tv-ohlc-row {
+    padding: 3px 8px 3px 8px;
+    gap: 8px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+
+  .tv-left-toolbar {
+    display: none;
+  }
+
+  .tv-chart-container {
+    margin-left: 0;
+  }
+
+  .tv-bottom-bar {
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+}
+
+/* 旧版OKX样式兼容（保留以防万一） */
+.okx-kline {
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #0b0e11;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.okx-header,
+.okx-toolbar,
+.okx-zoom-hint {
+  display: none;
 }

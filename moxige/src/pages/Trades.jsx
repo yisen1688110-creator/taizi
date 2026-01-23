@@ -180,19 +180,37 @@ export default function Trades() {
   }, []);
 
   return (
-    <div className="screen trading-screen">
-      <button className="back-btn" onClick={() => {
-        try {
-          const params = new URLSearchParams(window.location.search || "");
-          const from = (params.get('from') || sessionStorage.getItem('trades:from') || '').trim();
-          if (from === 'me') { navigate('/me'); return; }
-          if (from === 'swap') { navigate('/swap'); return; }
-        } catch {}
-        navigate(-1);
-      }} aria-label="back"><span className="back-icon"></span></button>
-      {/* 页面左上角标题 */}
-      <div className="trades-page-header">
-        <h2 className="trades-title">{t('trades') || 'Trades'}</h2>
+    <div className="screen trading-screen" style={{ paddingTop: 0 }}>
+      {/* 页面顶部：返回按钮 + 标题 */}
+      <div style={{ 
+        display: 'flex', alignItems: 'center', gap: 12, 
+        padding: '16px 16px 12px', width: '100%', boxSizing: 'border-box'
+      }}>
+        <button
+          onClick={() => {
+            try {
+              const params = new URLSearchParams(window.location.search || "");
+              const from = (params.get('from') || sessionStorage.getItem('trades:from') || '').trim();
+              if (from === 'me') { navigate('/me'); return; }
+              if (from === 'swap') { navigate('/swap'); return; }
+            } catch {}
+            navigate(-1);
+          }}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 36, height: 36, borderRadius: 10,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+            cursor: 'pointer', color: '#e5e7eb', fontSize: 16, flexShrink: 0
+          }}
+          aria-label="back"
+        >
+          <span style={{ 
+            width: 10, height: 10, 
+            border: 'solid #e5e7eb', borderWidth: '0 0 2px 2px',
+            transform: 'rotate(45deg)', marginLeft: 3
+          }}></span>
+        </button>
+        <h2 className="trades-title" style={{ margin: 0 }}>{t('trades')}</h2>
       </div>
 
       {/* 页面卡片栅格（靠左对齐） */}
@@ -218,7 +236,7 @@ export default function Trades() {
                   <span className="pos-avg">{
                     (() => {
                       const m = trades.find(x => x.symbol === d.symbol)?.market || 'us';
-                      return m === 'mx' ? (t('mexico') || 'Mexico') : (m === 'us' ? (t('usa') || 'USA') : (t('crypto') || 'Crypto'));
+                      return m === 'pl' ? (t('poland') || 'Poland') : (m === 'us' ? (t('usa') || 'USA') : (t('crypto') || 'Crypto'));
                     })()
                   }</span>
                   <span className="pos-avg">{(d.buyTs && !d.sellTs) ? (t('long') || 'Long') : (d.sellTs && !d.buyTs) ? (t('short') || 'Short') : (d.buyTs && d.sellTs) ? (d.sellPrice >= d.buyPrice ? (t('long') || 'Long') : (t('short') || 'Short')) : '—'}</span>
@@ -228,7 +246,7 @@ export default function Trades() {
                     (() => {
                       if (d.amount == null) return '—';
                       const m = trades.find(x => x.symbol === d.symbol)?.market || 'us';
-                      const cur = m === 'mx' ? 'MXN' : (m === 'us' ? 'USD' : 'USD');
+                      const cur = m === 'pl' ? 'PLN' : (m === 'us' ? 'USD' : 'USD');
                       return formatMoney(d.amount, cur);
                     })()
                   }</span>
@@ -236,7 +254,7 @@ export default function Trades() {
                     (() => {
                       if (d.pnl == null) return '—';
                       const m = trades.find(x => x.symbol === d.symbol)?.market || 'us';
-                      const cur = m === 'mx' ? 'MXN' : (m === 'us' ? 'USD' : 'USD');
+                      const cur = m === 'pl' ? 'PLN' : (m === 'us' ? 'USD' : 'USD');
                       return formatMoney(d.pnl, cur);
                     })()
                   }</span>

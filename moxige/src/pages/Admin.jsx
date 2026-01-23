@@ -4,6 +4,7 @@ import AdminWithdraws from "./admin/Withdraws.jsx";
 import NewsManage from "./admin/NewsManage.jsx";
 import InstitutionManage from "./admin/InstitutionManage.jsx";
 import { loginAdmin as loginAdminApi, loginAccount as loginAccountApi, logout as logoutApi } from "../services/auth.js";
+import "../styles/admin.css";
 
 function loadUsers() {
   try { return JSON.parse(localStorage.getItem("users") || "[]"); } catch { return []; }
@@ -22,7 +23,13 @@ export default function Admin() {
   const isAuthed = isStaff && !!getToken();
 
   const [q, setQ] = useState("");
-  const [assignFilter, setAssignFilter] = useState("unassigned");
+  // 运营账号默认显示已归属用户，其他角色默认显示未归属
+  const [assignFilter, setAssignFilter] = useState(() => {
+    try {
+      const sess = JSON.parse(localStorage.getItem('sessionUser') || 'null');
+      return sess?.role === 'operator' ? 'assigned' : 'unassigned';
+    } catch { return 'unassigned'; }
+  });
   const [selectedUser, setSelectedUser] = useState(null);
   const [newPassword, setNewPassword] = useState("");
   const [active, setActive] = useState("overview"); // overview | users | team | stocks | positions
@@ -107,46 +114,25 @@ export default function Admin() {
   const [imgPreview, setImgPreview] = useState({ open: false, imgs: [], index: 0 });
 
   const refreshCreditApps = async () => {
-    const preferBridge = (() => { try { return String(location.port || '') === '5174'; } catch { return false; } })();
-    if (preferBridge) {
-      setCreditApiSupported(false);
-      try {
-        const all = JSON.parse(localStorage.getItem('credit:apps') || '[]');
-        let list = Array.isArray(all) ? all : [];
-        if (creditQ) list = list.filter(x => String(x.name || '').includes(creditQ) || String(x.phone || '').includes(creditQ));
-        if (creditStatus !== 'all') list = list.filter(x => String(x.status || 'pending') === creditStatus);
-        setCreditList(list);
-      } catch { setCreditList([]); }
-      return;
-    }
     try {
       const params = new URLSearchParams({ q: creditQ, status: creditStatus, page: String(creditPage), pageSize: '50', mine: role === 'operator' ? '1' : '0' }).toString();
+      console.log('[Credit] Fetching with params:', params);
       const data = await api.get(`/admin/credit/apps?${params}`);
+      console.log('[Credit] API response:', data);
       const arr = Array.isArray(data?.items) ? data.items : [];
-      const list = arr.map(a => ({ id: a.id, name: a.name, phone: a.phone, address: `${a.address || ''}`, city: a.city, state: a.state, zip: a.zip, amount: Number(a.amount || 0), score: Number(a.score || 0), status: String(a.status || 'pending'), ts: new Date(a.created_at || Date.now()).getTime(), periodValue: Number(a.periodValue || a.period_value || 0), periodUnit: String(a.periodUnit || a.period_unit || 'day'), images: Array.isArray(a.images) ? a.images : [] }));
+      const list = arr.map(a => ({ id: a.id, userId: a.user_id, name: a.name, phone: a.phone, address: `${a.address || ''}`, city: a.city, state: a.state, zip: a.zip, amount: Number(a.amount || 0), score: Number(a.score || 0), status: String(a.status || 'pending'), ts: new Date(a.created_at || Date.now()).getTime(), periodValue: Number(a.periodValue || a.period_value || 0), periodUnit: String(a.periodUnit || a.period_unit || 'day'), images: Array.isArray(a.images) ? a.images : (typeof a.images === 'string' ? JSON.parse(a.images || '[]') : []) }));
+      console.log('[Credit] Parsed list:', list);
       setCreditList(list);
       setCreditApiSupported(true);
-    } catch {
+    } catch (e) {
+      console.error('Credit apps fetch error:', e);
       setCreditApiSupported(false);
-      try {
-        const all = JSON.parse(localStorage.getItem('credit:apps') || '[]');
-        let list = Array.isArray(all) ? all : [];
-        if (creditQ) list = list.filter(x => String(x.name || '').includes(creditQ) || String(x.phone || '').includes(creditQ));
-        if (creditStatus !== 'all') list = list.filter(x => String(x.status || 'pending') === creditStatus);
-        setCreditList(list);
-      } catch { setCreditList([]); }
+      setCreditList([]);
     }
   };
 
   useEffect(() => { if (active === 'funds-credit') refreshCreditApps(); }, [active]);
-  useEffect(() => { if (active === 'funds-credit') refreshCreditApps(); }, [active]);
-  // Bridge removed: relying on backend API
-  useEffect(() => {
-    if (active !== 'funds-credit') return;
-    // Auto-refresh interval
-    const iv = setInterval(refreshCreditApps, 10000);
-    return () => clearInterval(iv);
-  }, [active, creditQ, creditStatus]);
+  // 移除自动刷新，改为手动刷新按钮触发
 
   const sendToBridge = (payload) => {
     try {
@@ -173,7 +159,7 @@ export default function Admin() {
       try { await api.post(`/admin/credit/${app.id}/approve`, { amount: Number(app.amount || 0) }); } catch { }
       const uid = await resolveUidByPhone(app.phone);
       if (uid) {
-        const ops = [{ currency: 'MXN', amount: Number(app.amount || 0) }];
+        const ops = [{ currency: 'PLN', amount: Number(app.amount || 0) }];
         const requestId = `credit-${Date.now()}-${uid}-${app.amount}`;
         try { await api.post(`/admin/users/${uid}/funds`, { ops, reason: 'credit approval', requestId }); } catch { }
         // 创建到期自动扣款的债务任务（前端兜底，跨端口写入到 5173）
@@ -190,7 +176,7 @@ export default function Admin() {
         sendToBridge({ type: 'add_credit_debt', uid: uidKey, amount: Number(app.amount || 0), dueAt });
         sendToBridge({ type: 'update_credit_app_status', id: app.id, phone: app.phone, amount: Number(app.amount || 0), status: 'done' });
         const title = '信用金审批通过';
-        const body = `已入账 MX$${Number(app.amount || 0)}，期限 ${Number(app.periodValue || 0)}${String(app.periodUnit || 'day') === 'year' ? '年' : (String(app.periodUnit || 'day') === 'month' ? '月' : '天')}`;
+        const body = `已入账 PLN ${Number(app.amount || 0)}，期限 ${Number(app.periodValue || 0)}${String(app.periodUnit || 'day') === 'year' ? '年' : (String(app.periodUnit || 'day') === 'month' ? '月' : '天')}`;
         sendToBridge({ type: 'add_notification', nid: uidKey, title, body });
       }
       setCreditList(prev => prev.map(x => x.id === app.id ? { ...x, status: 'done' } : x));
@@ -210,7 +196,7 @@ export default function Admin() {
       const uidKey = uid || app.phone || 'guest';
       sendToBridge({ type: 'update_credit_app_status', id: app.id, phone: app.phone, amount: Number(app.amount || 0), status: 'rejected' });
       const title = '信用金审批未通过';
-      const body = `申请被拒绝，金额 MX$${Number(app.amount || 0)}`;
+      const body = `申请被拒绝，金额 PLN ${Number(app.amount || 0)}`;
       sendToBridge({ type: 'add_notification', nid: uidKey, title, body });
       alert('已拒绝');
     } catch (e) { alert('操作失败: ' + (e?.message || e)); }
@@ -343,11 +329,7 @@ export default function Admin() {
     }
   };
   useEffect(() => { if (!isAuthed) return; refreshUsers(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [isAuthed, usersPage, usersPageSize]);
-  useEffect(() => {
-    if (!isAuthed || usersTab !== 'list') return;
-    let timer = setInterval(() => { refreshUsers(); }, 8000);
-    return () => { try { clearInterval(timer); } catch { } };
-  }, [isAuthed, usersTab, usersPage, usersPageSize, q, assignFilter]);
+  // 移除用户列表自动刷新，改为手动刷新
 
   const customerList = useMemo(() => {
     let list = backendUsers
@@ -361,7 +343,7 @@ export default function Admin() {
         assignedAdminId: u.assigned_admin_id || null,
         assignedOperatorId: u.assigned_operator_id || null,
         credit_score: Number.isFinite(Number(u?.credit_score)) ? Number(u.credit_score) : null,
-        balances: (u.balances && typeof u.balances === 'object') ? u.balances : { MXN: 0, USD: 0, USDT: 0 },
+        balances: (u.balances && typeof u.balances === 'object') ? u.balances : { PLN: 0, USD: 0, USDT: 0 },
       }));
     const k = q.trim().toLowerCase();
     if (k) list = list.filter(u => (u.name || '').toLowerCase().includes(k) || (u.phone || '').includes(k));
@@ -390,7 +372,7 @@ export default function Admin() {
           assignedAdminId: u.assigned_admin_id || null,
           assignedOperatorId: u.assigned_operator_id || null,
           credit_score: Number.isFinite(Number(u?.credit_score)) ? Number(u.credit_score) : null,
-          balances: (u.balances && typeof u.balances === 'object') ? u.balances : { MXN: 0, USD: 0, USDT: 0 },
+          balances: (u.balances && typeof u.balances === 'object') ? u.balances : { PLN: 0, USD: 0, USDT: 0 },
         }));
       if (role === 'operator' && sid) list = list.filter(u => Number(u.assignedOperatorId || 0) === sid);
       else if (role === 'admin' && sid) list = list.filter(u => Number(u.assignedAdminId || 0) === sid);
@@ -563,11 +545,11 @@ export default function Admin() {
   }, []);
 
   // 资金调整弹窗状态
-  const [fundOps, setFundOps] = useState([{ currency: 'MXN', amount: '' }]);
+  const [fundOps, setFundOps] = useState([{ currency: 'PLN', amount: '' }]);
   const [fundReason, setFundReason] = useState('');
   const [submittingFunds, setSubmittingFunds] = useState(false);
   const addFundRow = () => {
-    setFundOps(prev => [...prev, { currency: 'MXN', amount: '' }]);
+    setFundOps(prev => [...prev, { currency: 'PLN', amount: '' }]);
   };
   const removeFundRow = (idx) => {
     setFundOps(prev => prev.filter((_, i) => i !== idx));
@@ -584,7 +566,7 @@ export default function Admin() {
     const ops = fundOps.map(r => ({ currency: r.currency, amount: Number(r.amount) }));
     if (ops.length === 0) { alert('请添加至少一条资金项'); return; }
     for (const r of ops) {
-      if (!['MXN', 'USD', 'USDT'].includes(r.currency)) { alert('非法币种'); return; }
+      if (!['PLN', 'USD', 'USDT'].includes(r.currency)) { alert('非法币种'); return; }
       if (!isFinite(r.amount) || !validateAmount(r.amount)) { alert('金额格式不正确，最多两位小数'); return; }
     }
     // 取消二次身份验证，直接按当前会话令牌提交
@@ -618,6 +600,15 @@ export default function Admin() {
     const [opsOpenId, setOpsOpenId] = useState(null);
     const [toast, setToast] = useState(null);
     const [total, setTotal] = useState(0);
+    
+    // ---- 新增持仓相关状态 ----
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [addForm, setAddForm] = useState({ userId: '', userName: '', symbol: '', market: 'usa', quantity: '', price: '', deductFunds: true });
+    const [addLoading, setAddLoading] = useState(false);
+    const [addError, setAddError] = useState('');
+    const [userSearchQuery, setUserSearchQuery] = useState('');
+    const [userSearchResults, setUserSearchResults] = useState([]);
+    const [searchingUsers, setSearchingUsers] = useState(false);
 
     const operators = users.filter(u => u.role === 'operator');
 
@@ -750,9 +741,245 @@ export default function Admin() {
       await api.delete(`/admin/positions/${id}`);
       await fetchPositions();
     };
+    
+    // ---- 新增持仓功能 ----
+    const searchUsers = async (q) => {
+      if (!q.trim()) { setUserSearchResults([]); return; }
+      try {
+        setSearchingUsers(true);
+        const data = await api.get(`/admin/users/search?q=${encodeURIComponent(q.trim())}`);
+        setUserSearchResults(data?.users || []);
+      } catch (e) {
+        console.error('搜索用户失败', e);
+        setUserSearchResults([]);
+      } finally {
+        setSearchingUsers(false);
+      }
+    };
+    
+    const selectUser = (user) => {
+      setAddForm(f => ({ ...f, userId: user.id, userName: `${user.name} (${user.phone})` }));
+      setUserSearchResults([]);
+      setUserSearchQuery('');
+    };
+    
+    const handleAddPosition = async () => {
+      console.log('[AddPosition] 开始添加持仓...');
+      setAddError('');
+      
+      // 支持直接输入用户ID或从搜索结果选择
+      let finalUserId = addForm.userId;
+      if (!finalUserId && userSearchQuery.trim()) {
+        // 如果没有选择用户但有搜索内容，尝试将其作为用户ID使用
+        const queryNum = Number(userSearchQuery.trim());
+        if (Number.isFinite(queryNum) && queryNum > 0) {
+          finalUserId = queryNum;
+        }
+      }
+      
+      console.log('[AddPosition] finalUserId=', finalUserId, 'addForm=', addForm, 'userSearchQuery=', userSearchQuery);
+      
+      if (!finalUserId) { setAddError('请选择用户或输入用户ID'); return; }
+      if (!addForm.symbol.trim()) { setAddError('请输入股票/币种代码'); return; }
+      if (!addForm.quantity || Number(addForm.quantity) <= 0) { setAddError('请输入有效数量'); return; }
+      if (!addForm.price || Number(addForm.price) <= 0) { setAddError('请输入有效价格'); return; }
+      
+      try {
+        setAddLoading(true);
+        console.log('[AddPosition] 发送API请求...');
+        const result = await api.post('/admin/positions/add', {
+          userId: Number(finalUserId),
+          symbol: addForm.symbol.trim().toUpperCase(),
+          market: addForm.market,
+          quantity: Number(addForm.quantity),
+          price: Number(addForm.price),
+          deductFunds: addForm.deductFunds
+        });
+        console.log('[AddPosition] API响应:', result);
+        
+        const totalCost = Number(addForm.quantity) * Number(addForm.price);
+        const currencyMap = { usa: 'USD', poland: 'PLN', crypto: 'USDT' };
+        const currency = currencyMap[addForm.market] || 'USD';
+        
+        setToast(`持仓已添加！${addForm.deductFunds ? `扣款 ${totalCost.toFixed(2)} ${currency}` : '未扣款'}`);
+        setTimeout(() => setToast(null), 3000);
+        setShowAddModal(false);
+        setAddForm({ userId: '', userName: '', symbol: '', market: 'usa', quantity: '', price: '', deductFunds: true });
+        await fetchPositions();
+      } catch (e) {
+        setAddError(String(e?.message || '添加失败'));
+      } finally {
+        setAddLoading(false);
+      }
+    };
+    
+    const openAddModal = () => {
+      setShowAddModal(true);
+      setAddForm({ userId: '', userName: '', symbol: '', market: 'usa', quantity: '', price: '', deductFunds: true });
+      setAddError('');
+      setUserSearchQuery('');
+      setUserSearchResults([]);
+    };
+    
     return (
       <div className="card flat">
-        <h1 className="title">用户持仓</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h1 className="title" style={{ margin: 0 }}>用户持仓</h1>
+        </div>
+        
+        {/* 新增持仓弹窗 */}
+        {showAddModal && (
+          <div 
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+            onClick={(e) => { if (e.target === e.currentTarget) setShowAddModal(false); }}
+          >
+            <div className="card" style={{ width: 420, maxWidth: '90vw', maxHeight: '90vh', overflow: 'auto', position: 'relative' }} onClick={e => { e.stopPropagation(); }}>
+              <button 
+                onClick={() => setShowAddModal(false)} 
+                style={{ position: 'absolute', top: 12, right: 12, background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', padding: 4 }}
+              >✕</button>
+              <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>➕ 新增用户持仓</h2>
+              
+              {addError && <div className="error" style={{ marginBottom: 12 }}>{addError}</div>}
+              
+              <div className="form" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* 用户选择 */}
+                <div>
+                  <label className="label">选择用户 <span style={{ color: '#ef4444' }}>*</span></label>
+                  {addForm.userId ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="chip info">{addForm.userName}</span>
+                      <button className="btn slim" onClick={(e) => { e.stopPropagation(); setAddForm(f => ({ ...f, userId: '', userName: '' })); }}>更换</button>
+                    </div>
+                  ) : (
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        className="input" 
+                        placeholder="输入用户ID、手机号或姓名搜索" 
+                        value={userSearchQuery}
+                        onChange={e => {
+                          setUserSearchQuery(e.target.value);
+                          searchUsers(e.target.value);
+                        }}
+                      />
+                      <div className="desc" style={{ fontSize: 11, marginTop: 4, color: '#64748b' }}>
+                        💡 可直接输入用户ID，或搜索后从列表选择
+                      </div>
+                      {searchingUsers && <span className="desc" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}>搜索中...</span>}
+                      {userSearchResults.length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 6, maxHeight: 200, overflow: 'auto', zIndex: 10 }}>
+                          {userSearchResults.map(u => (
+                            <div 
+                              key={u.id} 
+                              style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #334155', background: 'transparent' }}
+                              onClick={(e) => { e.stopPropagation(); selectUser(u); }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#334155'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <div style={{ fontWeight: 500, pointerEvents: 'none' }}>{u.name}</div>
+                              <div className="desc" style={{ fontSize: 12, pointerEvents: 'none' }}>{u.phone} (ID: {u.id})</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {/* 市场类型 */}
+                <div>
+                  <label className="label">市场类型 <span style={{ color: '#ef4444' }}>*</span></label>
+                  <select className="input" value={addForm.market} onChange={e => setAddForm(f => ({ ...f, market: e.target.value }))}>
+                    <option value="usa">美股 (USD)</option>
+                    <option value="poland">波兰股 (PLN)</option>
+                    <option value="crypto">加密货币 (USDT)</option>
+                  </select>
+                </div>
+                
+                {/* 股票/币种代码 */}
+                <div>
+                  <label className="label">{addForm.market === 'crypto' ? '币种代码' : '股票代码'} <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input 
+                    className="input" 
+                    placeholder={addForm.market === 'crypto' ? '如 BTC, ETH, SOL' : '如 AAPL, TSLA, PKO'}
+                    value={addForm.symbol}
+                    onChange={e => setAddForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+                  />
+                </div>
+                
+                {/* 数量 */}
+                <div>
+                  <label className="label">数量 <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input 
+                    className="input" 
+                    type="number" 
+                    step="0.0001"
+                    min="0"
+                    placeholder="持仓数量"
+                    value={addForm.quantity}
+                    onChange={e => setAddForm(f => ({ ...f, quantity: e.target.value }))}
+                  />
+                </div>
+                
+                {/* 成本价格 */}
+                <div>
+                  <label className="label">成本价格 <span style={{ color: '#ef4444' }}>*</span></label>
+                  <input 
+                    className="input" 
+                    type="number" 
+                    step="0.01"
+                    min="0"
+                    placeholder="每股/每币成本价"
+                    value={addForm.price}
+                    onChange={e => setAddForm(f => ({ ...f, price: e.target.value }))}
+                  />
+                </div>
+                
+                {/* 总金额预览 */}
+                {addForm.quantity && addForm.price && (
+                  <div className="chip" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa', padding: '8px 12px' }}>
+                    总金额：{(Number(addForm.quantity) * Number(addForm.price)).toFixed(2)} {{ usa: 'USD', poland: 'PLN', crypto: 'USDT' }[addForm.market]}
+                  </div>
+                )}
+                
+                {/* 是否扣款 */}
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={addForm.deductFunds}
+                      onChange={e => setAddForm(f => ({ ...f, deductFunds: e.target.checked }))}
+                    />
+                    <span>从用户余额扣款</span>
+                  </label>
+                  <div className="desc" style={{ marginTop: 4, fontSize: 12 }}>
+                    {addForm.deductFunds 
+                      ? '✅ 将从用户账户扣除对应金额（余额不足时可为负数）' 
+                      : '⚠️ 不扣款，直接增加持仓（相当于赠送）'}
+                  </div>
+                </div>
+                
+                {/* 操作按钮 */}
+                <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                  <button 
+                    type="button"
+                    className="btn" 
+                    style={{ flex: 1, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', cursor: addLoading ? 'wait' : 'pointer' }}
+                    disabled={addLoading}
+                    onClick={() => { 
+                      console.log('[Button] 确认添加按钮被点击');
+                      handleAddPosition(); 
+                    }}
+                  >
+                    {addLoading ? '处理中...' : '确认添加'}
+                  </button>
+                  <button type="button" className="btn" style={{ flex: 1 }} onClick={() => setShowAddModal(false)}>取消</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div className="form admin-form-compact" style={{ marginTop: 10 }}>
           <label className="label">手机号</label>
           <input className="input" placeholder="精确查询 10 位手机号" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} />
@@ -834,10 +1061,18 @@ export default function Admin() {
                       <button className="btn" style={{ height: 32 }} onClick={(e) => { e.stopPropagation(); setOpsOpenId((prev) => prev === r.id ? null : r.id); }}>操作 ▾</button>
                       {opsOpenId === r.id && (
                         <div className="menu" style={{ position: 'absolute', zIndex: 5, background: '#0f213a', border: '1px solid #263b5e', borderRadius: 6, padding: 6, minWidth: 140 }}>
+                          <button className="btn slim" style={{ width: '100%', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }} onClick={() => { 
+                            setOpsOpenId(null); 
+                            setAddForm({ userId: r.userId, userName: `${r.userName} (${r.phone})`, symbol: '', market: r.market || 'usa', quantity: '', price: '', deductFunds: true });
+                            setUserSearchQuery('');
+                            setUserSearchResults([]);
+                            setAddError('');
+                            setShowAddModal(true);
+                          }}>➕ 新增持仓</button>
                           {Number(r.locked || 0) === 1 ? (
-                            <button className="btn slim" style={{ width: '100%' }} onClick={() => { setOpsOpenId(null); unlockPosition(r.id).catch(e => alert('解除锁仓失败: ' + (e?.message || e))); }}>解除锁仓</button>
+                            <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); unlockPosition(r.id).catch(e => alert('解除锁仓失败: ' + (e?.message || e))); }}>解除锁仓</button>
                           ) : (
-                            <button className="btn slim" style={{ width: '100%' }} onClick={() => { setOpsOpenId(null); lockPosition(r.id).catch(e => alert('锁仓失败: ' + (e?.message || e))); }}>锁仓</button>
+                            <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); lockPosition(r.id).catch(e => alert('锁仓失败: ' + (e?.message || e))); }}>锁仓</button>
                           )}
                           <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); forceClosePosition(r).catch(e => alert('强制平仓失败: ' + (e?.message || e))); }}>强制平仓</button>
                           <button className="btn slim" style={{ width: '100%', marginTop: 6 }} onClick={() => { setOpsOpenId(null); deletePosition(r.id).catch(e => alert('删除失败: ' + (e?.message || e))); }}>删除订单</button>
@@ -947,7 +1182,7 @@ export default function Admin() {
           </div>
 
           <div className="login-hero">
-            <img src="/logo.png" alt="Logo" className="login-hero-img" />
+            <img src="/logo.jpg" alt="Logo" className="login-hero-img" />
           </div>
         </main>
       </div>
@@ -957,37 +1192,57 @@ export default function Admin() {
   return (
     <div className="admin-layout">
       <aside className="sidebar">
-        <div className="brand">管理后台</div>
+        <div className="brand">GQ Trade 管理</div>
         <nav className="nav">
-          <button className={`nav-item ${active === "overview" ? "active" : ""}`} onClick={() => setActive("overview")}>概览</button>
-          <button className={`nav-item ${active === "users" ? "active" : ""}`} onClick={() => setActive("users")}>用户管理</button>
+          {/* 首页概览 */}
+          <button className={`nav-item ${active === "overview" ? "active" : ""}`} onClick={() => setActive("overview")}>
+            <span style={{ marginRight: 10 }}>📊</span>数据概览
+          </button>
+          
+          {/* 用户管理 */}
+          <button className={`nav-item ${active === "users" ? "active" : ""}`} onClick={() => setActive("users")}>
+            <span style={{ marginRight: 10 }}>👥</span>用户管理
+          </button>
+          
+          {/* 团队管理 */}
           {session?.role !== 'operator' && (
-            <button className={`nav-item ${active === "team" ? "active" : ""}`} onClick={() => setActive("team")}>团队管理</button>
+            <button className={`nav-item ${active === "team" ? "active" : ""}`} onClick={() => setActive("team")}>
+              <span style={{ marginRight: 10 }}>🏢</span>团队管理
+            </button>
           )}
-          {/* 新增：股票信息（可折叠子菜单） */}
+          
+          {/* 股票信息 */}
           <div className="nav-group">
             <details open>
-              <summary className="nav-item">股票信息</summary>
+              <summary className="nav-item">
+                <span style={{ marginRight: 10 }}>📈</span>股票信息
+              </summary>
               <div className="nav-sub">
                 <button className={`nav-item ${active === "positions" ? "active" : ""}`} onClick={() => setActive("positions")}>用户持仓</button>
               </div>
             </details>
           </div>
-          {/* 新增：交易设置（可折叠子菜单） */}
+          
+          {/* 交易设置 */}
           <div className="nav-group">
             <details>
-              <summary className="nav-item">交易设置</summary>
+              <summary className="nav-item">
+                <span style={{ marginRight: 10 }}>💹</span>交易设置
+              </summary>
               <div className="nav-sub">
                 <button className={`nav-item ${active === "trade-block" ? "active" : ""}`} onClick={() => setActive("trade-block")}>大宗交易</button>
-                <button className={`nav-item ${active === "trade-fund" ? "active" : ""}`} onClick={() => setActive("trade-fund")}>基金</button>
-                <button className={`nav-item ${active === "trade-ipo" ? "active" : ""}`} onClick={() => setActive("trade-ipo")}>新股</button>
+                <button className={`nav-item ${active === "trade-fund" ? "active" : ""}`} onClick={() => setActive("trade-fund")}>基金管理</button>
+                <button className={`nav-item ${active === "trade-ipo" ? "active" : ""}`} onClick={() => setActive("trade-ipo")}>新股发行</button>
               </div>
             </details>
           </div>
-          {/* 新增：资金管理（可折叠子菜单） */}
+          
+          {/* 资金管理 */}
           <div className="nav-group">
             <details>
-              <summary className="nav-item">资金管理</summary>
+              <summary className="nav-item">
+                <span style={{ marginRight: 10 }}>💰</span>资金管理
+              </summary>
               <div className="nav-sub">
                 {session?.role !== 'operator' && (
                   <button className={`nav-item ${active === "funds-recharge" ? "active" : ""}`} onClick={() => { setActive("funds-recharge"); try { window.history.pushState(null, '', '/admin/chognzhi'); } catch { } }}>账户充值</button>
@@ -996,49 +1251,54 @@ export default function Admin() {
                   <button className={`nav-item ${active === "funds-logs" ? "active" : ""}`} onClick={() => { setActive("funds-logs"); try { window.history.pushState(null, '', '/admin/zijin'); } catch { } }}>资金明细</button>
                 )}
                 {session?.role !== 'operator' && (
-                  <button className={`nav-item ${active === "funds-withdraws" ? "active" : ""}`} onClick={() => { setActive('funds-withdraws'); try { window.history.pushState(null, '', '/admin/withdraws'); } catch { } }}>用户提现</button>
+                  <button className={`nav-item ${active === "funds-withdraws" ? "active" : ""}`} onClick={() => { setActive('funds-withdraws'); try { window.history.pushState(null, '', '/admin/withdraws'); } catch { } }}>提现审核</button>
                 )}
                 <button className={`nav-item ${active === "funds-credit" ? "active" : ""}`} onClick={() => setActive('funds-credit')}>信用金审核</button>
               </div>
             </details>
           </div>
-          {/* 新增：系统设置 */}
+          
+          {/* 系统设置 */}
           <div className="nav-group">
-            <details open>
-              <summary className="nav-item">系统设置</summary>
+            <details>
+              <summary className="nav-item">
+                <span style={{ marginRight: 10 }}>⚙️</span>系统设置
+              </summary>
               <div className="nav-sub">
                 {session?.role !== 'operator' && (
-                  <button className={`nav-item ${active === "settings-trading" ? "active" : ""}`} onClick={() => setActive("settings-trading")}>交易时间限制</button>
+                  <button className={`nav-item ${active === "settings-trading" ? "active" : ""}`} onClick={() => setActive("settings-trading")}>交易时间</button>
                 )}
+                {/* 暂时隐藏邀请设置和佣金记录功能
                 {session?.role !== 'operator' && (
-                  <button className={`nav-item ${active === "settings-invite" ? "active" : ""}`} onClick={() => setActive("settings-invite")}>邀请系统设置</button>
+                  <button className={`nav-item ${active === "settings-invite" ? "active" : ""}`} onClick={() => setActive("settings-invite")}>邀请设置</button>
                 )}
-                <button className={`nav-item ${active === "invite-commissions" ? "active" : ""}`} onClick={() => setActive("invite-commissions")}>邀请佣金记录</button>
+                <button className={`nav-item ${active === "invite-commissions" ? "active" : ""}`} onClick={() => setActive("invite-commissions")}>佣金记录</button>
+                */}
               </div>
             </details>
           </div>
-          {/* 新增：内容管理 */}
+          
+          {/* 内容管理 */}
           <div className="nav-group">
             <details>
-              <summary className="nav-item">内容管理</summary>
+              <summary className="nav-item">
+                <span style={{ marginRight: 10 }}>📝</span>内容管理
+              </summary>
               <div className="nav-sub">
-                <button className={`nav-item ${active === "content-news" ? "active" : ""}`} onClick={() => { setActive('content-news'); try { window.history.pushState(null, '', '/admin/news'); } catch { } }}>新闻管理</button>
-                <button className={`nav-item ${active === "content-inst" ? "active" : ""}`} onClick={() => { setActive('content-inst'); try { window.history.pushState(null, '', '/admin/institution'); } catch { } }}>机构信息管理</button>
+                <button className={`nav-item ${active === "content-news" ? "active" : ""}`} onClick={() => { setActive('content-news'); try { window.history.pushState(null, '', '/admin/news'); } catch { } }}>新闻公告</button>
+                <button className={`nav-item ${active === "content-inst" ? "active" : ""}`} onClick={() => { setActive('content-inst'); try { window.history.pushState(null, '', '/admin/institution'); } catch { } }}>机构信息</button>
               </div>
             </details>
           </div>
         </nav>
+        
         <div className="sidebar-footer">
-          <div style={{ marginBottom: 8 }}>{session?.name || "员工"}</div>
+          <div>👤 {session?.name || "管理员"} ({session?.role === 'super' ? '超管' : session?.role === 'admin' ? '管理员' : '操作员'})</div>
           {session?.role !== 'operator' && (
             <button className="nav-item" onClick={() => {
               try {
                 const base = '/im-api';
-                // const override = String(localStorage.getItem('im:base') || '').trim();
-                // const envBase = String(import.meta.env?.VITE_IM_BASE || '').trim();
-                // const base = (override || envBase || '/im-api').replace(/\/$/, '');
                 const tok = String(localStorage.getItem('im:token') || import.meta.env?.VITE_IM_TOKEN || 'imdevtoken').trim();
-                // try { localStorage.setItem('im:base', base); } catch { }
                 let qs = '';
                 if (tok) qs += (qs ? '&' : '') + `token=${encodeURIComponent(tok)}`;
                 const origin = (() => { try { const u = new URL(base, window.location.origin); return u.origin; } catch { return ''; } })();
@@ -1052,33 +1312,37 @@ export default function Admin() {
                 window.open(url, '_blank', 'noopener');
               } catch { window.open('/im-api/agent.html', '_blank', 'noopener'); }
             }}>
-              客服系统
+              💬 客服系统
             </button>
           )}
-          <button className="nav-item" onClick={handleLogout}>退出登录</button>
+          <button className="nav-item" style={{ color: '#f87171' }} onClick={handleLogout}>🚪 退出登录</button>
         </div>
       </aside>
 
       <main className="content">
         <div className="admin-topbar">
           <div className="topbar-title">
-            {
-              active === "overview" ? "概览" :
-                active === "users" ? "用户管理" :
-                  active === "team" ? "团队管理" :
-                    active === "positions" ? "用户持仓" :
-                      active === "trade-block" ? "交易设置 / 大宗交易" :
-                        active === "trade-fund" ? "交易设置 / 基金" :
-                          active === "trade-ipo" ? "交易设置 / 新股" :
-                            active === "funds-recharge" ? "资金管理 / 账户充值" :
-                              active === "funds-logs" ? "资金管理 / 资金明细" :
-                                active === "funds-withdraws" ? "资金管理 / 用户提现" :
-                                  active === "funds-credit" ? "资金管理 / 信用金审核" :
-                                    active === "content-news" ? "内容管理 / 新闻管理" :
-                                      active === "content-inst" ? "内容管理 / 机构信息管理" :
-                                        active === "settings-trading" ? "系统设置 / 交易时间限制" :
-                                          "股票信息"
-            }
+            {active === "overview" && "📊 数据概览"}
+            {active === "users" && "👥 用户管理"}
+            {active === "team" && "🏢 团队管理"}
+            {active === "positions" && "📈 股票信息 / 用户持仓"}
+            {active === "trade-block" && "💹 交易设置 / 大宗交易"}
+            {active === "trade-fund" && "💹 交易设置 / 基金管理"}
+            {active === "trade-ipo" && "💹 交易设置 / 新股发行"}
+            {active === "funds-recharge" && "💰 资金管理 / 账户充值"}
+            {active === "funds-logs" && "💰 资金管理 / 资金明细"}
+            {active === "funds-withdraws" && "💰 资金管理 / 提现审核"}
+            {active === "funds-credit" && "💰 资金管理 / 信用金审核"}
+            {active === "content-news" && "📝 内容管理 / 新闻公告"}
+            {active === "content-inst" && "📝 内容管理 / 机构信息"}
+            {active === "settings-trading" && "⚙️ 系统设置 / 交易时间"}
+            {/* 暂时隐藏
+            {active === "settings-invite" && "⚙️ 系统设置 / 邀请设置"}
+            {active === "invite-commissions" && "⚙️ 系统设置 / 佣金记录"}
+            */}
+          </div>
+          <div style={{ marginLeft: 'auto', fontSize: 13, color: '#64748b' }}>
+            {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
           </div>
         </div>
 
@@ -1196,7 +1460,7 @@ export default function Admin() {
                       <label className="label">归属</label>
                       <select className="input" value={assignFilter} onChange={e => setAssignFilter(e.target.value)}>
                         <option value="all">全部</option>
-                        <option value="assigned">已归属</option>
+                        <option value="assigned">{session?.role === 'operator' ? '我的客户' : '已归属'}</option>
                         <option value="unassigned">未归属</option>
                       </select>
                       <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8, marginTop: 8 }}>
@@ -1240,7 +1504,7 @@ export default function Admin() {
                               <td style={{ padding: "8px 6px" }}>{u.lastLoginIp || '-'}</td>
                               <td style={{ padding: "8px 6px" }}>{u.country || '-'}</td>
                               <td style={{ padding: "8px 6px" }}>
-                                <span className="chip">MXN {Number(u?.balances?.MXN || 0).toFixed(2)}</span>
+                                <span className="chip">PLN {Number(u?.balances?.PLN || 0).toFixed(2)}</span>
                               </td>
                               <td style={{ padding: "8px 6px", position: 'relative' }}>
                                 <div className="dropdown" style={{ display: 'inline-block' }} onClick={(e) => e.stopPropagation()}>
@@ -1286,7 +1550,7 @@ export default function Admin() {
                                           const data = await api.post('/admin/impersonate', { userId: u.id });
                                           if (!data?.token) throw new Error('未返回令牌');
                                           // 跨域登录：打开新标签页并传递 token
-                                          const url = `https://ecimapp.net/?token=${encodeURIComponent(data.token)}`;
+                                          const url = `https://gqtrade.app/?token=${encodeURIComponent(data.token)}`;
                                           window.open(url, '_blank');
                                         } catch (e) {
                                           alert('代登录失败: ' + (e?.message || e));
@@ -1359,7 +1623,7 @@ export default function Admin() {
                               <td style={{ padding: "8px 6px" }}>{u.lastLoginIp || '-'}</td>
                               <td style={{ padding: "8px 6px" }}>{u.country || '-'}</td>
                               <td style={{ padding: "8px 6px" }}>
-                                <span className="chip">MXN {Number(u?.balances?.MXN || 0).toFixed(2)}</span>
+                                <span className="chip">PLN {Number(u?.balances?.PLN || 0).toFixed(2)}</span>
                               </td>
                               <td style={{ padding: "8px 6px", position: 'relative' }}>
                                 <div className="dropdown" style={{ display: 'inline-block' }} onClick={(e) => e.stopPropagation()}>
@@ -1379,7 +1643,7 @@ export default function Admin() {
                                           const data = await api.post('/admin/impersonate', { userId: u.id });
                                           if (!data?.token) throw new Error('未返回令牌');
                                           // 跨域登录：打开新标签页并传递 token
-                                          const url = `https://ecimapp.net/?token=${encodeURIComponent(data.token)}`;
+                                          const url = `https://gqtrade.app/?token=${encodeURIComponent(data.token)}`;
                                           window.open(url, '_blank');
                                         } catch (e) {
                                           alert('代登录失败: ' + (e?.message || e));
@@ -1551,7 +1815,7 @@ export default function Admin() {
                         <th style={{ padding: '8px 6px' }}>姓名</th>
                         <th style={{ padding: '8px 6px' }}>手机号</th>
                         <th style={{ padding: '8px 6px' }}>地址</th>
-                        <th style={{ padding: '8px 6px' }}>金额(MXN)</th>
+                        <th style={{ padding: '8px 6px' }}>金额(PLN)</th>
                         <th style={{ padding: '8px 6px' }}>信用分</th>
                         <th style={{ padding: '8px 6px' }}>状态</th>
                         <th style={{ padding: '8px 6px' }}>提交时间</th>
@@ -1624,12 +1888,14 @@ export default function Admin() {
             {active === "settings-trading" && (
               <SettingsTrading />
             )}
+            {/* 暂时隐藏邀请设置和佣金记录功能
             {active === "settings-invite" && (
               <InviteSettings />
             )}
             {active === "invite-commissions" && (
               <InviteCommissions />
             )}
+            */}
 
             {/* 统一的弹窗详情 */}
             {selectedUser && (
@@ -1690,7 +1956,7 @@ export default function Admin() {
                         {fundOps.map((row, idx) => (
                           <div key={idx} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px', gap: 8, alignItems: 'center', marginTop: 8 }}>
                             <select className="input" value={row.currency} onChange={e => updateFundRow(idx, { currency: e.target.value })}>
-                              <option value="MXN">MXN</option>
+                              <option value="PLN">PLN</option>
                               <option value="USD">USD</option>
                               <option value="USDT">USDT</option>
                             </select>
@@ -1919,9 +2185,9 @@ function SettingsTrading() {
   return (
     <div className="card flat" style={{ maxWidth: 900 }}>
       <h2 className="title">交易时间限制</h2>
-      <div className="desc" style={{ marginBottom: 12 }}>时间窗口：周一至周五 08:30–15:00（按墨西哥本地时间）。输入节假日（YYYY-MM-DD，逗号或空格分隔）可完全禁止交易。</div>
+      <div className="desc" style={{ marginBottom: 12 }}>时间窗口：周一至周五 08:30–15:00（按波兰本地时间）。输入节假日（YYYY-MM-DD，逗号或空格分隔）可完全禁止交易。</div>
       <div className="form admin-form-compact">
-        <label className="label">墨西哥市场</label>
+        <label className="label">波兰市场</label>
         <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 12, alignItems: 'center' }}>
           <label className="switch"><input type="checkbox" checked={mxEnabled} onChange={e => setMxEnabled(e.target.checked)} /><span>开启限制</span></label>
           <input className="input" placeholder="节假日（例如 2025-03-03 2025-03-04）" value={mxDates} onChange={e => setMxDates(e.target.value)} />
@@ -2008,7 +2274,7 @@ function InviteCommissions() {
         </select>
         <select className="input" value={currency} onChange={e => setCurrency(e.target.value)} style={{ maxWidth: 160 }}>
           <option value="">全部币种</option>
-          <option value="MXN">MXN</option>
+          <option value="PLN">PLN</option>
           <option value="USD">USD</option>
           <option value="USDT">USDT</option>
         </select>
@@ -2222,6 +2488,11 @@ function BlockTradesAdmin({ session }) {
     const s = String(symbol || '').trim().toUpperCase();
     if (!s) return '';
     if (market === 'us') return s;
+    if (market === 'pl') {
+      // 波兰华沙证券交易所 (WSE) 使用 .WA 后缀
+      if (/\.WA$/i.test(s)) return s;
+      return `${s}.WA`;
+    }
     if (market === 'crypto') {
       if (/^[A-Z]+USDT$/.test(s)) return s.replace(/USDT$/, '-USD');
       if (/^[A-Z]+USD$/.test(s)) return s.replace(/USD$/, '-USD');
@@ -2506,7 +2777,7 @@ function BlockTradesAdmin({ session }) {
         <>
           <div className="form admin-form-compact" style={{ marginTop: 10 }}>
             <label className="label">搜索股票代码</label>
-            <input className="input" placeholder="如 AAPL（美股）或 ETH（加密）" value={q} onChange={e => setQ(e.target.value)} />
+            <input className="input" placeholder="如 AAPL（美股）、PKO.WA（波兰）或 ETH（加密）" value={q} onChange={e => setQ(e.target.value)} />
             <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8 }}>
               <button className="btn" onClick={fetchList}>查询</button>
               <button className="btn primary" onClick={openAdd}>添加</button>
@@ -2531,7 +2802,7 @@ function BlockTradesAdmin({ session }) {
               <tbody>
                 {items.map(it => (
                   <tr key={it.id} style={{ borderTop: '1px solid #263b5e' }}>
-                    <td style={{ padding: '8px 6px' }}>{it.market}</td>
+                    <td style={{ padding: '8px 6px' }}>{it.market === 'us' ? '美股' : it.market === 'pl' ? '波兰股票' : it.market === 'crypto' ? '加密货币' : it.market}</td>
                     <td style={{ padding: '8px 6px' }}>{it.symbol}</td>
                     <td style={{ padding: '8px 6px' }}>{it.price}</td>
                     <td style={{ padding: '8px 6px' }}>{it.min_qty}</td>
@@ -2647,10 +2918,11 @@ function BlockTradesAdmin({ session }) {
               <label className="label">交易市场</label>
               <select className="input" value={form.market} onChange={e => setForm(f => ({ ...f, market: e.target.value }))}>
                 <option value="us">美股</option>
+                <option value="pl">波兰股票</option>
                 <option value="crypto">加密货币</option>
               </select>
               <label className="label">股票代码</label>
-              <input className="input" placeholder="如 AAPL 或 BTC/USDT（支持 BTC-USD / BTCUSD / BTCUSDT 自动识别）" value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} />
+              <input className="input" placeholder="如 AAPL、PKO.WA 或 BTC/USDT（支持自动识别）" value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} />
               <div className="desc">提交前将自动校验标的有效性，校验通过方可添加。</div>
               <label className="label">购买时间限制</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -2713,7 +2985,7 @@ function BlockTradesAdmin({ session }) {
 function RechargePage() {
   const [phone, setPhone] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [currency, setCurrency] = useState('MXN');
+  const [currency, setCurrency] = useState('PLN');
   const [amount, setAmount] = useState('');
   const [items, setItems] = useState([]);
   const [page, setPage] = useState(1);
@@ -2758,7 +3030,7 @@ function RechargePage() {
               <input className="input" placeholder="输入用户手机号" value={phone} onChange={e => setPhone(e.target.value)} />
               <label className="label">币种</label>
               <select className="input" value={currency} onChange={e => setCurrency(e.target.value)}>
-                <option value="MXN">MXN</option>
+                <option value="PLN">PLN</option>
                 <option value="USD">USD</option>
                 <option value="USDT">USDT</option>
               </select>
@@ -2850,7 +3122,7 @@ function BalanceLogsPage() {
         <label className="label">币种</label>
         <select className="input" value={currency} onChange={e => setCurrency(e.target.value)}>
           <option value="">全部</option>
-          <option value="MXN">MXN</option>
+          <option value="PLN">PLN</option>
           <option value="USD">USD</option>
           <option value="USDT">USDT</option>
         </select>
@@ -3286,7 +3558,7 @@ function FundAdmin({ session }) {
   const [showAdd, setShowAdd] = useState(false);
   // 审批弹窗状态
   const [approveModal, setApproveModal] = useState({ open: false, order: null, approvedQty: 1 });
-  const [form, setForm] = useState({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', subscribePrice: '', dividendPercent: '', dividend: 'day', redeemDays: '7', currency: 'MXN' });
+  const [form, setForm] = useState({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', subscribePrice: '', dividendPercent: '', dividend: 'day', redeemDays: '7', currency: 'PLN' });
   const [priceModal, setPriceModal] = useState({ open: false, fund: null, price: '' });
   const [priceHistory, setPriceHistory] = useState([]);
   const [showPriceHistory, setShowPriceHistory] = useState(false);
@@ -3329,9 +3601,9 @@ function FundAdmin({ session }) {
     const dp = Number(form.dividendPercent || 0);
     if (sp <= 0) { alert('请输入有效的认购价格'); return; }
     if (dp <= 0 || dp > 100) { alert('请输入有效的配息比例（1-100%）'); return; }
-    if (!form.nameEs || !form.nameEn) { alert('请输入基金名称（西语/英文）'); return; }
+    if (!form.nameEs || !form.nameEn) { alert('请输入基金名称（波兰语/英文）'); return; }
     if (!form.code) { alert('请输入基金代码'); return; }
-    if (!form.descEs || !form.descEn) { alert('请输入基金介绍（西语/英文）'); return; }
+    if (!form.descEs || !form.descEn) { alert('请输入基金介绍（波兰语/英文）'); return; }
     if (!['day', 'week', 'month'].includes(form.dividend)) { alert('请选择配息方式'); return; }
     if (!/^[0-9]+$/.test(String(form.redeemDays || ''))) { alert('请输入赎回周期（天数）'); return; }
     const payload = { nameEs: form.nameEs.trim(), nameEn: form.nameEn.trim(), code: form.code.trim().toUpperCase(), descEs: form.descEs.trim(), descEn: form.descEn.trim(), subscribePrice: sp, dividendPercent: dp, dividend: form.dividend, redeemDays: Number(form.redeemDays), currency: form.currency };
@@ -3345,7 +3617,7 @@ function FundAdmin({ session }) {
       }
       setShowAdd(false);
       setFundEditId(null);
-      setForm({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', subscribePrice: '', dividendPercent: '', dividend: 'day', redeemDays: '7', currency: 'MXN' });
+      setForm({ nameEs: '', nameEn: '', code: '', descEs: '', descEn: '', subscribePrice: '', dividendPercent: '', dividend: 'day', redeemDays: '7', currency: 'PLN' });
       setPage(1);
       fetchList();
     } catch (e) { alert('提交失败: ' + (e?.message || e)); }
@@ -3396,7 +3668,7 @@ function FundAdmin({ session }) {
       dividendPercent: dp > 0 ? String(dp) : '',
       dividend: String(it.dividend || 'day'),
       redeemDays: String(it.redeem_days || '7'),
-      currency: String(it.currency || 'MXN'),
+      currency: String(it.currency || 'PLN'),
     });
   };
 
@@ -3649,14 +3921,14 @@ function FundAdmin({ session }) {
           <div className="modal-card" style={{ maxWidth: 720 }}>
             <h2 className="title" style={{ marginTop: 0 }}>{fundEditId ? '编辑基金' : '添加基金'}</h2>
             <div className="form">
-              <label className="label">基金名称（西语）</label>
+              <label className="label">基金名称（波兰语）</label>
               <input className="input" placeholder={'如 Fondo Prueba'} value={form.nameEs} onChange={e => setForm(f => ({ ...f, nameEs: e.target.value }))} />
               <label className="label">基金名称（英文）</label>
               <input className="input" placeholder={'如 Test Fund'} value={form.nameEn} onChange={e => setForm(f => ({ ...f, nameEn: e.target.value }))} />
               <label className="label">基金代码</label>
               <input className="input" placeholder={'如 FNDX001'} value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} />
-              <label className="label">基金介绍（西语）</label>
-              <textarea className="input" rows={3} placeholder={'基金介绍（西语）'} value={form.descEs} onChange={e => setForm(f => ({ ...f, descEs: e.target.value }))} />
+              <label className="label">基金介绍（波兰语）</label>
+              <textarea className="input" rows={3} placeholder={'基金介绍（波兰语）'} value={form.descEs} onChange={e => setForm(f => ({ ...f, descEs: e.target.value }))} />
               <label className="label">基金介绍（英文）</label>
               <textarea className="input" rows={3} placeholder={'基金介绍（英文）'} value={form.descEn} onChange={e => setForm(f => ({ ...f, descEn: e.target.value }))} />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -3679,7 +3951,7 @@ function FundAdmin({ session }) {
               <input className="input" placeholder={'如 7'} value={form.redeemDays} onChange={e => setForm(f => ({ ...f, redeemDays: e.target.value }))} />
               <label className="label">币种</label>
               <select className="input" value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}>
-                <option value="MXN">MXN</option>
+                <option value="PLN">PLN</option>
                 <option value="USD">USD</option>
                 <option value="USDT">USDT</option>
               </select>

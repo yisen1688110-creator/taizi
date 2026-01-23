@@ -2,19 +2,20 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav.jsx";
 import { useI18n } from "../i18n.jsx";
-import { getQuotes, getCryptoQuotes, getUsdMxnRate } from "../services/marketData.js";
+import { getQuotes, getCryptoQuotes, getUsdPlnRate } from "../services/marketData.js";
 import "../styles/market-tabs.css";
 import { formatMoney as fmMoney, formatNumber } from "../utils/money.js";
 import { createPortal } from "react-dom";
 
  
 
-const MX_SYMBOLS = [
-  "AMXL.MX","WALMEX.MX","FEMSAUBD.MX","BIMBOA.MX","GMEXICOB.MX","GFNORTEO.MX",
-  "ALSEA.MX","GAPB.MX","KIMBERA.MX","TLEVISA.CPO.MX","OMAB.MX","MEXCHEM.MX",
+// 波兰华沙证券交易所 (WSE) 主要股票
+const PL_SYMBOLS = [
+  "PKO.WA","PKN.WA","PZU.WA","KGH.WA","PEO.WA","LPP.WA",
+  "DNP.WA","ALR.WA","CDR.WA","CCC.WA","OPL.WA","CPS.WA",
   // 额外补充常见成分，确保 ≥20
-  "CEMEXCPO.MX","GCARSOA1.MX","GENTERA.MX","BOLSAA.MX","AC.MX","ASURB.MX",
-  "GRUMAB.MX","BBAJIOO.MX"
+  "MBK.WA","SPL.WA","JSW.WA","TPE.WA","ENA.WA","LTS.WA",
+  "KRU.WA","PCO.WA"
 ];
 const US_SYMBOLS = [
   "AAPL","MSFT","AMZN","GOOGL","TSLA","META","NVDA","BRK-B","JPM","NFLX","ORCL","INTC",
@@ -26,7 +27,7 @@ const US_SYMBOLS = [
 
 function formatVolume(n, lang) {
   const val = Number(n || 0);
-  const locale = lang === "es" ? "es-MX" : "en-US";
+  const locale = lang === "pl" ? "pl-PL" : (lang === "zh" ? "zh-CN" : "en-US");
   if (!Number.isFinite(val)) return String(n);
   if (val >= 1_000_000_000) {
     const v = val / 1_000_000_000;
@@ -46,7 +47,7 @@ function formatDateText(s, lang) {
   try {
     const d = new Date(String(s||'').trim());
     if (isNaN(d.getTime())) return '';
-    const locale = lang === 'es' ? 'es-MX' : 'en-US';
+    const locale = lang === 'pl' ? 'pl-PL' : (lang === 'zh' ? 'zh-CN' : 'en-US');
     return d.toLocaleDateString(locale, { year: 'numeric', month: '2-digit', day: '2-digit' });
   } catch { return ''; }
 }
@@ -57,7 +58,7 @@ function formatDateText(s, lang) {
 export default function Market() {
   const { lang, t } = useI18n();
   const navigate = useNavigate();
-  const [market, setMarket] = useState("us"); // mx | us | crypto
+  const [market, setMarket] = useState("us"); // pl | us | crypto
   const [showMobileDropdown, setShowMobileDropdown] = useState(false); // 移动端下拉菜单控制
   const PAGE_SIZE = (() => {
     const v = Number(import.meta.env.VITE_PAGE_SIZE || 10);
@@ -74,7 +75,7 @@ export default function Market() {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState("");
   // 搜索框状态（按当前所选市场）
-  const [search, setSearch] = useState({ mx: "", us: "", crypto: "" });
+  const [search, setSearch] = useState({ pl: "", us: "", crypto: "" });
   const [searchRow, setSearchRow] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState("");
@@ -83,14 +84,14 @@ export default function Market() {
   const [favorites, setFavorites] = useState(() => {
     try {
       const o = JSON.parse(localStorage.getItem("market:favorites") || "{}");
-      return { mx: o.mx || [], us: o.us || [], crypto: o.crypto || [] };
-    } catch { return { mx: [], us: [], crypto: [] }; }
+      return { pl: o.pl || [], us: o.us || [], crypto: o.crypto || [] };
+    } catch { return { pl: [], us: [], crypto: [] }; }
   });
   const [recents, setRecents] = useState(() => {
     try {
       const o = JSON.parse(localStorage.getItem("market:recents") || "{}");
-      return { mx: o.mx || [], us: o.us || [], crypto: o.crypto || [] };
-    } catch { return { mx: [], us: [], crypto: [] }; }
+      return { pl: o.pl || [], us: o.us || [], crypto: o.crypto || [] };
+    } catch { return { pl: [], us: [], crypto: [] }; }
   });
 
   // News state
@@ -130,7 +131,7 @@ export default function Market() {
       const j = await r.json().catch(()=>({ items: [] }));
       let list = Array.isArray(j?.items) ? j.items.slice(0, 30) : [];
       if (!list.length) {
-        const r2 = await fetch(`/api/news/mx?lang=${encodeURIComponent(lang)}`).catch(()=>null);
+        const r2 = await fetch(`/api/news/pl?lang=${encodeURIComponent(lang)}`).catch(()=>null);
         const j2 = r2 ? await r2.json().catch(()=>({ items: [] })) : { items: [] };
         list = Array.isArray(j2.items) ? j2.items.slice(0, 30) : [];
       }
@@ -174,39 +175,39 @@ export default function Market() {
   useEffect(() => { rowsRef.current = rows; }, [rows]);
 
   const getAllSymbols = useCallback(() => {
-    if (market === "mx") return MX_SYMBOLS;
+    if (market === "pl") return PL_SYMBOLS;
     if (market === "us") return US_SYMBOLS;
     return [];
   }, [market]);
 
   
 
-  const loadNextBatch = useCallback(async (isInitial = false) => {
-    if (!isInitial && (loadingMore || !hasMore)) return;
-    const all = getAllSymbols();
-    const start = isInitial ? 0 : loadedCount;
-    const syms = all.slice(start, start + PAGE_SIZE);
-    if (!syms.length) { setHasMore(false); return; }
-    if (isInitial) setLoading(true); else setLoadingMore(true);
-    try {
-      const list = await getQuotes({ market, symbols: syms });
-      if (!list.length && isInitial) {
-        // 保底：首批为空时展示示例数据，但继续尝试下一批，避免“已到底”过早出现
-        if (market === "mx") {
-          setRows([
-            { symbol: "AMXL.MX", name: "América Móvil", price: 17.2, changePct: 0.8, volume: 12000000 },
-            { symbol: "WALMEX.MX", name: "Walmart de México", price: 65.1, changePct: -0.3, volume: 9000000 },
-            { symbol: "BIMBOA.MX", name: "Grupo Bimbo", price: 77.8, changePct: 1.2, volume: 6000000 },
-            { symbol: "FEMSAUBD.MX", name: "FEMSA", price: 816.4, changePct: 0.1, volume: 3000000 },
-            { symbol: "GMEXICOB.MX", name: "Grupo Mexico", price: 110.2, changePct: -0.2, volume: 5000000 },
-            { symbol: "GFNORTEO.MX", name: "Banorte", price: 165.0, changePct: 0.3, volume: 4000000 },
-            { symbol: "ALSEA.MX", name: "Alsea", price: 45.3, changePct: 0.6, volume: 2500000 },
-            { symbol: "GAPB.MX", name: "GAP", price: 280.5, changePct: -0.1, volume: 1800000 },
-            { symbol: "KIMBERA.MX", name: "Kimberly-Clark de Mexico", price: 39.8, changePct: 0.2, volume: 2100000 },
-            { symbol: "TLEVISA.CPO.MX", name: "Televisa", price: 12.7, changePct: -0.4, volume: 3200000 },
-          ]);
-        } else {
-          setRows([
+  // 波兰股票兜底数据（API失败时使用）
+  const PL_FALLBACK = useMemo(() => [
+    { symbol: "PKO.WA", name: "PKO Bank Polski", price: 52.80, changePct: 0.8, volume: 12000000 },
+    { symbol: "PKN.WA", name: "PKN Orlen", price: 68.50, changePct: -0.3, volume: 9000000 },
+    { symbol: "PZU.WA", name: "PZU SA", price: 45.20, changePct: 1.2, volume: 6000000 },
+    { symbol: "KGH.WA", name: "KGHM Polska Miedź", price: 142.00, changePct: 0.1, volume: 3000000 },
+    { symbol: "PEO.WA", name: "Bank Pekao", price: 165.80, changePct: -0.2, volume: 5000000 },
+    { symbol: "LPP.WA", name: "LPP SA", price: 15850.00, changePct: 0.3, volume: 4000000 },
+    { symbol: "DNP.WA", name: "Dino Polska", price: 428.50, changePct: 0.6, volume: 2500000 },
+    { symbol: "ALR.WA", name: "Alior Bank", price: 82.40, changePct: -0.1, volume: 1800000 },
+    { symbol: "CDR.WA", name: "CD Projekt", price: 185.60, changePct: 0.2, volume: 2100000 },
+    { symbol: "CCC.WA", name: "CCC SA", price: 128.90, changePct: -0.4, volume: 3200000 },
+    { symbol: "OPL.WA", name: "Orange Polska", price: 8.25, changePct: 0.5, volume: 2800000 },
+    { symbol: "CPS.WA", name: "Cyfrowy Polsat", price: 14.60, changePct: -0.2, volume: 1500000 },
+    { symbol: "MBK.WA", name: "mBank", price: 580.00, changePct: 0.4, volume: 900000 },
+    { symbol: "SPL.WA", name: "Santander Bank Polska", price: 485.00, changePct: 0.1, volume: 750000 },
+    { symbol: "JSW.WA", name: "JSW SA", price: 28.50, changePct: -1.2, volume: 4500000 },
+    { symbol: "TPE.WA", name: "Tauron Polska Energia", price: 4.85, changePct: 0.3, volume: 6000000 },
+    { symbol: "ENA.WA", name: "Enea SA", price: 9.20, changePct: -0.5, volume: 3200000 },
+    { symbol: "LTS.WA", name: "Lotos SA", price: 72.40, changePct: 0.2, volume: 1100000 },
+    { symbol: "KRU.WA", name: "Kruk SA", price: 425.00, changePct: 0.8, volume: 450000 },
+    { symbol: "PCO.WA", name: "Pepco Group", price: 38.50, changePct: -0.3, volume: 680000 },
+  ], []);
+
+  // 美股兜底数据
+  const US_FALLBACK = useMemo(() => [
             { symbol: "AAPL", name: "Apple", price: 180.2, changePct: 0.5, volume: 80000000 },
             { symbol: "MSFT", name: "Microsoft", price: 410.8, changePct: -0.2, volume: 35000000 },
             { symbol: "TSLA", name: "Tesla", price: 230.3, changePct: 1.1, volume: 70000000 },
@@ -217,106 +218,227 @@ export default function Market() {
             { symbol: "JPM", name: "JPMorgan", price: 150.2, changePct: -0.2, volume: 18000000 },
             { symbol: "ORCL", name: "Oracle", price: 110.9, changePct: 0.2, volume: 16000000 },
             { symbol: "INTC", name: "Intel", price: 38.5, changePct: 0.1, volume: 35000000 },
-          ]);
+  ], []);
+
+  const loadNextBatch = useCallback(async (isInitial = false, targetMarket = market) => {
+    if (!isInitial && (loadingMore || !hasMore)) return;
+    // 使用传入的目标市场，而不是闭包中的市场
+    const all = targetMarket === "pl" ? PL_SYMBOLS : targetMarket === "us" ? US_SYMBOLS : [];
+    const start = isInitial ? 0 : loadedCount;
+    const syms = all.slice(start, start + PAGE_SIZE);
+    if (!syms.length) { setHasMore(false); return; }
+    if (isInitial) setLoading(true); else setLoadingMore(true);
+    
+    // 波兰股票：由于API限制，直接使用兜底数据
+    if (targetMarket === "pl" && isInitial) {
+      console.log("[Market] Using Polish stock fallback data directly");
+      setRows(PL_FALLBACK);
+      setHasMore(false);
+      setLoading(false);
+      return;
+    }
+    
+    // 设置超时，如果API响应太慢则使用兜底数据
+    const timeout = 8000; // 8秒超时
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('API timeout'));
+      }, timeout);
+    });
+    
+    try {
+      const list = await Promise.race([
+        getQuotes({ market: targetMarket, symbols: syms }),
+        timeoutPromise
+      ]);
+      
+      // 过滤：确保只显示属于当前市场的股票
+      const filteredList = (Array.isArray(list) ? list : []).filter(item => {
+        if (targetMarket === "pl") {
+          // 波兰股票必须包含 .WA 后缀
+          return String(item.symbol || "").includes(".WA");
+        } else if (targetMarket === "us") {
+          // 美国股票不能包含 .WA 后缀
+          return !String(item.symbol || "").includes(".WA");
         }
-        const nextCount = start + syms.length;
+        return true;
+      });
+      
+      // 验证数据质量：检查是否有有效价格
+      const validList = filteredList.filter(item => {
+        const price = Number(item.price || 0);
+        return Number.isFinite(price) && price > 0;
+      });
+      
+      // 关键修复：如果返回的数据不足请求数量的50%，视为API不可用，使用兜底数据
+      const minRequired = Math.ceil(syms.length * 0.5);
+      const hasEnoughData = validList.length >= minRequired;
+      
+      if (isInitial) {
+        if (hasEnoughData) {
+          // API返回了足够的数据，使用API数据
+          setRows(validList);
+          const nextCount = start + validList.length;
         setLoadedCount(nextCount);
-        setHasMore(nextCount < all.length);
-      } else if (list.length) {
-        setRows(prev => [...prev, ...list]);
-        const nextCount = start + list.length;
+          if (nextCount >= all.length) setHasMore(false);
+        } else {
+          // API数据不足，使用完整的兜底数据
+          const fallback = targetMarket === "pl" ? PL_FALLBACK : US_FALLBACK;
+          setRows(fallback);
+          setHasMore(false);
+        }
+      } else {
+        // 非初始加载：追加数据
+        if (validList.length) {
+          setRows(prev => [...prev, ...validList]);
+          const nextCount = start + validList.length;
         setLoadedCount(nextCount);
         if (nextCount >= all.length) setHasMore(false);
       } else {
-        // 本批为空：跳过并继续尝试下一批
         const nextCount = start + syms.length;
         setLoadedCount(nextCount);
         setHasMore(nextCount < all.length);
+        }
       }
     } catch {
-      // 忽略错误，保持当前已加载内容，尝试下一批
+      // API失败：使用兜底数据
+      if (isInitial) {
+        const fallback = targetMarket === "pl" ? PL_FALLBACK : US_FALLBACK;
+        setRows(fallback);
+        setHasMore(false);
+      } else {
       const nextCount = start + syms.length;
       setLoadedCount(nextCount);
       setHasMore(nextCount < all.length);
+      }
     } finally {
       if (isInitial) setLoading(false); else setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, PAGE_SIZE, loadedCount, market, getAllSymbols]);
+  }, [loadingMore, hasMore, PAGE_SIZE, loadedCount, market, PL_FALLBACK, US_FALLBACK]);
 
   
 
   
 
   const firstLoadRef = useRef(true);
+  const fetchIdRef = useRef(0); // 使用递增 ID 追踪请求，防止竞态
+  
+  // 加密货币兜底数据
+  const cryptoFallback = useMemo(() => [
+    { symbol: "BTC", name: "Bitcoin", priceUSD: 98000, pricePLN: 392000, changePct: 1.2, volume: 45_000_000_000 },
+    { symbol: "ETH", name: "Ethereum", priceUSD: 3400, pricePLN: 13600, changePct: 0.8, volume: 18_000_000_000 },
+    { symbol: "BNB", name: "BNB", priceUSD: 680, pricePLN: 2720, changePct: -0.3, volume: 2_000_000_000 },
+    { symbol: "SOL", name: "Solana", priceUSD: 190, pricePLN: 760, changePct: 2.5, volume: 4_500_000_000 },
+    { symbol: "XRP", name: "XRP", priceUSD: 2.3, pricePLN: 9.2, changePct: 1.8, volume: 8_000_000_000 },
+    { symbol: "ADA", name: "Cardano", priceUSD: 0.95, pricePLN: 3.8, changePct: 0.5, volume: 1_200_000_000 },
+    { symbol: "DOGE", name: "Dogecoin", priceUSD: 0.38, pricePLN: 1.52, changePct: 3.2, volume: 3_500_000_000 },
+    { symbol: "TON", name: "Toncoin", priceUSD: 5.8, pricePLN: 23.2, changePct: -1.1, volume: 500_000_000 },
+    { symbol: "LTC", name: "Litecoin", priceUSD: 105, pricePLN: 420, changePct: 0.9, volume: 800_000_000 },
+    { symbol: "TRX", name: "TRON", priceUSD: 0.25, pricePLN: 1, changePct: 0.3, volume: 600_000_000 },
+  ], []);
+  
   const fetchMarket = useCallback(async () => {
+    const targetMarket = market;
+    const myFetchId = ++fetchIdRef.current; // 分配唯一请求 ID
+    
     setError("");
     if (firstLoadRef.current) setLoading(true);
     setLoadedCount(0); setHasMore(true); setLoadingMore(false);
-    setRows([]);
+    setRows([]); // 清空旧数据
+    
     try {
-      if (market === "crypto") {
+      if (targetMarket === "crypto") {
         const bases = ["BTC","ETH","BNB","SOL","XRP","ADA","DOGE","TON","LTC","TRX"];
         const nameMap = { BTC: "Bitcoin", ETH: "Ethereum", BNB: "BNB", SOL: "Solana", XRP: "XRP", ADA: "Cardano", DOGE: "Dogecoin", TON: "Toncoin", LTC: "Litecoin", TRX: "TRON" };
-        const quotes = await getCryptoQuotes({ symbols: bases });
-        const { rate } = await getUsdMxnRate();
+        
+        let quotes = [];
+        let rate = 4;
+        
+        try {
+          quotes = await getCryptoQuotes({ symbols: bases });
+        } catch {
+          quotes = [];
+        }
+        
+        // 检查是否还是同一个请求
+        if (fetchIdRef.current !== myFetchId) return;
+        
+        try {
+          const rateRes = await getUsdPlnRate();
+          rate = rateRes.rate || 4;
+        } catch {
+          rate = 4;
+        }
+        
+        // 再次检查
+        if (fetchIdRef.current !== myFetchId) return;
+        
+        // 如果获取到有效数据，使用 API 数据；否则使用兜底数据
+        if (Array.isArray(quotes) && quotes.length > 0) {
         const list = quotes.map(q => ({
           symbol: q.symbol,
           name: nameMap[q.symbol] || q.name || q.symbol,
           priceUSD: Number(q.priceUSD || q.price || 0),
-          priceMXN: Number(q.priceUSD || q.price || 0) * rate,
+          pricePLN: Number(q.priceUSD || q.price || 0) * rate,
           changePct: Number(q.changePct || 0),
           volume: Number(q.volume || 0),
         }));
         setRows(list);
+        } else {
+          // 使用兜底数据
+          setRows(cryptoFallback);
+        }
         setHasMore(false);
       } else {
-        await loadNextBatch(true);
+        // 非加密货币市场：加载股票数据，传入目标市场
+        await loadNextBatch(true, targetMarket);
       }
     } catch (_e) {
-      if (market === "mx") {
-        setRows([
-          { symbol: "AMXL.MX", name: "América Móvil", price: 17.2, changePct: 0.8, volume: 12000000 },
-          { symbol: "WALMEX.MX", name: "Walmart de México", price: 65.1, changePct: -0.3, volume: 9000000 },
-          { symbol: "BIMBOA.MX", name: "Grupo Bimbo", price: 77.8, changePct: 1.2, volume: 6000000 },
-        ]);
+      // 检查是否还是同一个请求
+      if (fetchIdRef.current !== myFetchId) return;
+      
+      // 兜底数据
+      if (targetMarket === "pl") {
+        setRows(PL_FALLBACK);
         setHasMore(false);
-      } else if (market === "us") {
-        setRows([
-          { symbol: "AAPL", name: "Apple", price: 180.2, changePct: 0.5, volume: 80000000 },
-          { symbol: "MSFT", name: "Microsoft", price: 410.8, changePct: -0.2, volume: 35000000 },
-          { symbol: "TSLA", name: "Tesla", price: 230.3, changePct: 1.1, volume: 70000000 },
-          { symbol: "AMZN", name: "Amazon", price: 175.0, changePct: 0.4, volume: 60000000 },
-          { symbol: "GOOGL", name: "Alphabet", price: 135.6, changePct: -0.1, volume: 28000000 },
-          { symbol: "META", name: "Meta", price: 330.4, changePct: 0.3, volume: 22000000 },
-          { symbol: "NVDA", name: "NVIDIA", price: 480.7, changePct: 0.9, volume: 50000000 },
-          { symbol: "JPM", name: "JPMorgan", price: 150.2, changePct: -0.2, volume: 18000000 },
-          { symbol: "ORCL", name: "Oracle", price: 110.9, changePct: 0.2, volume: 16000000 },
-          { symbol: "INTC", name: "Intel", price: 38.5, changePct: 0.1, volume: 35000000 },
-        ]);
+      } else if (targetMarket === "us") {
+        setRows(US_FALLBACK);
         setHasMore(false);
       } else {
-        setRows([
-          { symbol: "BTC", name: "Bitcoin", priceUSD: 65000, priceMXN: 65000 * 18, changePct: 0.8, volume: 1_200_000_000 },
-          { symbol: "ETH", name: "Ethereum", priceUSD: 2500, priceMXN: 2500 * 18, changePct: -0.6, volume: 800_000_000 },
-        ]);
+        // crypto 兜底
+        setRows(cryptoFallback);
         setHasMore(false);
       }
     } finally { setLoading(false); firstLoadRef.current = false; }
-  }, [market, loadNextBatch]);
+  }, [market, loadNextBatch, cryptoFallback, PL_FALLBACK, US_FALLBACK]);
 
   useEffect(() => { fetchMarket(); }, [market]);
 
-  // 加密市场定时刷新：每1秒更新一次（股票/美股仍按分页拉取）
+  // 加密市场定时刷新：每3秒更新一次（股票/美股仍按分页拉取）
   useEffect(() => {
     if (market !== "crypto") return;
-    let STOPPED = false;
+    let cancelled = false;
     const tick = async () => {
       try {
+        if (cancelled) return;
         if (document.hidden) return;
+        
         const prevRows = rowsRef.current || [];
         const bases = prevRows.length ? prevRows.map(r => r.symbol) : ["BTC","ETH","BNB","SOL","XRP","ADA","DOGE","TON","LTC","TRX"];
         const quotes = await getCryptoQuotes({ symbols: bases });
-        const { rate } = await getUsdMxnRate();
+        
+        if (cancelled) return;
+        
+        let rate = 4;
+        try {
+          const rateRes = await getUsdPlnRate();
+          rate = rateRes.rate || 4;
+        } catch {
+          rate = 4;
+        }
+        
+        if (cancelled) return;
+        
         const bySym = new Map(quotes.map(q => [q.symbol, q]));
         setRows(prev => prev.map(r => {
           const q = bySym.get(r.symbol) || {};
@@ -324,13 +446,13 @@ export default function Market() {
           const next = {
             ...r,
             priceUSD,
-            priceMXN: priceUSD * rate,
+            pricePLN: priceUSD * rate,
             changePct: Number(q.changePct || r.changePct || 0),
             volume: Number(q.volume || r.volume || 0),
           };
           const same = (
             Number(next.priceUSD) === Number(r.priceUSD) &&
-            Number(next.priceMXN) === Number(r.priceMXN) &&
+            Number(next.pricePLN) === Number(r.pricePLN) &&
             Number(next.changePct) === Number(r.changePct) &&
             Number(next.volume) === Number(r.volume)
           );
@@ -340,38 +462,45 @@ export default function Market() {
     };
     tick();
     const timer = setInterval(tick, 3_000);
-    return () => { clearInterval(timer); };
+    return () => { cancelled = true; clearInterval(timer); };
   }, [market]);
 
-  // 股票页（美股/墨股）自适应轻量轮询：默认 MX 5s、US 2s；页面不可见时暂停
+  // 股票页（美股）自适应轻量轮询：默认 US 15s；页面不可见时暂停
+  // 波兰股票由于API限制，使用静态兜底数据，不进行轮询
   // 可通过环境变量或 localStorage 动态调整：
-  // - VITE_MARKET_POLL_MS（通用）或 VITE_MARKET_POLL_MS_MX / VITE_MARKET_POLL_MS_US（细分）
-  // - localStorage['poll:market:mx:ms'] / localStorage['poll:market:us:ms']
+  // - VITE_MARKET_POLL_MS（通用）或 VITE_MARKET_POLL_MS_US（细分）
+  // - localStorage['poll:market:us:ms']
   useEffect(() => {
-    if (market === "crypto") return; // 加密已单独轮询
+    // 加密货币和波兰股票不使用此轮询
+    if (market === "crypto" || market === "pl") return;
+    
     let cancelled = false;
     const readPollMs = () => {
       try {
         const envAll = Number(import.meta.env?.VITE_MARKET_POLL_MS || 0);
-        const envMx = Number(import.meta.env?.VITE_MARKET_POLL_MS_MX || 0);
         const envUs = Number(import.meta.env?.VITE_MARKET_POLL_MS_US || 0);
         const ls = Number(localStorage.getItem(`poll:market:${market}:ms`) || 0);
-        const def = market === "mx" ? 5000 : 2000;
-        const envSpec = market === "mx" ? envMx : envUs;
+        const def = 15000; // 美股15秒轮询
         const pick = (n) => (Number.isFinite(n) && n > 0 ? n : 0);
-        return pick(ls) || pick(envSpec) || pick(envAll) || def;
-      } catch { return market === "mx" ? 5000 : 2000; }
+        return pick(ls) || pick(envUs) || pick(envAll) || def;
+      } catch { return 15000; }
     };
     let pollMs = readPollMs();
     const tick = async () => {
       if (cancelled) return;
       if (document.hidden) return;
       // 只刷新当前已展示的 symbols，避免无限增长请求
-      const syms = (rowsRef.current || []).map(r => r.symbol);
+      const currentRows = rowsRef.current || [];
+      const syms = currentRows.map(r => r.symbol);
       if (!syms.length) return;
       try {
         const list = await getQuotes({ market, symbols: syms });
-        if (Array.isArray(list) && list.length) {
+        // 关键修复：只有当返回数据数量足够时才更新
+        // 如果返回的数据不足当前显示数据的50%，跳过本次更新
+        const minRequired = Math.ceil(currentRows.length * 0.5);
+        if (!Array.isArray(list) || list.length < minRequired) {
+          return; // 数据不足，保持当前显示的数据
+        }
           const bySym = new Map(list.map(r => [r.symbol, r]));
           setRows(prev => prev.map(r => {
             const next = bySym.get(r.symbol) || r;
@@ -382,7 +511,6 @@ export default function Market() {
             );
             return same ? r : next;
           }));
-        }
       } catch {}
     };
     let id = setInterval(tick, pollMs);
@@ -424,8 +552,8 @@ export default function Market() {
     return () => { io.disconnect(); };
   }, [market, hasMore, loadedCount, loadNextBatch]);
 
-  const currency = market === "mx" ? "MXN" : market === "us" ? "USD" : cryptoCurrency;
-  const title = market === "mx" ? t("stocksTitle") : market === "us" ? t("stocksTitleUS") : t("marketCrypto");
+  const currency = market === "pl" ? "PLN" : market === "us" ? "USD" : cryptoCurrency;
+  const title = market === "pl" ? t("stocksTitle") : market === "us" ? t("stocksTitleUS") : t("marketCrypto");
 
   const rowsToShow = useMemo(() => {
     const base = rows.slice();
@@ -434,7 +562,7 @@ export default function Market() {
     if (marketView === "turnover") {
       const calcTurn = (r) => {
         if (market === "crypto") {
-          const p = cryptoCurrency === "USD" ? Number(r.priceUSD || r.price || 0) : Number(r.priceMXN || 0);
+          const p = cryptoCurrency === "USD" ? Number(r.priceUSD || r.price || 0) : Number(r.pricePLN || 0);
           return Number(r.volume || 0) * p;
         }
         return Number(r.volume || 0) * Number(r.price || 0);
@@ -447,11 +575,11 @@ export default function Market() {
   async function doSearch() {
     try {
       setSearchLoading(true); setSearchError("");
-      if (market === "mx") {
-        let q = (search.mx || "").trim().toUpperCase();
+      if (market === "pl") {
+        let q = (search.pl || "").trim().toUpperCase();
         if (!q) { setSearchRow(null); return; }
-        if (!q.endsWith(".MX")) q = `${q}.MX`;
-        const list = await getQuotes({ market: "mx", symbols: [q] });
+        if (!q.endsWith(".WA")) q = `${q}.WA`;
+        const list = await getQuotes({ market: "pl", symbols: [q] });
         const row = list[0] || null;
         setSearchRow(row);
         if (!row) setSearchError(t("noMatches"));
@@ -468,7 +596,7 @@ export default function Market() {
         let q = (search.crypto || "").trim().toUpperCase();
         if (!q) { setSearchRow(null); return; }
         let base = q.replace(/USDT$/,"" ).replace(/\/USD$/,"" );
-        const { rate } = await getUsdMxnRate();
+        const { rate } = await getUsdPlnRate();
         try {
           const list = await getCryptoQuotes({ symbols: [base] });
           const row = list[0];
@@ -477,7 +605,7 @@ export default function Market() {
               symbol: row.symbol,
               name: row.name || row.symbol,
               priceUSD: Number(row.priceUSD || row.price || 0),
-              priceMXN: Number(row.priceUSD || row.price || 0) * rate,
+              pricePLN: Number(row.priceUSD || row.price || 0) * rate,
               changePct: Number(row.changePct || 0),
               volume: Number(row.volume || 0),
             });
@@ -495,26 +623,33 @@ export default function Market() {
   }
 
   function onSearchKey(e) { if (e.key === "Enter") doSearch(); }
-  const searchLabel = market === "mx" ? t("searchMX") : market === "us" ? t("searchUS") : t("searchCrypto");
-  const searchPh = market === "mx" ? t("placeholderMX") : market === "us" ? t("placeholderUS") : t("placeholderCrypto");
+  const searchLabel = market === "pl" ? t("searchPL") : market === "us" ? t("searchUS") : t("searchCrypto");
+  const searchPh = market === "pl" ? t("placeholderPL") : market === "us" ? t("placeholderUS") : t("placeholderCrypto");
 
   function normalizeText(s) {
     return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
   }
-  const MX_NAMES = {
-    "AMXL.MX": "América Móvil, S.A.B. de C.V.",
-    "AMXB.MX": "América Móvil, S.A.B. de C.V.",
-    "WALMEX.MX": "Walmart de Mexico",
-    "FEMSAUBD.MX": "FEMSA",
-    "BIMBOA.MX": "Grupo Bimbo",
-    "GMEXICOB.MX": "Grupo Mexico",
-    "GFNORTEO.MX": "Banorte",
-    "ALSEA.MX": "Alsea",
-    "GAPB.MX": "GAP",
-    "KIMBERA.MX": "Kimberly-Clark de Mexico",
-    "TLEVISA.CPO.MX": "Televisa",
-    "OMAB.MX": "OMA",
-    "MEXCHEM.MX": "Orbia",
+  const PL_NAMES = {
+    "PKO.WA": "PKO Bank Polski",
+    "PKN.WA": "PKN Orlen",
+    "PZU.WA": "PZU SA",
+    "KGH.WA": "KGHM Polska Miedź",
+    "PEO.WA": "Bank Pekao",
+    "LPP.WA": "LPP SA",
+    "DNP.WA": "Dino Polska",
+    "ALR.WA": "Alior Bank",
+    "CDR.WA": "CD Projekt",
+    "CCC.WA": "CCC SA",
+    "OPL.WA": "Orange Polska",
+    "CPS.WA": "Cyfrowy Polsat",
+    "MBK.WA": "mBank",
+    "SPL.WA": "Santander Bank Polska",
+    "JSW.WA": "JSW SA",
+    "TPE.WA": "Tauron Polska Energia",
+    "ENA.WA": "Enea SA",
+    "LTS.WA": "Lotos SA",
+    "KRU.WA": "Kruk SA",
+    "PCO.WA": "Pepco Group",
   };
   const US_NAMES = {
     AAPL: "Apple",
@@ -531,13 +666,14 @@ export default function Market() {
     INTC: "Intel",
   };
   const ALIASES = {
-    mx: {
-      "MEXCHEM.MX": ["ORBIA", "MEXICHEM"],
-      "GFNORTEO.MX": ["BANORTE"],
-      "AMXL.MX": ["AMERICA MOVIL", "AMÉRICA MÓVIL", "AMX", "AMXB"],
-      "AMXB.MX": ["AMERICA MOVIL", "AMÉRICA MÓVIL", "AMX", "AMXL"],
-      "WALMEX.MX": ["WALMART"],
-      "TLEVISA.CPO.MX": ["TELEVISA"],
+    pl: {
+      "PKO.WA": ["PKO BP", "PKO BANK"],
+      "PKN.WA": ["ORLEN", "PKN ORLEN"],
+      "PZU.WA": ["PZU"],
+      "KGH.WA": ["KGHM", "MIEDZ"],
+      "CDR.WA": ["CD PROJEKT", "CDPR", "CYBERPUNK"],
+      "LPP.WA": ["LPP", "RESERVED"],
+      "DNP.WA": ["DINO"],
     },
     us: {
       META: ["FACEBOOK", "FB"],
@@ -554,12 +690,12 @@ export default function Market() {
     const nv = normalizeText(String(val || "").trim());
     if (!nv) return [];
     const nvBase = nv.replace(/USDT$/, "");
-    if (market === "mx") {
-      const candidates = MX_SYMBOLS.map(s => ({ symbol: s, name: MX_NAMES[s] || s.replace(/\.MX$/, "") }));
+    if (market === "pl") {
+      const candidates = PL_SYMBOLS.map(s => ({ symbol: s, name: PL_NAMES[s] || s.replace(/\.WA$/, "") }));
       return candidates.filter(c => {
-        const ns = normalizeText(c.symbol.replace(/\.MX$/, ""));
+        const ns = normalizeText(c.symbol.replace(/\.WA$/, ""));
         const nn = normalizeText(c.name);
-        const aliases = (ALIASES.mx[c.symbol] || []).map(normalizeText);
+        const aliases = (ALIASES.pl[c.symbol] || []).map(normalizeText);
         return ns.includes(nvBase) || nn.includes(nvBase) || aliases.some(a => a.includes(nvBase) || nvBase.includes(a));
       }).slice(0, 8);
     }
@@ -613,7 +749,7 @@ export default function Market() {
     setRecents(prev => ({ ...prev, [market]: [] }));
   }
   function currentSearchVal() {
-    return market === "mx" ? search.mx : market === "us" ? search.us : search.crypto;
+    return market === "pl" ? search.pl : market === "us" ? search.us : search.crypto;
   }
   function highlightMatch(text) {
     const q = String(currentSearchVal() || "").trim();
@@ -655,11 +791,11 @@ export default function Market() {
               <div className={`dropdown-menu ${showMobileDropdown && window.innerWidth <= 767 ? 'mobile-show' : ''}`}>
                 <div className="dropdown-section">
                   <span className="dropdown-label">{t("labelMarket")}</span>
-                  <button className={`dropdown-item ${market === "mx" ? "active" : ""}`} onClick={() => {
-                    setMarket("mx");
+                  <button className={`dropdown-item ${market === "pl" ? "active" : ""}`} onClick={() => {
+                    setMarket("pl");
                     setShowNewsList(false);
                     setShowMobileDropdown(false);
-                  }}>{t("marketMX")}</button>
+                  }}>{t("marketPL")}</button>
                   <button className={`dropdown-item ${market === "us" ? "active" : ""}`} onClick={() => {
                     setMarket("us");
                     setShowNewsList(false);
@@ -697,10 +833,10 @@ export default function Market() {
                       setCryptoCurrency("USD");
                       setShowMobileDropdown(false);
                     }}>USD</button>
-                    <button className={`dropdown-item ${cryptoCurrency === "MXN" ? "active" : ""}`} onClick={() => {
-                      setCryptoCurrency("MXN");
+                    <button className={`dropdown-item ${cryptoCurrency === "PLN" ? "active" : ""}`} onClick={() => {
+                      setCryptoCurrency("PLN");
                       setShowMobileDropdown(false);
-                    }}>MXN</button>
+                    }}>PLN</button>
                   </div>
                 )}
               </div>
@@ -718,14 +854,14 @@ export default function Market() {
               <input
                 id="market-search"
                 type="text"
-                value={market === "mx" ? search.mx : market === "us" ? search.us : search.crypto}
+                value={market === "pl" ? search.pl : market === "us" ? search.us : search.crypto}
                 onChange={(e) => { const v = e.target.value; setSearch(s => ({ ...s, [market]: v })); setSuggestions(computeSuggestions(v)); setShowSug(true); }}
                 onKeyDown={onSearchKey}
-                onFocus={() => { setShowSug(true); setSuggestions(computeSuggestions(market === "mx" ? search.mx : market === "us" ? search.us : search.crypto)); }}
+                onFocus={() => { setShowSug(true); setSuggestions(computeSuggestions(market === "pl" ? search.pl : market === "us" ? search.us : search.crypto)); }}
                 onBlur={() => setTimeout(() => setShowSug(false), 120)}
                 placeholder={searchPh}
                 className="search-input"
-                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid var(--card-border)", background: "#f8fafc", color: "var(--text)" }}
+                style={{ padding: "8px 10px", borderRadius: 8 }}
               />
               <button className="pill" onClick={doSearch} disabled={searchLoading} aria-busy={searchLoading}>
                 {t("search")}
@@ -797,9 +933,9 @@ export default function Market() {
                     const r = searchRow;
                     const pct = Number(r?.changePct || 0);
                     const color = pct > 0 ? "#5cff9b" : pct < 0 ? "#ff5c7a" : "#a8b3cf";
-                    const priceVal = market === "crypto" ? (cryptoCurrency === "USD" ? (r.priceUSD || r.price || 0) : (r.priceMXN || 0)) : r.price;
+                    const priceVal = market === "crypto" ? (cryptoCurrency === "USD" ? (r.priceUSD || r.price || 0) : (r.pricePLN || 0)) : r.price;
                     const detailsUrl = (() => {
-                      if (market === "mx" || market === "us") return `https://finance.yahoo.com/quote/${encodeURIComponent(r.symbol)}`;
+                      if (market === "pl" || market === "us") return `https://finance.yahoo.com/quote/${encodeURIComponent(r.symbol)}`;
                       return `https://www.binance.com/en/trade/${encodeURIComponent(r.symbol)}_USDT?theme=dark`;
                     })();
                     return (
@@ -868,7 +1004,7 @@ export default function Market() {
                           </button>
                         </td>
                         <td>{market === "crypto" ? formatPrice(
-                          cryptoCurrency === "USD" ? (r.priceUSD || r.price || 0) : (r.priceMXN || 0),
+                          cryptoCurrency === "USD" ? (r.priceUSD || r.price || 0) : (r.pricePLN || 0),
                           cryptoCurrency,
                           lang
                         ) : formatPrice(r.price, currency, lang)}</td>

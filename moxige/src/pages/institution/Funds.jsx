@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api, notificationsApi } from "../../services/api.js";
 import { formatMoney } from "../../utils/money.js";
 import { formatMinute } from "../../utils/date.js";
+import "../../styles/profile.css";
 
 export default function FundsPage() {
   const { t, lang } = useI18n();
@@ -19,7 +21,7 @@ export default function FundsPage() {
   const [qty, setQty] = useState(1);
   const dividendLabel = (d) => {
     const v = String(d || '').toLowerCase();
-    if (lang === 'es') {
+    if (lang === 'pl') {
       if (v === 'day') return 'diaria';
       if (v === 'week') return 'semanal';
       if (v === 'month') return 'mensual';
@@ -32,8 +34,8 @@ export default function FundsPage() {
   };
 
   const currencySymbol = (cur) => {
-    const c = String(cur || 'MXN').toUpperCase();
-    return c === 'MXN' ? 'MX$' : '$';
+    const c = String(cur || 'PLN').toUpperCase();
+    return c === 'PLN' ? 'zł' : '$';
   };
   const formatPlainMoney = (v, cur) => {
     const num = Number(v || 0);
@@ -110,14 +112,25 @@ export default function FundsPage() {
   };
 
   return (
-    <div className="screen" style={{ padding: '0 6px', paddingBottom: 100, alignItems: 'stretch', justifyContent: 'flex-start', width: '100%', boxSizing: 'border-box' }}>
+    <div className="screen top-align inst-screen" style={{ padding: 0 }}>
       {toast.show && (<div className={`top-toast ${toast.type}`}>{toast.text}</div>)}
-      <div style={{ paddingTop: 16, width: '100%', boxSizing: 'border-box', padding: '16px 6px 10px 6px' }}>
+      {/* 返回按钮 */}
+      <div className="inst-back-bar">
+        <button
+          onClick={()=>navigate(-1)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 20, padding: '8px 14px', cursor: 'pointer', color: '#e5e7eb', fontSize: 13
+          }}
+        >
+          <span style={{ fontSize: 16 }}>←</span>
+          <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+        </button>
+      </div>
+      <div className="inst-container">
         <div style={{ width: '100%' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <button className="back-btn" onClick={()=>navigate(-1)} aria-label="back" style={{ position: 'relative', top: 'auto', left: 'auto' }}><span className="back-icon"></span></button>
-            <h1 className="title" style={{ marginTop: 0, marginBottom: 0 }}>{lang==='es'?'Fondos':'Funds'}</h1>
-          </div>
+          <h1 className="title" style={{ marginTop: 0, marginBottom: 8 }}>{lang==='zh'?'基金':(lang==='pl'?'Fundusze':'Funds')}</h1>
           {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
           {loading ? (
             <div className="desc">Loading...</div>
@@ -146,7 +159,7 @@ export default function FundsPage() {
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lang==='es'?'Precio':'Price'}</div>
                         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>
-                          {formatPlainMoney(Number(f.subscribePrice || f.price || 0), String(f.currency||'MXN'))}
+                          {formatPlainMoney(Number(f.subscribePrice || f.price || 0), String(f.currency||'PLN'))}
                         </div>
                       </div>
                     </div>
@@ -198,7 +211,7 @@ export default function FundsPage() {
               <div style={{ display: 'grid', gap: 8, background: 'var(--accent-light)', padding: 12, borderRadius: 'var(--radius)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span className="muted">{lang==='es'?'Precio unitario':'Unit Price'}</span>
-                  <span style={{ fontWeight: 600 }}>{formatPlainMoney(Number(modalFund.subscribePrice || modalFund.price || 0), String(modalFund.currency||'MXN'))}</span>
+                  <span style={{ fontWeight: 600 }}>{formatPlainMoney(Number(modalFund.subscribePrice || modalFund.price || 0), String(modalFund.currency||'PLN'))}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span className="muted">{lang==='es'?'Distribución':'Distribution'}</span>
@@ -228,7 +241,7 @@ export default function FundsPage() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="muted">{lang==='es'?'Total a pagar':'Total to pay'}</span>
                   <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)' }}>
-                    {formatPlainMoney(Number(modalFund.subscribePrice || modalFund.price || 0) * qty, String(modalFund.currency||'MXN'))}
+                    {formatPlainMoney(Number(modalFund.subscribePrice || modalFund.price || 0) * qty, String(modalFund.currency||'PLN'))}
                   </span>
                 </div>
               </div>
@@ -268,9 +281,9 @@ export default function FundsPage() {
                 const days = Math.floor(diff / 86400000);
                 const hours = Math.floor((diff % 86400000) / 3600000);
                 const mins = Math.floor((diff % 3600000) / 60000);
-                if (days > 0) return lang === 'es' ? `Quedan ${days}d ${hours}h` : `${days}d ${hours}h left`;
-                if (hours > 0) return lang === 'es' ? `Quedan ${hours}h ${mins}m` : `${hours}h ${mins}m left`;
-                return lang === 'es' ? `Quedan ${mins}m` : `${mins}m left`;
+                if (days > 0) return lang === 'pl' ? `Quedan ${days}d ${hours}h` : `${days}d ${hours}h left`;
+                if (hours > 0) return lang === 'pl' ? `Quedan ${hours}h ${mins}m` : `${hours}h ${mins}m left`;
+                return lang === 'pl' ? `Quedan ${mins}m` : `${mins}m left`;
               };
               
               return (
@@ -320,11 +333,11 @@ export default function FundsPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>{lang==='es'?'Inversión':'Investment'}</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{formatPlainMoney(totalBuy, String(o.currency||'MXN'))}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{formatPlainMoney(totalBuy, String(o.currency||'PLN'))}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>{lang==='es'?'Valor Actual':'Current Value'}</div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{formatPlainMoney(currentTotal, String(o.currency||'MXN'))}</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{formatPlainMoney(currentTotal, String(o.currency||'PLN'))}</div>
                     </div>
                   </div>
                   
@@ -333,7 +346,7 @@ export default function FundsPage() {
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lang==='es'?'Ganancia':'Profit'}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: profitColor }}>
-                        {Number(profitPct) >= 0 ? '+' : ''}{formatPlainMoney(profitAmount, String(o.currency||'MXN'))}
+                        {Number(profitPct) >= 0 ? '+' : ''}{formatPlainMoney(profitAmount, String(o.currency||'PLN'))}
                         <span style={{ fontSize: 12, marginLeft: 4 }}>({Number(profitPct) >= 0 ? '+' : ''}{profitPct}%)</span>
                       </div>
                     </div>
@@ -357,6 +370,7 @@ export default function FundsPage() {
           </div>
         </div>
       </div>
+      <BottomNav />
     </div>
   );
 }

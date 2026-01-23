@@ -1,6 +1,6 @@
 @echo off
 echo ==========================================
-echo ECIM DEBUG RUNNER
+echo GQ DEBUG RUNNER
 echo ==========================================
 echo.
 echo [1] Checking for Node.js...

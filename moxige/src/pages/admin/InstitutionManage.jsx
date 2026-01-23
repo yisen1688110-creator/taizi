@@ -53,7 +53,7 @@ export default function InstitutionManage() {
             <h2 className="title" style={{ marginTop:0 }}>预览</h2>
             <div className="card flat" style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:12, alignItems:'center' }}>
               <div style={{ width:72, height:72, borderRadius:12, overflow:'hidden', background:'#12243f', display:'grid', placeItems:'center' }}>
-                {profile.avatar ? <img src={profile.avatar} alt="logo" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <img src="/logo.png" alt="logo" style={{ width:48 }} />}
+                {profile.avatar ? <img src={profile.avatar} alt="logo" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : <img src="/logo.jpg" alt="logo" style={{ width:48 }} />}
               </div>
               <div>
                 <div style={{ fontWeight:700 }}>{profile.name || 'Institution'}</div>

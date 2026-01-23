@@ -19,7 +19,7 @@ const TradingViewWidget = ({
   const containerIdRef = useRef(`tv_widget_${Math.random().toString(36).slice(2)}`);
 
   // 根据当前语言设置TradingView的locale
-  const tradingViewLocale = locale || (lang === 'es' ? 'es' : 'en');
+  const tradingViewLocale = locale || (lang === 'pl' ? 'es' : 'en');
 
   // 取消“仅初始化一次”的优化，改为在依赖变化时安全地卸载并重新初始化。
   // 使用 tv.js 方式嵌入，绕过 tradingview-widget.com 的重定向

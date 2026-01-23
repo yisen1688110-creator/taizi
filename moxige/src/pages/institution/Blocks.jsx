@@ -4,10 +4,10 @@ import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api } from "../../services/api.js";
 import { formatMoney, formatUSDT } from "../../utils/money.js";
-import { formatMinute, getMexicoTimestamp } from "../../utils/date.js";
+import { formatMinute, getPolandTimestamp } from "../../utils/date.js";
 // ...
 import { toMs } from "../../utils/time.js";
-import { getQuotes, getCryptoQuotes, getStockSpark, getUsdMxnRate } from "../../services/marketData.js";
+import { getQuotes, getCryptoQuotes, getStockSpark, getUsdPlnRate } from "../../services/marketData.js";
 import "../../styles/settings.css";
 import "../../styles/settings.css";
 
@@ -21,8 +21,8 @@ export default function InstitutionBlocks() {
   const [qtyMap, setQtyMap] = useState({}); // { id: qty }
   const [sliderMap, setSliderMap] = useState({}); // { id: 0-100 }
   const [keyMap, setKeyMap] = useState({}); // { id: subscribeKey }
-  const [balances, setBalances] = useState({ MXN: 0, USD: 0, USDT: 0 });
-  const [usdToMxnRate, setUsdToMxnRate] = useState(18.0);
+  const [balances, setBalances] = useState({ PLN: 0, USD: 0, USDT: 0 });
+  const [usdToPlnRate, setUsdToPlnRate] = useState(18.0);
   const [submittingId, setSubmittingId] = useState(null);
   const [toast, setToast] = useState({ show: false, type: 'ok', text: '' });
   const showToast = (text, type = 'ok') => { setToast({ show: true, type, text }); setTimeout(() => setToast({ show: false, type, text: '' }), 1000); };
@@ -35,22 +35,22 @@ export default function InstitutionBlocks() {
   }, []);
 
   const labels = useMemo(() => ({
-    pageTitle: lang === 'zh' ? '大宗交易' : (lang === 'es' ? 'Operaciones grandes' : 'Block Trade'),
-    type: lang === 'zh' ? '类型' : (lang === 'es' ? 'Tipo' : 'Type'),
-    typeCrypto: lang === 'zh' ? '加密货币' : (lang === 'es' ? 'Cripto' : 'Crypto'),
-    typeUS: lang === 'zh' ? '美股' : (lang === 'es' ? 'US Acciones' : 'US Stocks'),
-    symbol: lang === 'zh' ? '编码' : (lang === 'es' ? 'Código' : 'Symbol'),
-    currentPrice: lang === 'zh' ? '现价' : (lang === 'es' ? 'Precio actual' : 'Current Price'),
-    blockPrice: lang === 'zh' ? '大宗交易价格' : (lang === 'es' ? 'Precio de bloque' : 'Block Price'),
-    minQty: lang === 'zh' ? '最小购买' : (lang === 'es' ? 'Mínimo' : 'Min Qty'),
-    qty: lang === 'zh' ? '申购数量' : (lang === 'es' ? 'Cantidad' : 'Quantity'),
-    subscribeKey: lang === 'zh' ? '认购密钥' : (lang === 'es' ? 'Clave de suscripción' : 'Subscription Key'),
-    window: lang === 'zh' ? '申购时间窗' : (lang === 'es' ? 'Ventana de suscripción' : 'Subscription Window'),
-    lockedUntil: lang === 'zh' ? '锁定至' : (lang === 'es' ? 'Bloqueado hasta' : 'Lock Until'),
-    btnSubmit: lang === 'zh' ? '提交' : (lang === 'es' ? 'Enviar' : 'Submit'),
-    submitting: lang === 'zh' ? '提交中...' : (lang === 'es' ? 'Enviando...' : 'Submitting...'),
-    closed: lang === 'zh' ? '已关闭' : (lang === 'es' ? 'Cerrado' : 'Closed'),
-    consume: lang === 'zh' ? '消耗资金' : (lang === 'es' ? 'Consumir fondos' : 'Consume'),
+    pageTitle: lang === 'zh' ? '大宗交易' : (lang === 'pl' ? 'Operaciones grandes' : 'Block Trade'),
+    type: lang === 'zh' ? '类型' : (lang === 'pl' ? 'Tipo' : 'Type'),
+    typeCrypto: lang === 'zh' ? '加密货币' : (lang === 'pl' ? 'Cripto' : 'Crypto'),
+    typeUS: lang === 'zh' ? '美股' : (lang === 'pl' ? 'US Acciones' : 'US Stocks'),
+    symbol: lang === 'zh' ? '编码' : (lang === 'pl' ? 'Código' : 'Symbol'),
+    currentPrice: lang === 'zh' ? '现价' : (lang === 'pl' ? 'Precio actual' : 'Current Price'),
+    blockPrice: lang === 'zh' ? '大宗交易价格' : (lang === 'pl' ? 'Precio de bloque' : 'Block Price'),
+    minQty: lang === 'zh' ? '最小购买' : (lang === 'pl' ? 'Mínimo' : 'Min Qty'),
+    qty: lang === 'zh' ? '申购数量' : (lang === 'pl' ? 'Cantidad' : 'Quantity'),
+    subscribeKey: lang === 'zh' ? '认购密钥' : (lang === 'pl' ? 'Clave de suscripción' : 'Subscription Key'),
+    window: lang === 'zh' ? '申购时间窗' : (lang === 'pl' ? 'Ventana de suscripción' : 'Subscription Window'),
+    lockedUntil: lang === 'zh' ? '锁定至' : (lang === 'pl' ? 'Bloqueado hasta' : 'Lock Until'),
+    btnSubmit: lang === 'zh' ? '提交' : (lang === 'pl' ? 'Enviar' : 'Submit'),
+    submitting: lang === 'zh' ? '提交中...' : (lang === 'pl' ? 'Enviando...' : 'Submitting...'),
+    closed: lang === 'zh' ? '已关闭' : (lang === 'pl' ? 'Cerrado' : 'Closed'),
+    consume: lang === 'zh' ? '消耗资金' : (lang === 'pl' ? 'Consumir fondos' : 'Consume'),
   }), [t, lang]);
 
   useEffect(() => {
@@ -62,12 +62,12 @@ export default function InstitutionBlocks() {
     try {
       const res = await api.get('/me/balances');
       const arr = Array.isArray(res?.balances) ? res.balances : [];
-      const map = { MXN: 0, USD: 0, USDT: 0 };
+      const map = { PLN: 0, USD: 0, USDT: 0 };
       arr.forEach(b => { map[String(b.currency).toUpperCase()] = Number(b.amount || 0); });
       setBalances(map);
 
-      const { rate } = await getUsdMxnRate();
-      if (rate > 0) setUsdToMxnRate(rate);
+      const { rate } = await getUsdPlnRate();
+      if (rate > 0) setUsdToPlnRate(rate);
     } catch (e) { console.warn('fetch balances/rate failed', e); }
   }
 
@@ -108,7 +108,7 @@ export default function InstitutionBlocks() {
           for (const base of missingCrypto) {
             try {
               const pair = `${String(base).toUpperCase()}USDT`;
-              const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
+              const url = `/binance-api/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
               const j = await fetch(url).then(r => r.json()).catch(() => null);
               const p = Number(j?.lastPrice ?? j?.weightedAvgPrice ?? j?.prevClosePrice ?? 0);
               const ch = Number(j?.priceChangePercent ?? 0);
@@ -130,7 +130,7 @@ export default function InstitutionBlocks() {
         for (const base of cryptoSymbols) {
           try {
             const pair = `${String(base).toUpperCase()}USDT`;
-            const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
+            const url = `/binance-api/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
             const j = await fetch(url).then(r => r.json()).catch(() => null);
             const p = Number(j?.lastPrice ?? j?.weightedAvgPrice ?? j?.prevClosePrice ?? 0);
             const ch = Number(j?.priceChangePercent ?? 0);
@@ -172,8 +172,8 @@ export default function InstitutionBlocks() {
 
   function nowMs() { return Date.now(); }
   function inWindow(it) {
-    const s = getMexicoTimestamp(it.start_at || it.startAt || '');
-    const e = getMexicoTimestamp(it.end_at || it.endAt || '');
+    const s = getPolandTimestamp(it.start_at || it.startAt || '');
+    const e = getPolandTimestamp(it.end_at || it.endAt || '');
     const n = nowMs();
     return Number.isFinite(s) && Number.isFinite(e) && n >= s && n <= e;
   }
@@ -212,7 +212,7 @@ export default function InstitutionBlocks() {
     try {
       setSubmittingId(id);
       await api.post('/trade/block/subscribe', { blockId: id, qty: q, currentPrice: cp, key });
-      showToast(lang === 'zh' ? '已提交申购，待后台审批' : (lang === 'es' ? 'Enviado, en espera de aprobación' : 'Submitted, pending approval'), 'ok');
+      showToast(lang === 'zh' ? '已提交申购，待后台审批' : (lang === 'pl' ? 'Enviado, en espera de aprobación' : 'Submitted, pending approval'), 'ok');
       setQtyMap(prev => ({ ...prev, [id]: '' }));
       setKeyMap(prev => ({ ...prev, [id]: '' }));
       // 保持在当前页，避免前端 /admin 404
@@ -228,15 +228,15 @@ export default function InstitutionBlocks() {
 
     const market = String(it.market);
     const isCrypto = market === 'crypto';
-    const balance = isCrypto ? (balances.USDT || 0) : (balances.MXN || 0);
+    const balance = isCrypto ? (balances.USDT || 0) : (balances.PLN || 0);
     const price = Number(it.price || 0); // Block price in USD/USDT
 
     if (price <= 0) return;
 
     // Calculate max qty affordable
     // Crypto: balanceUSDT / priceUSDT
-    // US: balanceMXN / (priceUSD * rate)
-    const costPerUnit = isCrypto ? price : (price * usdToMxnRate);
+    // US: balancePLN / (priceUSD * rate)
+    const costPerUnit = isCrypto ? price : (price * usdToPlnRate);
     const maxQty = Math.floor(balance / costPerUnit);
     const minQty = Number(it.min_qty || it.minQty || 1);
 
@@ -250,20 +250,31 @@ export default function InstitutionBlocks() {
   };
 
   return (
-    <div className="screen top-align" style={{ paddingTop: 6, padding: '6px' }}>
+    <div className="screen top-align inst-screen" style={{ padding: 0 }}>
       {toast.show && (<div className={`top-toast ${toast.type}`}>{toast.text}</div>)}
-      <div className="inst-container" style={{ paddingTop: 16 }}>
+      {/* 返回按钮 */}
+      <div className="inst-back-bar">
+        <button
+          onClick={() => nav(-1)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 20, padding: '8px 14px', cursor: 'pointer', color: '#e5e7eb', fontSize: 13
+          }}
+        >
+          <span style={{ fontSize: 16 }}>←</span>
+          <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+        </button>
+      </div>
+      <div className="inst-container">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <button className="back-btn" onClick={() => nav(-1)} aria-label="back" style={{ position: 'relative', top: 'auto', left: 'auto' }}><span className="back-icon"></span></button>
-            <h1 className="title" style={{ marginTop: 0, marginBottom: 0 }}>{labels.pageTitle}</h1>
-          </div>
-          <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? '从后台配置的大宗交易中选择并认购' : (lang === 'es' ? 'Seleccione y suscríbase a operaciones de bloque' : 'Select and subscribe to block trades')}</div>
+          <h1 className="title" style={{ marginTop: 0, marginBottom: 8 }}>{labels.pageTitle}</h1>
+          <div className="desc">{lang === 'zh' ? '从后台配置的大宗交易中选择并认购' : (lang === 'pl' ? 'Wybierz i subskrybuj transakcje blokowe' : 'Select and subscribe to block trades')}</div>
         </div>
 
         <div className="inst-card">
-          {loading && (<div className="desc">{lang === 'zh' ? '加载中...' : (lang === 'es' ? 'Cargando...' : 'Loading...')}</div>)}
-          {!loading && (() => items.filter(inWindow).length === 0)() && (<div className="desc">{lang === 'zh' ? '暂无数据' : (lang === 'es' ? 'Sin datos' : 'No data')}</div>)}
+          {loading && (<div className="desc">{lang === 'zh' ? '加载中...' : (lang === 'pl' ? 'Cargando...' : 'Loading...')}</div>)}
+          {!loading && (() => items.filter(inWindow).length === 0)() && (<div className="desc">{lang === 'zh' ? '暂无数据' : (lang === 'pl' ? 'Sin datos' : 'No data')}</div>)}
           {!loading && items.filter(inWindow).length > 0 && (
             <div style={{ display: 'grid', gap: 12 }}>
               {items.filter(inWindow).map(it => {
@@ -290,15 +301,15 @@ export default function InstitutionBlocks() {
                       <div className="tag" style={{ background: market === 'crypto' ? '#2a3b56' : '#2a5640', transform: 'scale(0.92)', whiteSpace: 'normal', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{labels.type}: {market === 'crypto' ? labels.typeCrypto : labels.typeUS}</div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      <div className="desc">{labels.currentPrice}: {(market === 'crypto' ? formatUSDT(currentPrice, lang) : formatMoney(currentPrice * usdToMxnRate, 'MXN', lang))}</div>
-                      <div className="desc">{labels.blockPrice}: {market === 'crypto' ? formatUSDT(blockPrice, lang) : formatMoney(blockPrice * usdToMxnRate, 'MXN', lang)}</div>
+                      <div className="desc">{labels.currentPrice}: {(market === 'crypto' ? formatUSDT(currentPrice, lang) : formatMoney(currentPrice * usdToPlnRate, 'PLN', lang))}</div>
+                      <div className="desc">{labels.blockPrice}: {market === 'crypto' ? formatUSDT(blockPrice, lang) : formatMoney(blockPrice * usdToPlnRate, 'PLN', lang)}</div>
                       <div className="desc">{labels.window}: {formatMinute(it.start_at || it.startAt)} ~ {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{lang === 'zh' ? '截至购买' : 'Deadline'}: {formatMinute(it.end_at || it.endAt)}</div>
                       <div className="desc">{labels.lockedUntil}: {formatMinute(it.lock_until || it.lockUntil)}</div>
                       <div className="desc">{labels.minQty}: {minQty}</div>
-                      <div className="desc">{labels.consume}: {currency === 'USDT' ? formatUSDT(total, lang) : formatMoney(total * usdToMxnRate, 'MXN', lang)}</div>
+                      <div className="desc">{labels.consume}: {currency === 'USDT' ? formatUSDT(total, lang) : formatMoney(total * usdToPlnRate, 'PLN', lang)}</div>
                       <div className="desc" style={{ color: unitProfit >= 0 ? '#5cff9b' : '#ff5c7a' }}>
-                        {(lang === 'zh' ? '预计收益' : 'Est. Profit')}: {(currency === 'USDT' ? formatUSDT(totalProfit || unitProfit, lang) : formatMoney((totalProfit || unitProfit) * usdToMxnRate, 'MXN', lang))} ({unitPct.toFixed(2)}%)
+                        {(lang === 'zh' ? '预计收益' : 'Est. Profit')}: {(currency === 'USDT' ? formatUSDT(totalProfit || unitProfit, lang) : formatMoney((totalProfit || unitProfit) * usdToPlnRate, 'PLN', lang))} ({unitPct.toFixed(2)}%)
                       </div>
                     </div>
                     <div className="form admin-form-compact" style={{ marginTop: 4 }}>
@@ -315,7 +326,7 @@ export default function InstitutionBlocks() {
                       <label className="label">{labels.qty}</label>
                       <div style={{ marginBottom: 8 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#8aa0bd', marginBottom: 4 }}>
-                          <span>{lang === 'zh' ? '可用余额' : (lang === 'es' ? 'Saldo disponible' : 'Available Balance')}: {market === 'crypto' ? formatUSDT(balances.USDT || 0, lang) : formatMoney(balances.MXN || 0, 'MXN', lang)}</span>
+                          <span>{lang === 'zh' ? '可用余额' : (lang === 'pl' ? 'Saldo disponible' : 'Available Balance')}: {market === 'crypto' ? formatUSDT(balances.USDT || 0, lang) : formatMoney(balances.PLN || 0, 'PLN', lang)}</span>
                           <span>{sliderMap[it.id] || 0}%</span>
                         </div>
                         <input

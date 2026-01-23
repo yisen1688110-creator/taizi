@@ -30,7 +30,7 @@ export default function Settings() {
   const [name, setName] = useState(user?.name || "");
   const phone = user?.phone || "";
   const [avatarUrl, setAvatarUrl] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("avatarUrl") || "null") || (user?.avatarUrl) || "/logo.png"; } catch { return "/logo.png"; }
+    try { return JSON.parse(localStorage.getItem("avatarUrl") || "null") || (user?.avatarUrl) || "/logo.jpg"; } catch { return "/logo.jpg"; }
   });
   const fileRef = useRef(null);
 
@@ -185,7 +185,7 @@ export default function Settings() {
   useEffect(() => { (async () => { try { const data = await api.get('/me/kyc/status'); let s = String((data?.status || '')).toLowerCase(); if (!s) s = 'none'; if (s === 'none') s = 'unverified'; setKycStatus(s); try { localStorage.setItem('kyc:status', s); } catch { } } catch { } })(); }, []);
   const openKycModal = () => {
     if (String(kycStatus).toLowerCase() === 'submitted') {
-      showToast(lang === 'zh' ? '正在审核中' : (lang === 'es' ? 'En revisión' : 'Under review'), 'info');
+      showToast(lang === 'zh' ? '正在审核中' : (lang === 'pl' ? 'W trakcie przeglądu' : 'Under review'), 'info');
       return;
     }
     setKycName(user?.name || ''); setKycDocType('passport'); setKycDocNo(''); setKycImages([]); setModal({ type: 'kyc' });
@@ -223,9 +223,9 @@ export default function Settings() {
     try {
       const dataUrl = await compressImageFile(f);
       const approxBytes = Math.ceil((dataUrl.length || 0) * 3 / 4);
-      if (approxBytes > 18 * 1024 * 1024) { showToast(lang === 'zh' ? '图片过大' : (lang === 'es' ? 'Imagen demasiado grande' : 'Image too large'), 'error'); return; }
+      if (approxBytes > 18 * 1024 * 1024) { showToast(lang === 'zh' ? '图片过大' : (lang === 'pl' ? 'Obraz zbyt duży' : 'Image too large'), 'error'); return; }
       setKycImages(prev => { const arr = [...prev]; arr[i] = dataUrl; return arr.slice(0, 2); });
-    } catch { showToast(lang === 'zh' ? '图片处理失败' : (lang === 'es' ? 'Error al procesar imagen' : 'Image processing failed'), 'error'); }
+    } catch { showToast(lang === 'zh' ? '图片处理失败' : (lang === 'pl' ? 'Przetwarzanie obrazu nie powiodło się' : 'Image processing failed'), 'error'); }
   };
   const submitKyc = async () => {
     const nm = String(kycName || '').trim();
@@ -241,22 +241,22 @@ export default function Settings() {
       await api.post('/me/kyc/submit', { fields: { name: nm, idType: dt, idNumber: dn }, photos });
       setKycStatus('submitted');
       try { localStorage.setItem('kyc:status', 'submitted'); } catch { }
-      showToast(lang === 'es' ? 'Enviado para revisión' : 'Submitted for review', 'ok');
+      showToast(lang === 'zh' ? '已提交审核' : (lang === 'pl' ? 'Przesłano do przeglądu' : 'Submitted for review'), 'ok');
       setModal({ type: null });
     } catch (e) {
       const raw = String(e?.message || 'Failed');
-      const msg = raw.toLowerCase().includes('payload_too_large') ? (lang === 'zh' ? '图片过大' : (lang === 'es' ? 'Imagen demasiado grande' : 'Image too large')) : String(e?.message || 'Failed');
+      const msg = raw.toLowerCase().includes('payload_too_large') ? (lang === 'zh' ? '图片过大' : (lang === 'pl' ? 'Obraz zbyt duży' : 'Image too large')) : String(e?.message || 'Failed');
       if (/pending\s*review|submitted/i.test(msg)) {
         setKycStatus('submitted');
         try { localStorage.setItem('kyc:status', 'submitted'); } catch { }
-        showToast(lang === 'zh' ? '已提交审核，请等待' : (lang === 'es' ? 'En revisión' : 'Already submitted, pending review'), 'warn');
+        showToast(lang === 'zh' ? '已提交审核，请等待' : (lang === 'pl' ? 'Już przesłane, oczekuje na przegląd' : 'Already submitted, pending review'), 'warn');
         setModal({ type: null });
         return;
       }
       if (/already\s*approved/i.test(msg)) {
         setKycStatus('approved');
         try { localStorage.setItem('kyc:status', 'approved'); } catch { }
-        showToast(lang === 'zh' ? '已通过，无需重复提交' : (lang === 'es' ? 'Aprobado, no es necesario reenviar' : 'Already approved'), 'ok');
+        showToast(lang === 'zh' ? '已通过，无需重复提交' : (lang === 'pl' ? 'Już zatwierdzone' : 'Already approved'), 'ok');
         setModal({ type: null });
         return;
       }
@@ -291,14 +291,14 @@ export default function Settings() {
           <div className="settings-col">
             {/* 头像：移除标签与按钮，点击头像触发上传 */}
             <div className="avatar-inline">
-              <img src={avatarUrl || "/logo.png"} alt="avatar" className="settings-avatar clickable" onClick={onPickAvatar} />
+              <img src={avatarUrl || "/logo.jpg"} alt="avatar" className="settings-avatar clickable" onClick={onPickAvatar} />
               <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={onAvatarSelected} style={{ display: 'none' }} />
             </div>
 
             {/* 姓名：左右布局，点击右侧弹出修改弹窗 */}
             <div className="settings-item">
               <div className="item-label">{t('nameLabel')}</div>
-              <button className="item-value-btn" onClick={() => openModal('name')}>{name || (lang === 'es' ? 'Sin configurar' : 'Not set')}</button>
+              <button className="item-value-btn" onClick={() => openModal('name')}>{name || (lang === 'zh' ? '未设置' : (lang === 'pl' ? 'Nie ustawiono' : 'Not set'))}</button>
             </div>
 
             {/* 手机号码：只读显示 */}
@@ -321,17 +321,17 @@ export default function Settings() {
             <div className="settings-item">
               <div className="item-label">{t('kycTitle')}</div>
               {kycStatus === 'approved' ? (
-                <div className="item-value-text">{lang === 'es' ? 'Verificado' : 'Verified'}</div>
+                <div className="item-value-text">{lang === 'zh' ? '已验证' : (lang === 'pl' ? 'Zweryfikowany' : 'Verified')}</div>
               ) : (
                 <button className="item-value-btn" onClick={openKycModal}>
-                  {kycStatus === 'submitted' ? (lang === 'es' ? 'En revisión' : 'Under review') : (lang === 'es' ? 'No verificado' : 'Not verified')}
+                  {kycStatus === 'submitted' ? (lang === 'zh' ? '审核中' : (lang === 'pl' ? 'W trakcie przeglądu' : 'Under review')) : (lang === 'zh' ? '未验证' : (lang === 'pl' ? 'Niezweryfikowany' : 'Not verified'))}
                 </button>
               )}
             </div>
             <div className="settings-item">
               <div className="item-label">{t('languageLabel')}</div>
               <button className="item-value-btn" onClick={() => openModal('lang')}>
-                {lang === 'es' ? t('langSpanish') : t('langEnglish')} <span className="chevron">▾</span>
+                {lang === 'zh' ? t('langChinese') : (lang === 'en' ? t('langEnglish') : t('langPolish'))} <span className="chevron">▾</span>
               </button>
             </div>
             <div className="sub-actions" style={{ justifyContent: 'flex-end' }}>
@@ -405,11 +405,57 @@ export default function Settings() {
         <div className="modal">
           <div className="modal-card">
             <h2 className="title" style={{ marginTop: 0 }}>{t('chooseLanguage')}</h2>
-            <div className="form" style={{ display: 'flex', gap: 10 }}>
-              <button className={`btn ${lang === 'es' ? 'primary' : ''}`} onClick={async () => { try { await api.post('/me/lang', { lang: 'es' }); } catch { } setLang('es'); closeModal(); }}>Español</button>
-              <button className={`btn ${lang === 'en' ? 'primary' : ''}`} onClick={async () => { try { await api.post('/me/lang', { lang: 'en' }); } catch { } setLang('en'); closeModal(); }}>English</button>
+            <div className="form" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <button 
+                onClick={async () => { try { await api.post('/me/lang', { lang: 'en' }); } catch { } setLang('en'); closeModal(); }}
+                style={{
+                  padding: '14px 20px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  border: lang === 'en' ? '2px solid #3b82f6' : '2px solid rgba(255,255,255,0.2)',
+                  background: lang === 'en' ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)',
+                  color: lang === 'en' ? '#60a5fa' : '#e5e7eb',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🇬🇧 English
+              </button>
+              <button 
+                onClick={async () => { try { await api.post('/me/lang', { lang: 'zh' }); } catch { } setLang('zh'); closeModal(); }}
+                style={{
+                  padding: '14px 20px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  border: lang === 'zh' ? '2px solid #3b82f6' : '2px solid rgba(255,255,255,0.2)',
+                  background: lang === 'zh' ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)',
+                  color: lang === 'zh' ? '#60a5fa' : '#e5e7eb',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🇨🇳 简体中文
+              </button>
+              <button 
+                onClick={async () => { try { await api.post('/me/lang', { lang: 'pl' }); } catch { } setLang('pl'); closeModal(); }}
+                style={{
+                  padding: '14px 20px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  cursor: 'pointer',
+                  border: lang === 'pl' ? '2px solid #3b82f6' : '2px solid rgba(255,255,255,0.2)',
+                  background: lang === 'pl' ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)',
+                  color: lang === 'pl' ? '#60a5fa' : '#e5e7eb',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🇵🇱 Polski
+              </button>
             </div>
-            <div className="desc" style={{ marginTop: 8 }}>{t('langSwitchInstant')}</div>
+            <div className="desc" style={{ marginTop: 12, textAlign: 'center' }}>{t('langSwitchInstant')}</div>
           </div>
         </div>
       )}
@@ -420,18 +466,18 @@ export default function Settings() {
             <div className="form">
               <div className="label">{t('nameLabel')}</div>
               <input className="input" value={kycName} onChange={e => setKycName(e.target.value)} />
-              <div className="label">{lang === 'es' ? 'Tipo de documento' : 'Document Type'}</div>
+              <div className="label">{lang === 'zh' ? '证件类型' : (lang === 'pl' ? 'Typ dokumentu' : 'Document Type')}</div>
               <select className="input" value={kycDocType} onChange={e => setKycDocType(e.target.value)}>
-                <option value="passport">{lang === 'es' ? 'Pasaporte' : 'Passport'}</option>
-                <option value="dni">{lang === 'es' ? 'Identificación' : 'ID'}</option>
-                <option value="dl">{lang === 'es' ? 'Licencia' : 'Driver License'}</option>
+                <option value="passport">{lang === 'zh' ? '护照' : (lang === 'pl' ? 'Paszport' : 'Passport')}</option>
+                <option value="dni">{lang === 'zh' ? '身份证' : (lang === 'pl' ? 'Dowód osobisty' : 'ID')}</option>
+                <option value="dl">{lang === 'zh' ? '驾驶证' : (lang === 'pl' ? 'Prawo jazdy' : 'Driver License')}</option>
               </select>
-              <div className="label">{lang === 'es' ? 'Número de documento' : 'Document Number'}</div>
+              <div className="label">{lang === 'zh' ? '证件号码' : (lang === 'pl' ? 'Numer dokumentu' : 'Document Number')}</div>
               <input className="input" value={kycDocNo} onChange={e => setKycDocNo(e.target.value)} />
-              <div className="desc" style={{ marginTop: 8 }}>{lang === 'es' ? 'Carga la foto correspondiente del documento' : 'Please upload the corresponding document photo'}</div>
+              <div className="desc" style={{ marginTop: 8 }}>{lang === 'zh' ? '请上传相应的证件照片' : (lang === 'pl' ? 'Prześlij odpowiednie zdjęcie dokumentu' : 'Please upload the corresponding document photo')}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
                 {[0, 1].map((i) => (
-                  <div key={i} style={{ width: 80, height: 80, border: '1px dashed #263b5e', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => { if (String(kycStatus).toLowerCase() === 'submitted') { showToast(lang === 'zh' ? '正在审核中' : (lang === 'es' ? 'En revisión' : 'Under review'), 'info'); return; } kycFileRefs[i].current?.click(); }}>
+                  <div key={i} style={{ width: 80, height: 80, border: '1px dashed #263b5e', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => { if (String(kycStatus).toLowerCase() === 'submitted') { showToast(lang === 'zh' ? '正在审核中' : (lang === 'pl' ? 'W trakcie przeglądu' : 'Under review'), 'info'); return; } kycFileRefs[i].current?.click(); }}>
                     {kycImages[i] ? (<img src={kycImages[i]} alt="doc" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 10, border: '1px solid #263b5e' }} />) : '+'}
                     <input ref={kycFileRefs[i]} type="file" accept="image/*" onChange={(e) => onKycFileAt(i, e)} style={{ display: 'none' }} />
                   </div>

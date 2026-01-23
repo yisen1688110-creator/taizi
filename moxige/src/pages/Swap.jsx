@@ -7,7 +7,7 @@ import { useI18n } from "../i18n.jsx";
 import "../styles/trading.css";
 import { getQuotes, getCryptoQuotes } from "../services/marketData.js";
 import { api, notificationsApi } from "../services/api.js";
-import { formatMoney, formatMXN, formatUSDT } from "../utils/money.js";
+import { formatMoney, formatPLN, formatUSDT } from "../utils/money.js";
 
 function readSession() {
   try { return JSON.parse(localStorage.getItem("sessionUser") || "null"); } catch { return null; }
@@ -65,13 +65,13 @@ export default function Swap() {
   // 登录态标识需在首次使用之前声明，避免 TDZ 报错
   const isAuthed = !!session;
   // 账户余额（用于下单资金匹配）
-  const [balanceMXN, setBalanceMXN] = useState(0);
+  const [balancePLN, setBalancePLN] = useState(0);
   const [balanceUSD, setBalanceUSD] = useState(0);
   const [balanceUSDT, setBalanceUSDT] = useState(0);
   const [tradingDisabled, setTradingDisabled] = useState(false);
   const [kycStatus, setKycStatus] = useState('none');
   const [kycModal, setKycModal] = useState(false);
-  // 金额格式化：改为统一工具，确保西语 MXN 使用 MX$
+  // 金额格式化：改为统一工具，确保波兰语 PLN 使用 zł
   
   // 交易状态
   const [orderType, setOrderType] = useState("buy"); // buy or sell
@@ -140,7 +140,7 @@ export default function Swap() {
           return `BINANCE:${basePair}`;
         }
         if (market === 'us') return `NASDAQ:${s}`;
-        if (market === 'mx') return `BMV:${s}`;
+        if (market === 'pl') return `WSE:${s}`;
       }
     } catch {}
     return "NASDAQ:AAPL";
@@ -241,7 +241,7 @@ export default function Swap() {
       try { setTradingDisabled(!!data?.disabled); } catch {}
       const arr = Array.isArray(data?.balances) ? data.balances : [];
       const map = arr.reduce((m, r) => { m[String(r.currency).toUpperCase()] = Number(r.amount || 0); return m; }, {});
-      setBalanceMXN(Number.isFinite(map.MXN) ? map.MXN : 0);
+      setBalancePLN(Number.isFinite(map.PLN) ? map.PLN : 0);
       setBalanceUSD(Number.isFinite(map.USD) ? map.USD : 0);
       setBalanceUSDT(Number.isFinite(map.USDT) ? map.USDT : 0);
     } catch {}
@@ -299,8 +299,8 @@ export default function Swap() {
       const msg = String(e?.message || e || '').toLowerCase();
       if (msg.includes('market_time_closed')) {
         showToast(lang==='zh'?'当前不在交易时间':(lang==='es'?'Fuera del horario de mercado':'Market time closed'), 'warn');
-      } else if (msg.includes('insufficient_funds_mxn')) {
-        showToast(t('errorBalanceInsufficientMXN') || 'MXN 余额不足', 'warn');
+      } else if (msg.includes('insufficient_funds_pln')) {
+        showToast(t('errorBalanceInsufficientPLN') || 'PLN 余额不足', 'warn');
       } else {
         showToast(String(e?.message || e), 'error');
       }
@@ -317,8 +317,8 @@ export default function Swap() {
       const msg = String(e?.message || e || '').toLowerCase();
       if (msg.includes('market_time_closed')) {
         showToast(lang==='zh'?'当前不在交易时间':(lang==='es'?'Fuera del horario de mercado':'Market time closed'), 'warn');
-      } else if (msg.includes('insufficient_funds_mxn')) {
-        showToast(t('errorBalanceInsufficientMXN') || 'MXN 余额不足', 'warn');
+      } else if (msg.includes('insufficient_funds_pln')) {
+        showToast(t('errorBalanceInsufficientPLN') || 'PLN 余额不足', 'warn');
       } else {
         showToast(String(e?.message || e), 'error');
       }
@@ -337,8 +337,8 @@ export default function Swap() {
       const msg = String(e?.message || e || '').toLowerCase();
       if (msg.includes('market_time_closed')) {
         showToast(lang==='zh'?'当前不在交易时间':(lang==='es'?'Fuera del horario de mercado':'Market time closed'), 'warn');
-      } else if (msg.includes('insufficient_funds_mxn')) {
-        showToast(t('errorBalanceInsufficientMXN') || 'MXN 余额不足', 'warn');
+      } else if (msg.includes('insufficient_funds_pln')) {
+        showToast(t('errorBalanceInsufficientPLN') || 'PLN 余额不足', 'warn');
       } else {
         showToast(String(e?.message || e), 'error');
       }
@@ -363,7 +363,7 @@ export default function Swap() {
   useEffect(() => {
     const disp = parseDisplaySymbol(tradingViewSymbol);
     const mk = detectMarket(tradingViewSymbol);
-    const isStock = mk === 'mx' || mk === 'us';
+    const isStock = mk === 'pl' || mk === 'us';
     if (!isStock) return;
     (async () => {
       try {
@@ -395,9 +395,9 @@ export default function Swap() {
     try {
       const uid = await resolveUid();
       const isBuy = side === 'buy';
-      const verb = isBuy ? (lang === 'es' ? 'Has comprado' : 'You purchased') : (lang === 'es' ? 'Has vendido' : 'You sold');
-      const title = lang === 'es' ? 'Operación ejecutada' : 'Trade Executed';
-      const body = `${verb} ${symbol} · ${qty} @ ${Number(price).toFixed(2)} · ${isBuy ? (lang === 'es' ? 'Gastaste' : 'Spent') : (lang === 'es' ? 'Recibiste' : 'Received')} ${total} ${currency} (${type})`;
+      const verb = isBuy ? (lang === 'pl' ? 'Has comprado' : 'You purchased') : (lang === 'pl' ? 'Has vendido' : 'You sold');
+      const title = lang === 'pl' ? 'Operación ejecutada' : 'Trade Executed';
+      const body = `${verb} ${symbol} · ${qty} @ ${Number(price).toFixed(2)} · ${isBuy ? (lang === 'pl' ? 'Gastaste' : 'Spent') : (lang === 'pl' ? 'Recibiste' : 'Received')} ${total} ${currency} (${type})`;
       notificationsApi.add(uid, { title, body, pinned: false });
     } catch {}
   }
@@ -411,7 +411,7 @@ export default function Swap() {
     if (!sym) return "unknown";
     if (sym.includes("BINANCE:")) return "crypto";
     if (sym.includes("NASDAQ:")) return "us";
-    if (sym.includes("BMV:")) return "mx";
+    if (sym.includes("WSE:")) return "pl";
     return "unknown";
   }
   // 解析显示用符号
@@ -428,8 +428,8 @@ export default function Swap() {
 
   // 根据市场与标的选择价格小数位：主流币两位，小币种更多；股票两位
   function priceDecimalsFor(disp, price) {
-    const mk = /\.MX$/i.test(disp) ? 'mx' : (/^(?:[A-Z0-9]+)(USDT|USD|BUSD)$/i.test(disp) ? 'crypto' : 'us');
-    if (mk === 'mx' || mk === 'us') return 2;
+    const mk = /\.WA$/i.test(disp) ? 'pl' : (/^(?:[A-Z0-9]+)(USDT|USD|BUSD)$/i.test(disp) ? 'crypto' : 'us');
+    if (mk === 'pl' || mk === 'us') return 2;
     const base = baseFromDisp(disp);
     const major = new Set(["BTC","ETH","BNB","SOL"]);
     if (major.has(base)) return 2;
@@ -447,11 +447,11 @@ export default function Swap() {
   const [, setPnlTick] = useState(0);
   const lastFetchRef = useRef({}); // 每符号最近一次Yahoo拉取时间戳，避免过度请求
 
-  // 将墨股显示符号转换为 Yahoo Finance 符号（示例：AMX/L -> AMXL.MX）
-  function toYahooMexicoSymbol(disp) {
+  // 将墨股显示符号转换为 Yahoo Finance 符号（示例：AMX/L -> AMXL.WA）
+  function toYahooPolandSymbol(disp) {
     if (!disp) return "";
-    const base = String(disp).toUpperCase().replace(/\/+/g, "").replace(/\.MX$/i, "");
-    return `${base}.MX`;
+    const base = String(disp).toUpperCase().replace(/\/+/g, "").replace(/\.WA$/i, "");
+    return `${base}.WA`;
   }
 
   function isCryptoDisp(disp) {
@@ -488,10 +488,10 @@ export default function Swap() {
         change = Number.isFinite(price) ? price * (changePct/100) : 0;
       } else {
         let symbol = disp;
-        let market = /\.MX$/i.test(disp) ? 'mx' : 'us';
+        let market = /\.WA$/i.test(disp) ? 'pl' : 'us';
         if (market === 'us' && !/^[A-Z][A-Z0-9.-]{0,6}$/i.test(disp)) {
-          symbol = toYahooMexicoSymbol(disp);
-          market = 'mx';
+          symbol = toYahooPolandSymbol(disp);
+          market = 'pl';
         }
         const list = await getQuotes({ market, symbols: [symbol] });
         const q = list[0];
@@ -503,9 +503,9 @@ export default function Swap() {
             if (Number.isFinite(prevClose) && prevClose > 0) price = prevClose;
           } catch {}
         }
-        if (market==='mx' && Number.isFinite(price) && price > 1000) {
+        if (market==='pl' && Number.isFinite(price) && price > 1000) {
           try {
-            const closes = await getStockSpark(symbol, 'mx', { interval: '1day', points: 1 });
+            const closes = await getStockSpark(symbol, 'pl', { interval: '1day', points: 1 });
             const prevClose = Array.isArray(closes) && closes.length ? Number(closes[closes.length - 1] || 0) : 0;
             if (Number.isFinite(prevClose) && prevClose > 0) price = prevClose;
           } catch {}
@@ -547,12 +547,21 @@ export default function Swap() {
     };
   }, [positions, tradingViewSymbol, refreshPriceForSymbol]);
 
+  // 标记是否收到了K线图的实时价格更新
+  const chartPriceReceivedRef = useRef(false);
+
   // 抓取当前价（仅在符号变更时执行一次，避免持续刷新影响K线查看）
   useEffect(() => {
     let aborted = false;
     async function fetchOnce() {
       const market = detectMarket(tradingViewSymbol);
       const disp = parseDisplaySymbol(tradingViewSymbol);
+      
+      // 加密货币：如果已收到K线图的实时更新，跳过轮询
+      if (market === "crypto" && chartPriceReceivedRef.current) {
+        return;
+      }
+      
       try {
         let p = NaN;
         let ch = 0;
@@ -566,10 +575,10 @@ export default function Swap() {
           ch = Number.isFinite(p) ? p * (pct/100) : 0;
         } else {
           let symbol = disp;
-          let mk = /\.MX$/i.test(disp) ? 'mx' : 'us';
+          let mk = /\.WA$/i.test(disp) ? 'pl' : 'us';
           if (mk === 'us' && !/^[A-Z][A-Z0-9.-]{0,6}$/i.test(disp)) {
-            symbol = toYahooMexicoSymbol(disp);
-            mk = 'mx';
+            symbol = toYahooPolandSymbol(disp);
+            mk = 'pl';
           }
           const list = await getQuotes({ market: mk, symbols: [symbol] });
           const q = list[0];
@@ -581,9 +590,9 @@ export default function Swap() {
               if (Number.isFinite(prevClose) && prevClose > 0) p = prevClose;
             } catch {}
           }
-          if (mk==='mx' && Number.isFinite(p) && p > 1000) {
+          if (mk==='pl' && Number.isFinite(p) && p > 1000) {
             try {
-              const closes = await getStockSpark(symbol, 'mx', { interval: '1day', points: 1 });
+              const closes = await getStockSpark(symbol, 'pl', { interval: '1day', points: 1 });
               const prevClose = Array.isArray(closes) && closes.length ? Number(closes[closes.length - 1] || 0) : 0;
               if (Number.isFinite(prevClose) && prevClose > 0) p = prevClose;
             } catch {}
@@ -691,8 +700,8 @@ export default function Swap() {
             await postFillLimitOrder(o.id, current, { symbol: o.symbol, side: o.side, qty: Number(o.quantity||0) });
             appendTrade({ id: `tr_${Date.now()}`, symbol: o.symbol, side: o.side, type: 'limit', quantity: Number(o.quantity||0), price: current, ts: Date.now() });
             const uid = await resolveUid();
-            const title = lang === 'es' ? 'Límite ejecutado' : 'Limit Filled';
-            const body = lang === 'es' ? `Orden ${o.side === 'buy' ? 'de compra' : 'de venta'} ejecutada @ ${current}` : `Order ${o.side} filled @ ${current}`;
+            const title = lang === 'pl' ? 'Límite ejecutado' : 'Limit Filled';
+            const body = lang === 'pl' ? `Orden ${o.side === 'buy' ? 'de compra' : 'de venta'} ejecutada @ ${current}` : `Order ${o.side} filled @ ${current}`;
             notificationsApi.add(uid, { title, body, pinned: false });
           } catch {}
         }
@@ -716,20 +725,20 @@ export default function Swap() {
     const currentPrice = Number(livePrice ?? stockPrice);
     const execOrLimit = priceType === 'market' ? currentPrice : Number(limitPrice);
     const cost = Number.isFinite(execOrLimit) ? qty * execOrLimit : NaN;
-    // 统一以 MXN 结算：非墨股根据 USD/MXN 汇率转换一次
+    // 统一以 PLN 结算：非墨股根据 USD/PLN 汇率转换一次
     let rate = 1;
-    try { if (market !== 'mx') rate = Number(await getUsdMxnRate()) || 1; } catch { rate = 1; }
-    const mxnCost = Number.isFinite(cost) ? cost * rate : NaN;
-    const mxnFunds = Number(balanceMXN || 0);
-    const insuffMsg = t('errorBalanceInsufficientMXN') || 'MXN 余额不足';
+    try { if (market !== 'pl') rate = Number(await getUsdPlnRate()) || 1; } catch { rate = 1; }
+    const plnCost = Number.isFinite(cost) ? cost * rate : NaN;
+    const plnFunds = Number(balancePLN || 0);
+    const insuffMsg = t('errorBalanceInsufficientPLN') || 'PLN 余额不足';
     if (orderType === 'buy') {
-      if (!Number.isFinite(mxnCost) || mxnCost <= 0) return;
-      if (mxnFunds < mxnCost) { showToast(insuffMsg, 'warn'); return; }
+      if (!Number.isFinite(plnCost) || plnCost <= 0) return;
+      if (plnFunds < plnCost) { showToast(insuffMsg, 'warn'); return; }
     }
     if (priceType === 'market') {
       const execPrice = Number(livePrice ?? stockPrice);
       const orderTypeText = orderType === 'buy' ? t('buy') : t('sell');
-      showToast(`${t('orderSubmitted')}: ${orderTypeText} ${quantity} ${t('shares')}`, 'success');
+      showToast(`${t('orderSubmitted')}: ${orderTypeText} ${quantity} ${market === 'crypto' ? t('quantity') : t('shares')}`, 'success');
       const ok = await postTradeExecute({ symbol: dispSymbol, side: orderType, qty, price: execPrice });
       if (ok) {
         appendTrade({ id: `tr_${Date.now()}`, symbol: dispSymbol, side: orderType, type: 'market', quantity: qty, price: execPrice, ts: Date.now() });
@@ -754,12 +763,14 @@ export default function Swap() {
       
       await postCreateLimitOrder({ symbol: dispSymbol, side: orderType, qty, limitPrice: lp });
       const orderTypeText = orderType === 'buy' ? t('buy') : t('sell');
-      showToast(`${t('orderSubmitted')}: ${orderTypeText} ${quantity} ${t('shares')} @ ${lp}`, 'success');
+      showToast(`${t('orderSubmitted')}: ${orderTypeText} ${quantity} ${market === 'crypto' ? t('quantity') : t('shares')} @ ${lp}`, 'success');
     }
   };
 
   // 处理符号变化
   const handleSymbolChange = (newSymbol) => {
+    // 重置K线图价格接收标记
+    chartPriceReceivedRef.current = false;
     setTradingViewSymbol(newSymbol);
   };
 
@@ -793,6 +804,27 @@ export default function Swap() {
             height={400}
             period="1mo"
             interval="1d"
+            onPriceUpdate={(data) => {
+              // 接收 K线图组件的实时价格更新
+              if (data && Number.isFinite(data.price) && data.price > 0) {
+                // 标记已收到K线图的价格更新，停止自身轮询
+                chartPriceReceivedRef.current = true;
+                
+                const prev = Number(lastPriceRef.current ?? livePrice ?? data.price);
+                setLivePrice(data.price);
+                setStockPrice(data.price);
+                if (Number.isFinite(data.change)) setPriceChange(data.change);
+                if (Number.isFinite(data.changePct)) setPriceChangePercent(data.changePct);
+                if (Number.isFinite(prev)) {
+                  if (data.price > prev) setPriceTrend('up');
+                  else if (data.price < prev) setPriceTrend('down');
+                }
+                lastPriceRef.current = data.price;
+                // 缓存价格信息
+                const disp = parseDisplaySymbol(tradingViewSymbol);
+                try { localStorage.setItem(`price:${disp}`, JSON.stringify({ price: data.price, change: data.change, changePct: data.changePct, ts: Date.now() })); } catch {}
+              }
+            }}
           />
         </div>
 
@@ -823,12 +855,12 @@ export default function Swap() {
           {/* 左侧：下单表单 */}
           <div className="trading-card portfolio-card">
             <div className="portfolio-content">
-              {/* 市场对应的小方框余额：加密显示 USDT；美股显示 USD；墨股显示 MXN */}
+              {/* 市场对应的小方框余额：加密显示 USDT；美股显示 USD；墨股显示 PLN */}
               {(() => {
-                const formatted = formatMXN(balanceMXN, lang);
+                const formatted = formatPLN(balancePLN, lang);
                 return (
                   <div className="balance-chip" aria-label="balance-chip">
-                    <span className="chip-label">MX</span>
+                    <span className="chip-label">PLN</span>
                     <span className="chip-value">{formatted}</span>
                   </div>
                 );
@@ -866,7 +898,7 @@ export default function Swap() {
                 </div>
 
                 <div className="form-group">
-                  <label>{t('shares')}</label>
+                  <label>{detectMarket(tradingViewSymbol) === 'crypto' ? t('quantity') : t('shares')}</label>
                   <input 
                     type="number" 
                     className="form-input"
@@ -940,14 +972,14 @@ export default function Swap() {
                         <span className={`pos-pnl ${cls}`}>{pnlAmt.toFixed(2)}</span>
                         <span className={`pos-pnlpct ${cls}`}>{pnlPct.toFixed(2)}%</span>
                         <span>
-                          <button className="btn" disabled={!!p.locked} onClick={async () => {
+                          <button className="close-btn" disabled={!!p.locked} onClick={async () => {
                             if (kycStatus !== 'approved') { setKycModal(true); return; }
                             // 平多：触发后端卖出成交并结算
                             if (tradingDisabled) { showToast(lang==='es'?'Operación deshabilitada (USD negativo)':'Trading disabled (USD negative)', 'warn'); return; }
                             const sellPrice = Number(current);
                             await postTradeExecute({ symbol: p.symbol, side: 'sell', qty: lQty, price: sellPrice });
                             appendTrade({ id: `tr_${Date.now()}`, symbol: p.symbol, side: 'sell', type: 'close', quantity: lQty, price: sellPrice, ts: Date.now() });
-                            let rate = 1; try { if (!/\.MX$/i.test(p.symbol)) rate = Number(await getUsdMxnRate()) || 1; } catch {}
+                            let rate = 1; try { if (!/\.WA$/i.test(p.symbol)) rate = Number(await getUsdPlnRate()) || 1; } catch {}
                             const total = Number((lQty * sellPrice * rate).toFixed(2));
                           }}>{t('close')}</button>
                         </span>
@@ -969,14 +1001,14 @@ export default function Swap() {
                         <span className={`pos-pnl ${cls}`}>{pnlAmt.toFixed(2)}</span>
                         <span className={`pos-pnlpct ${cls}`}>{pnlPct.toFixed(2)}%</span>
                         <span>
-                          <button className="btn" disabled={!!p.locked} onClick={async () => {
+                          <button className="close-btn" disabled={!!p.locked} onClick={async () => {
                             if (kycStatus !== 'approved') { setKycModal(true); return; }
                             // 平空：触发后端买入成交并结算
                             if (tradingDisabled) { showToast(lang==='es'?'Operación deshabilitada (USD negativo)':'Trading disabled (USD negative)', 'warn'); return; }
                             const buyPrice = Number(current);
                             await postTradeExecute({ symbol: p.symbol, side: 'buy', qty: sQty, price: buyPrice });
                             appendTrade({ id: `tr_${Date.now()}`, symbol: p.symbol, side: 'buy', type: 'close', quantity: sQty, price: buyPrice, ts: Date.now() });
-                            let rate2 = 1; try { if (!/\.MX$/i.test(p.symbol)) rate2 = Number(await getUsdMxnRate()) || 1; } catch {}
+                            let rate2 = 1; try { if (!/\.WA$/i.test(p.symbol)) rate2 = Number(await getUsdPlnRate()) || 1; } catch {}
                             const total = Number((sQty * buyPrice * rate2).toFixed(2));
                           }}>{t('close')}</button>
                         </span>

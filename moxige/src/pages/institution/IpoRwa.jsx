@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api, getToken } from "../../services/api.js";
 import { getQuotes, getStockSpark } from "../../services/marketData.js";
 import { formatMoney } from "../../utils/money.js";
-import { formatMinute, getMexicoTimestamp } from "../../utils/date.js";
-// ...
+import { formatMinute, getPolandTimestamp } from "../../utils/date.js";
+import "../../styles/profile.css";
 
 export default function IpoRwaPage() {
   const { t, lang } = useI18n();
@@ -181,14 +182,14 @@ export default function IpoRwaPage() {
   const submitSubscribe = async (code, price, it) => {
     try {
       const qty = Number(qtyMap[code] || 0);
-      if (!Number.isFinite(qty) || qty <= 0) { alert(lang === 'es' ? 'Ingrese cantidad' : 'Enter quantity'); return; }
+      if (!Number.isFinite(qty) || qty <= 0) { alert(lang === 'pl' ? 'Ingrese cantidad' : 'Enter quantity'); return; }
       const now = Date.now();
-      const sAt = getMexicoTimestamp(it?.subscribeAt);
-      const eAt = getMexicoTimestamp(it?.subscribeEndAt);
-      if (sAt && eAt && (now < sAt || now > eAt)) { alert(lang === 'es' ? 'Fuera de ventana de suscripción' : 'Out of subscription window'); return; }
+      const sAt = getPolandTimestamp(it?.subscribeAt);
+      const eAt = getPolandTimestamp(it?.subscribeEndAt);
+      if (sAt && eAt && (now < sAt || now > eAt)) { alert(lang === 'pl' ? 'Fuera de ventana de suscripción' : 'Out of subscription window'); return; }
       setSubmittingId(code);
       await api.post('/me/ipo/subscribe', { code, qty });
-      setToast({ show: true, type: 'ok', text: lang === 'es' ? 'Solicitud enviada' : 'Submitted' });
+      setToast({ show: true, type: 'ok', text: lang === 'pl' ? 'Solicitud enviada' : 'Submitted' });
       setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
       setQtyMap(p => ({ ...p, [code]: '' }));
     } catch (e) {
@@ -203,18 +204,18 @@ export default function IpoRwaPage() {
   const submitModal = async () => {
     if (!modalItem) return;
     const qv = Number(modalQty || 0);
-    if (!Number.isFinite(qv) || qv <= 0) { setToast({ show: true, type: 'error', text: lang === 'es' ? 'Ingrese cantidad' : 'Enter quantity' }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+    if (!Number.isFinite(qv) || qv <= 0) { setToast({ show: true, type: 'error', text: lang === 'pl' ? 'Ingrese cantidad' : 'Enter quantity' }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
     try {
       setSubmittingId(modalItem.code);
       await api.post('/me/ipo/subscribe', { code: modalItem.code, qty: qv, currentPrice: Number(modalItem.current || 0) });
-      setToast({ show: true, type: 'ok', text: lang === 'es' ? 'Solicitud enviada' : 'Submitted' });
+      setToast({ show: true, type: 'ok', text: lang === 'pl' ? 'Solicitud enviada' : 'Submitted' });
       setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
       closeModal();
       try { const od = await api.get('/me/ipo/orders'); const arr = Array.isArray(od?.items) ? od.items : []; setOrders(arr); } catch { }
     } catch (e) {
       const raw = String(e?.message || e);
       const ended = /ended|window\s*closed/i.test(raw);
-      const txt = ended ? (lang === 'es' ? 'Suscripción finalizada' : 'Subscribe ended') : raw;
+      const txt = ended ? (lang === 'pl' ? 'Suscripción finalizada' : 'Subscribe ended') : raw;
       setToast({ show: true, type: 'error', text: txt });
       setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000);
     } finally { setSubmittingId(null); }
@@ -364,11 +365,11 @@ export default function IpoRwaPage() {
         if (!tok) { setHasNegativeFunds(false); return; }
         const data = await api.get('/me/balances');
         const arr = Array.isArray(data?.balances) ? data.balances : [];
-        // Use backend 'disabled' flag (MXN < 0) or fallback to finding MXN manually
+        // Use backend 'disabled' flag (PLN < 0) or fallback to finding PLN manually
         let isNeg = !!data?.disabled;
         if (data?.disabled === undefined) {
-          const mxn = arr.find(r => String(r.currency || '').toUpperCase() === 'MXN');
-          isNeg = mxn ? Number(mxn.amount || 0) < 0 : false;
+          const pln = arr.find(r => String(r.currency || '').toUpperCase() === 'PLN');
+          isNeg = pln ? Number(pln.amount || 0) < 0 : false;
         }
         if (!stopped) setHasNegativeFunds(isNeg);
       } catch { setHasNegativeFunds(false); }
@@ -420,8 +421,15 @@ export default function IpoRwaPage() {
       const fp = Number(o.finalPrice || o.sellPrice || o.filledPrice || o.closePrice || 0);
       return Number.isFinite(fp) && fp > 0 ? fp : 0;
     }
+    // First try external price from API
     const p = orderPrices[code];
-    return Number.isFinite(p) && p > 0 ? p : 0;
+    if (Number.isFinite(p) && p > 0) return p;
+    // Fallback to listPrice from backend (for IPO not yet on exchange)
+    const lp = Number(o.listPrice || 0);
+    if (Number.isFinite(lp) && lp > 0) return lp;
+    // Fallback to subscribe price
+    const sp = Number(o.subscribePrice || o.price || 0);
+    return Number.isFinite(sp) && sp > 0 ? sp : 0;
   }
   function orderProfit(o) {
     const cur = orderCurrentPrice(o);
@@ -439,10 +447,10 @@ export default function IpoRwaPage() {
     return '#9aa3ad';
   }
   async function onSell(o) {
-    if (hasNegativeFunds) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '当前账户异常，无法卖出' : (lang === 'es' ? 'Cuenta anormal, no se puede vender' : 'Account abnormal, cannot sell') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+    if (hasNegativeFunds) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '当前账户异常，无法卖出' : (lang === 'pl' ? 'Cuenta anormal, no se puede vender' : 'Account abnormal, cannot sell') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
     const { listed, listingDay, allowedToday } = canSellOrder(o);
-    if (!listed) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '未上市，暂不可卖出' : (lang === 'es' ? 'No listado, no se puede vender' : 'Not listed, cannot sell') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
-    if (listingDay && !allowedToday) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '上市当日不可卖出' : (lang === 'es' ? 'No vender en día de listado' : 'Cannot sell on listing day') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+    if (!listed) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '未上市，暂不可卖出' : (lang === 'pl' ? 'No listado, no se puede vender' : 'Not listed, cannot sell') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+    if (listingDay && !allowedToday) { setToast({ show: true, type: 'error', text: lang === 'zh' ? '上市当日不可卖出' : (lang === 'pl' ? 'No vender en día de listado' : 'Cannot sell on listing day') }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
     // Snapshot latest price quickly (US)
     const symbol = fixSymbol(o.code);
     const tryTD = new Promise(async (resolve) => {
@@ -462,26 +470,35 @@ export default function IpoRwaPage() {
     const timeout = new Promise((resolve) => setTimeout(() => resolve(NaN), 1400));
     let cp = await Promise.race([tryTD, tryPrevClose, timeout]);
     if (!Number.isFinite(cp) || cp <= 0) cp = orderCurrentPrice(o);
-    setToast({ show: true, type: 'ok', text: lang === 'zh' ? '卖出成功' : (lang === 'es' ? 'Venta exitosa' : 'Sold') }); setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
+    setToast({ show: true, type: 'ok', text: lang === 'zh' ? '卖出成功' : (lang === 'pl' ? 'Venta exitosa' : 'Sold') }); setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
     // Freeze locally
     setOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: 'done', finalPrice: Number(cp || 0) } : x));
   }
 
   return (
-    <div className="screen" style={{ padding: '0 6px', paddingBottom: 100, alignItems: 'stretch', justifyContent: 'flex-start', width: '100%', boxSizing: 'border-box' }}>
+    <div className="screen top-align inst-screen" style={{ padding: 0 }}>
       {toast?.show && (
         <div style={{ position: 'fixed', top: 10, left: 0, right: 0, display: 'grid', placeItems: 'center', zIndex: 1000 }}>
           <div style={{ padding: '8px 12px', borderRadius: 10, background: toast.type === 'error' ? '#7a2a2a' : '#274a36', color: '#fff', boxShadow: '0 4px 14px rgba(0,0,0,.2)' }}>{toast.text}</div>
         </div>
       )}
-      <div style={{ paddingTop: 16, width: '100%', boxSizing: 'border-box', padding: '16px 6px 10px 6px' }}>
-        <div style={{ width: '100%', marginBottom: 10 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button className="back-btn" onClick={() => navigate(-1)} aria-label="back" style={{ position: 'relative', top: 'auto', left: 'auto', marginRight: 8 }}><span className="back-icon"></span></button>
-            <button className={`pill ${tab === 'ipo' ? 'active' : ''}`} onClick={() => setTab('ipo')}>IPO</button>
-            <button className={`pill ${tab === 'rwa' ? 'active' : ''}`} onClick={() => setTab('rwa')}>RWA</button>
-          </div>
-        </div>
+      {/* 返回按钮 */}
+      <div className="inst-back-bar" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 20, padding: '8px 14px', cursor: 'pointer', color: '#e5e7eb', fontSize: 13
+          }}
+        >
+          <span style={{ fontSize: 16 }}>←</span>
+          <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+        </button>
+        <button className={`pill ${tab === 'ipo' ? 'active' : ''}`} onClick={() => setTab('ipo')}>IPO</button>
+        <button className={`pill ${tab === 'rwa' ? 'active' : ''}`} onClick={() => setTab('rwa')}>RWA</button>
+      </div>
+      <div className="inst-container">
         <div style={{ width: '100%' }}>
         <h1 className="title" style={{ marginTop: 0 }}>{tab === 'ipo' ? 'IPO' : 'RWA'}</h1>
         {loading && <div className="desc">Loading...</div>}
@@ -502,15 +519,15 @@ export default function IpoRwaPage() {
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ display: 'grid', gap: 6 }}>
                         <div style={{ fontWeight: 700 }}>{it.name} · {code}</div>
-                        <div className="desc">{lang === 'zh' ? '当前价格' : (lang === 'es' ? 'Precio actual' : 'Current Price')}: {formatRwaPrice((displayCurrent > 0 ? displayCurrent : Number(it.subscribePrice || 0)) || 0, lang)}</div>
-                        <div className="desc">{lang === 'zh' ? '申购价格' : (lang === 'es' ? 'Precio institucional' : 'Institutional Price')}: {formatRwaPrice(subPrice, lang)}</div>
-                        <div className="desc">{lang === 'zh' ? '上市日期' : (lang === 'es' ? 'Fecha de listado' : 'Listing Date')}: {it.listAt ? formatYMD(it.listAt) : '-'}</div>
-                        <div className="desc">{lang === 'zh' ? '申购截止' : (lang === 'es' ? 'Fin de suscripción' : 'Subscribe End')}: {it.subscribeEndAt ? formatMinute(it.subscribeEndAt) : '-'}</div>
+                        <div className="desc">{lang === 'zh' ? '当前价格' : (lang === 'pl' ? 'Precio actual' : 'Current Price')}: {formatRwaPrice((displayCurrent > 0 ? displayCurrent : Number(it.subscribePrice || 0)) || 0, lang)}</div>
+                        <div className="desc">{lang === 'zh' ? '申购价格' : (lang === 'pl' ? 'Precio institucional' : 'Institutional Price')}: {formatRwaPrice(subPrice, lang)}</div>
+                        <div className="desc">{lang === 'zh' ? '上市日期' : (lang === 'pl' ? 'Fecha de listado' : 'Listing Date')}: {it.listAt ? formatYMD(it.listAt) : '-'}</div>
+                        <div className="desc">{lang === 'zh' ? '申购截止' : (lang === 'pl' ? 'Fin de suscripción' : 'Subscribe End')}: {it.subscribeEndAt ? formatMinute(it.subscribeEndAt) : '-'}</div>
                       </div>
                       <div style={{ display: 'grid', justifyItems: 'end', gap: 6 }}>
                         <div style={{ fontSize: 18, fontWeight: 700, color: unitProfit > 0 ? '#5cff9b' : (unitProfit < 0 ? '#ff5c7a' : '#9aa3ad') }}>{unitPct}%</div>
                         <div style={{ fontSize: 14, color: unitProfit > 0 ? '#5cff9b' : (unitProfit < 0 ? '#ff5c7a' : '#9aa3ad') }}>{unitProfit.toFixed(4)}</div>
-                        <button className="btn primary" onClick={() => openModal({ ...it, code, current, subPrice })}>{lang === 'es' ? 'Suscribir' : 'Subscribe'}</button>
+                        <button className="btn primary" onClick={() => openModal({ ...it, code, current, subPrice })}>{lang === 'pl' ? 'Suscribir' : 'Subscribe'}</button>
                       </div>
                     </div>
                   </div>
@@ -524,16 +541,16 @@ export default function IpoRwaPage() {
       {modalOpen && modalItem && (
         <div className="modal">
           <div className="modal-card">
-            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'es' ? 'Solicitud de suscripción' : 'Subscribe Request'}</h2>
+            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'pl' ? 'Solicitud de suscripción' : 'Subscribe Request'}</h2>
             <div className="form" style={{ display: 'grid', gap: 8 }}>
-              <div className="desc">{lang === 'es' ? 'Mercado' : 'Market'}: US Stocks</div>
-              <div className="desc">{lang === 'es' ? 'Código' : 'Code'}: {modalItem.code}</div>
-              <div className="desc">{lang === 'es' ? 'Precio actual' : 'Current Price'}: {modalItem.current ? formatRwaPrice(modalItem.current, lang) : '-'}</div>
-              <div className="desc">{lang === 'es' ? 'Precio institucional' : 'Institutional Price'}: {formatRwaPrice(modalItem.subPrice, lang)}</div>
-              <input className="input" type="number" min="1" placeholder={lang === 'es' ? 'Cantidad' : 'Quantity'} value={modalQty} onChange={e => setModalQty(e.target.value)} />
+              <div className="desc">{lang === 'pl' ? 'Mercado' : 'Market'}: US Stocks</div>
+              <div className="desc">{lang === 'pl' ? 'Código' : 'Code'}: {modalItem.code}</div>
+              <div className="desc">{lang === 'pl' ? 'Precio actual' : 'Current Price'}: {modalItem.current ? formatRwaPrice(modalItem.current, lang) : '-'}</div>
+              <div className="desc">{lang === 'pl' ? 'Precio institucional' : 'Institutional Price'}: {formatRwaPrice(modalItem.subPrice, lang)}</div>
+              <input className="input" type="number" min="1" placeholder={lang === 'pl' ? 'Cantidad' : 'Quantity'} value={modalQty} onChange={e => setModalQty(e.target.value)} />
               <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={closeModal}>{lang === 'es' ? 'Cancelar' : 'Cancel'}</button>
-                <button className="btn primary" disabled={submittingId === modalItem.code} onClick={submitModal}>{lang === 'es' ? 'Enviar' : 'Submit'}</button>
+                <button className="btn" onClick={closeModal}>{lang === 'pl' ? 'Cancelar' : 'Cancel'}</button>
+                <button className="btn primary" disabled={submittingId === modalItem.code} onClick={submitModal}>{lang === 'pl' ? 'Enviar' : 'Submit'}</button>
               </div>
             </div>
           </div>
@@ -541,8 +558,8 @@ export default function IpoRwaPage() {
       )}
 
         <div style={{ marginTop: 16, width: '100%' }}>
-          <h2 className="title" style={{ marginTop: 0 }}>{lang === 'es' ? 'Órdenes IPO' : 'IPO Orders'}</h2>
-        {ordersUnsupported && (<div className="desc" style={{ marginTop: 6 }}>{lang === 'es' ? 'Órdenes no disponibles' : 'Orders API unavailable'}</div>)}
+          <h2 className="title" style={{ marginTop: 0 }}>{lang === 'pl' ? 'Órdenes IPO' : 'IPO Orders'}</h2>
+        {ordersUnsupported && (<div className="desc" style={{ marginTop: 6 }}>{lang === 'pl' ? 'Órdenes no disponibles' : 'Orders API unavailable'}</div>)}
         <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
           {(orders || []).map(o => {
             const code = String(o.code || '').toUpperCase();
@@ -557,19 +574,19 @@ export default function IpoRwaPage() {
                 <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
                   <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ fontWeight: 700 }}>{String(o.kind || '').toLowerCase() === 'rwa' ? 'RWA' : (String(o.kind || '').toLowerCase() === 'ipo' ? 'IPO' : 'Global Stocks')} · {det.name || code}</div>
-                    <div className="desc">{lang === 'es' ? 'Fecha de listado' : 'Listing Date'}: {det.listAt ? formatYMD(det.listAt) : '-'}</div>
+                    <div className="desc">{lang === 'pl' ? 'Fecha de listado' : 'Listing Date'}: {det.listAt ? formatYMD(det.listAt) : '-'}</div>
                     {!(String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') && (
-                      <div className="desc">{lang === 'es' ? 'Precio actual' : 'Current Price'}: {formatRwaPrice(Number(cur || 0), lang)}</div>
+                      <div className="desc">{lang === 'pl' ? 'Precio actual' : 'Current Price'}: {formatRwaPrice(Number(cur || 0), lang)}</div>
                     )}
-                    <div className="desc">{lang === 'es' ? 'Precio de subscripción' : 'Subscribe Price'}: {formatRwaPrice(price, lang)}</div>
+                    <div className="desc">{lang === 'pl' ? 'Precio de subscripción' : 'Subscribe Price'}: {formatRwaPrice(price, lang)}</div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
                     <div style={{ fontSize: 16, fontWeight: 700, color }}>{pct}%</div>
                     <div style={{ fontSize: 13, color }}>{formatRwaPrice(amount, lang).replace('US$', '$')}</div>
                     {!(String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') ? (
-                      <button className="btn primary" style={{ fontSize: 12, padding: '6px 12px', height: 'auto' }} onClick={() => onSell(o)}>{lang === 'es' ? 'Vender' : 'Sell'}</button>
+                      <button className="btn primary" style={{ fontSize: 12, padding: '6px 12px', height: 'auto' }} onClick={() => onSell(o)}>{lang === 'pl' ? 'Vender' : 'Sell'}</button>
                     ) : (
-                      <span className="tag" style={{ background: '#16a34a', color: '#fff', padding: '4px 8px', borderRadius: 6, fontSize: 11 }}>{lang === 'es' ? 'Completado' : 'Completed'}</span>
+                      <span className="tag" style={{ background: '#16a34a', color: '#fff', padding: '4px 8px', borderRadius: 6, fontSize: 11 }}>{lang === 'pl' ? 'Completado' : 'Completed'}</span>
                     )}
                   </div>
                 </div>
@@ -580,6 +597,7 @@ export default function IpoRwaPage() {
         </div>
         </div>
       </div>
+      <BottomNav />
     </div>
   );
 }

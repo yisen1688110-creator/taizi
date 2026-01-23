@@ -12,11 +12,11 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
 
   // 股票数据
   const stockData = {
-    mexico: [
-      { symbol: 'AMX/L', name: 'América Móvil', price: 19.5, change: 0.3, originalSymbol: 'AMXL.MX' },
-      { symbol: 'BIMBO/A', name: 'Grupo Bimbo', price: 64.2, change: -1.7, originalSymbol: 'BIMBOA.MX' },
-      { symbol: 'ALSEA', name: 'Alsea', price: 28.9, change: -0.4, originalSymbol: 'ALSEA.MX' },
-      { symbol: 'CEMEX/CPO', name: 'CEMEX', price: 56.7, change: 0.9, originalSymbol: 'CEMEXCPO.MX' }
+    poland: [
+      { symbol: 'PKO', name: 'PKO Bank Polski', price: 45.2, change: 0.3, originalSymbol: 'PKO.WA' },
+      { symbol: 'PKN', name: 'PKN Orlen', price: 64.2, change: -1.7, originalSymbol: 'PKN.WA' },
+      { symbol: 'PZU', name: 'PZU S.A.', price: 42.9, change: -0.4, originalSymbol: 'PZU.WA' },
+      { symbol: 'CDR', name: 'CD Projekt', price: 95.7, change: 0.9, originalSymbol: 'CDR.WA' }
     ],
     usa: [
       { symbol: 'AAPL', name: 'Apple Inc.', price: 180.2, change: 0.5 },
@@ -45,12 +45,12 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
 
   // 市场配置
   const markets = {
-    mexico: {
-      name: t('marketMX'),
-      symbol: 'MX$855.74',
+    poland: {
+      name: t('marketPL'),
+      symbol: 'PLN 855.74',
       basePrice: 855.74,
-      currency: 'MX$',
-      prefix: 'BMV:'
+      currency: 'PLN ',
+      prefix: 'WSE:'
     },
     usa: {
       name: t('marketUS'),
@@ -78,16 +78,16 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
     } else if (sym.includes('NASDAQ:')) {
       setSelectedMarket('usa');
       setSelectedStock(sym.replace('NASDAQ:', ''));
-    } else if (sym.includes('BMV:')) {
-      setSelectedMarket('mexico');
-      setSelectedStock(sym.replace('BMV:', ''));
+    } else if (sym.includes('WSE:')) {
+      setSelectedMarket('poland');
+      setSelectedStock(sym.replace('WSE:', ''));
     }
   }, [selectedSymbol]);
 
   // 根据当前市场返回搜索占位符
   const getSearchPlaceholder = () => {
     const marketKey = hoveredMarket || selectedMarket;
-    if (marketKey === 'mexico') return t('placeholderMX');
+    if (marketKey === 'poland') return t('placeholderPL');
     if (marketKey === 'usa') return t('placeholderUS');
     if (marketKey === 'crypto') return t('placeholderCrypto');
     return t('search');
@@ -127,8 +127,8 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
     // 确保设置正确的市场（使用当前悬停的市场）
     setSelectedMarket(hoveredMarket);
     
-    // 对于墨西哥股票，使用originalSymbol来设置selectedStock，但使用TradingView符号
-    if (hoveredMarket === 'mexico' && stock.originalSymbol) {
+    // 对于波兰股票，使用originalSymbol来设置selectedStock，但使用TradingView符号
+    if (hoveredMarket === 'poland' && stock.originalSymbol) {
       setSelectedStock(stock.originalSymbol.split('.')[0]); // 移除后缀如.MX
     } else {
       setSelectedStock(stock.symbol.split('.')[0]); // 移除后缀如.MX
@@ -144,9 +144,9 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
       tradingViewSymbol = `BINANCE:${stock.symbol}USDT`;
     } else if (hoveredMarket === 'usa') {
       tradingViewSymbol = `NASDAQ:${stock.symbol}`;
-    } else if (hoveredMarket === 'mexico') {
+    } else if (hoveredMarket === 'poland') {
       // 使用TradingView兼容的符号格式
-      tradingViewSymbol = `BMV:${stock.symbol}`;
+      tradingViewSymbol = `WSE:${stock.symbol}`;
     }
     
     if (onSymbolChange) {
@@ -214,8 +214,8 @@ const MarketSelector = ({ onSymbolChange, selectedSymbol = "BINANCE:ETHUSDT" }) 
                     defaultSymbol = 'BINANCE:ETHUSDT';
                   } else if (key === 'usa') {
                     defaultSymbol = 'NASDAQ:AAPL';
-                  } else if (key === 'mexico') {
-                    defaultSymbol = 'BMV:AMX/L';
+                  } else if (key === 'poland') {
+                    defaultSymbol = 'WSE:PKO';
                   }
                   
                   if (onSymbolChange) {

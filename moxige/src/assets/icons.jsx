@@ -1,6 +1,6 @@
 import React from 'react';
 
-export function IconMexico({ className = '', size = 18 }) {
+export function IconPoland({ className = '', size = 18 }) {
   return (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <rect x="2" y="6" width="20" height="12" rx="6" fill="#1b2a45" stroke="#2e4a7f" strokeWidth="1" />
@@ -142,4 +142,4 @@ export function IconShield({ className = '', size = 24 }) {
   );
 }
 
-export default { IconMexico, IconUS, IconCrypto, IconLightning, IconHome, IconMarket, IconSwap, IconBell, IconUser, IconBank, IconTradeLinear, IconIPO, IconShield };
+export default { IconPoland, IconUS, IconCrypto, IconLightning, IconHome, IconMarket, IconSwap, IconBell, IconUser, IconBank, IconTradeLinear, IconIPO, IconShield };

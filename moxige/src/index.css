@@ -1,60 +1,95 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
 
 :root {
-  /* 蓝白商务风配色 - 明亮主题 */
-  --bg-start: #f0f5ff;
-  --bg-end: #e8f0fe;
-  --card-bg: #ffffff;
-  --card-border: #e2e8f0;
-  --accent: #2563eb;
-  --accent-2: #1d4ed8;
-  --accent-hover: #1e40af;
-  --accent-light: #dbeafe;
-  --text: #1e293b;
-  --text-secondary: #475569;
-  --muted: #64748b;
-  --error: #dc2626;
-  --success: #16a34a;
-  --warning: #d97706;
+  /* 深色金融终端风配色 - TradingView/Bloomberg 风格 */
+  --bg-start: #0a0e17;
+  --bg-end: #0d1220;
+  --card-bg: rgba(17, 24, 39, 0.85);
+  --card-bg-solid: #111827;
+  --card-border: rgba(255, 255, 255, 0.08);
+  --accent: #3b82f6;
+  --accent-2: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-light: rgba(59, 130, 246, 0.15);
+  --accent-glow: rgba(59, 130, 246, 0.25);
+  --text: #e5e7eb;
+  --text-secondary: #9ca3af;
+  --muted: #6b7280;
+  --error: #ef4444;
+  --success: #10b981;
+  --warning: #f59e0b;
   --card-w: clamp(1100px, 92vw, 1920px);
   --logo-h: clamp(180px, 24vw, 320px);
   --ring-size: clamp(200px, 26vw, 380px);
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
-  --shadow-xl: 0 10px 25px -5px rgba(37, 99, 235, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 48px rgba(59, 130, 246, 0.1);
 }
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; }
+html, body, #root { height: 100%; width: 100%; margin: 0; padding: 0; }
+html {
+  background: #0a0e17 !important;
+}
 body {
   margin: 0;
+  padding: 0;
   font-family: "DM Sans", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: var(--text);
-  background: linear-gradient(180deg, var(--bg-start) 0%, var(--bg-end) 100%);
+  background: linear-gradient(135deg, #0a0e17 0%, #0d1220 50%, #0f172a 100%) !important;
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* 统一全屏布局：所有页面铺满屏幕 */
 .app, .screen {
   min-height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  padding-bottom: 100px; /* 为底部导航留出空间 */
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  padding-bottom: 80px; /* 为底部导航留出空间 */
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  background: transparent;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+}
+
+/* 确保用户端页面使用深色背景 */
+.app:not(.admin-app),
+.screen:not(.admin-screen) {
+  background: linear-gradient(135deg, #0a0e17 0%, #0d1220 50%, #0f172a 100%);
 }
 /* 置顶模式：让主卡片靠页面顶部显示 */
 .screen.top-align {
   justify-content: flex-start;
-  padding-top: clamp(24px, 5vh, 60px);
+  padding-top: 0;
+}
+
+/* 统一全屏类 - 所有页面通用 */
+.screen.fullscreen {
+  padding: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  gap: 0 !important;
+}
+.screen.fullscreen > .fullscreen-content {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 .card {
@@ -63,32 +98,79 @@ body {
   padding: 24px;
   border-radius: var(--radius-lg);
   background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow-xl);
   box-sizing: border-box;
 }
 
-/* 无边框模式：移除所有外框样式，内容适配到指定盒子尺寸 */
+/* 无边框模式：手机端满屏 */
 .screen.borderless { 
   padding: 0 !important; 
-  justify-content: flex-start; 
-  gap: 0; 
-  align-items: stretch; 
-  padding-left: 6px !important; 
-  padding-right: 6px !important; 
+  padding-bottom: 80px !important;
+  justify-content: flex-start !important; 
+  gap: 0 !important; 
+  align-items: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* 全屏内容容器 - 用于统一内边距 */
+.fullscreen-container {
+  width: 100%;
+  max-width: 100%;
+  padding: 16px;
+  padding-bottom: 100px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+@media (max-width: 768px) {
+  .fullscreen-container {
+    padding: 12px;
+    padding-bottom: 100px;
+  }
+}
+
+/* ===== 统一全屏铺满样式 - 所有页面通用 ===== */
+/* Profile页面强制满屏 */
+.screen.profile-screen {
+  padding: 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  align-items: stretch !important;
+}
+.screen.borderless.profile-screen .profile-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+.screen.borderless.profile-screen .profile-top-card,
+.screen.borderless.profile-screen .profile-menu-card {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
 }
 .card.borderless-card {
   background: transparent;
   border: none;
   box-shadow: none;
   border-radius: 0;
-  padding: 16px 6px !important;
+  padding: 16px 12px !important;
   max-width: 100% !important;
   width: 100% !important;
   box-sizing: border-box !important;
+  margin: 0 !important;
 }
 .borderless-card .settings-grid { width: 100% !important; max-width: 100% !important; margin: 0 !important; }
-.borderless-card .title { margin-left: clamp(8px, 1vw, 16px); }
+.borderless-card .title { margin-left: 0; }
 
 .logo-area {
   width: 100%;
@@ -137,7 +219,7 @@ body {
   height: 36px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--card-border);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text);
   display: grid;
   place-items: center;
@@ -168,7 +250,7 @@ body {
   padding: 0 14px;
   border-radius: var(--radius);
   border: 1px solid var(--card-border);
-  background: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text);
   font-size: 15px;
   transition: all 0.2s ease;
@@ -177,8 +259,8 @@ body {
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
-  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .error {
@@ -226,12 +308,24 @@ body {
 
 .desc { color: var(--muted); }
 
-/* Withdraw page: brighten records button and fill mobile width */
-.withdraw-screen { align-items: stretch; padding: 0; }
-.withdraw-screen .card { width: 100%; max-width: 100%; border-radius: 0; padding: clamp(16px, 6vw, 32px); }
+/* Withdraw page: 全屏铺满 */
+.withdraw-screen { 
+  align-items: stretch !important; 
+  padding: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  justify-content: flex-start !important;
+}
+.withdraw-screen .card { 
+  width: 100% !important; 
+  max-width: 100% !important; 
+  border-radius: 0; 
+  padding: clamp(16px, 6vw, 32px); 
+  margin: 0 !important;
+}
 .withdraw-records-btn { height: 36px; padding: 0 12px; border: 1px solid var(--card-border); }
 @media (max-width: 480px) {
-  .withdraw-screen { padding-bottom: 60px; }
+  .withdraw-screen { padding-bottom: 80px !important; }
   .withdraw-screen .title { margin: 0 0 12px; }
   .withdraw-screen .form { gap: 12px; }
   .withdraw-screen .sub-actions { gap: 10px; }
@@ -429,7 +523,7 @@ body {
 /* 覆盖特定类型输入，确保不低于 16px */
 input[type="tel"], input[type="password"], input[type="email"], input[type="text"] {
   font-size: 16px;
-  background: #f8fafc !important;
+  background: rgba(255, 255, 255, 0.05) !important;
   color: var(--text) !important;
   border: 1px solid var(--card-border) !important;
 }
@@ -730,87 +824,103 @@ body.modal-open { overflow: hidden; }
 .stats.compact .stat-num { font-size: 14px; font-weight: 600; color: var(--text); }
 .stats.compact .stat-label { font-size: 12px; color: var(--muted); }
 
-/* Admin Tech Theme (Dark Neon) */
+/* Admin Theme - 蓝白商务风 */
  .app.admin-app {
-   --bg: #0b1220;
-   --surface: #141b2d;
-   --surface-2: #0f172a;
-   --border: #2a3d5f; /* 更亮边框提升层次 */
-   --text: #eef6ff;  /* 更亮主文本提高可读性 */
-   --muted: #c8d6ea; /* 次级文本略提亮 */
-   --accent: #00eaff; /* 赛博青更显霓虹感 */
-   --accent-2: #7c4dff;
-   --accent-grad: linear-gradient(135deg, #00eaff 0%, #2bb0ff 50%, #7c4dff 100%);
-   --shadow: 0 8px 26px rgba(0, 234, 255, 0.18);
+   --bg: #f0f4f8;
+   --surface: #ffffff;
+   --surface-2: #f8fafc;
+   --border: #e2e8f0;
+   --text: #1e293b;
+   --muted: #64748b;
+   --accent: #2563eb;
+   --accent-2: #1d4ed8;
+   --accent-grad: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+   --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
  }
 .app.admin-app, .admin-layout { background: var(--bg); color: var(--text); }
 .admin-layout .content { background: transparent; }
-.admin-layout .sidebar { background: var(--surface); border-right: 1px solid var(--border); color: var(--muted); }
+.admin-layout .sidebar { background: var(--surface); border-right: 1px solid var(--border); color: var(--text); }
 .sidebar .nav a { color: var(--text); }
-.sidebar .nav a.active { background: rgba(43, 176, 255, 0.12); color: #c8e7ff; border: 1px solid rgba(43, 176, 255, 0.40); }
-.admin-layout .nav-item { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); }
-.admin-layout .nav-item.active { background: rgba(43, 176, 255, 0.12); color: #c8e7ff; border-color: rgba(43, 176, 255, 0.40); }
+.sidebar .nav a.active { background: #dbeafe; color: #1d4ed8; border: 1px solid #93c5fd; }
+.admin-layout .nav-item { background: #f8fafc; color: var(--text); border: 1px solid var(--border); }
+.admin-layout .nav-item.active { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
 .sidebar .nav .nav-group details { border: none; background: transparent; padding: 0; }
-.sidebar .nav .nav-group summary.nav-item { border: 1px solid var(--border); background: rgba(255,255,255,0.06); text-align: left; font-size: 14px; padding: 8px 12px; border-radius: 8px; }
+.sidebar .nav .nav-group summary.nav-item { border: 1px solid var(--border); background: #f8fafc; text-align: left; font-size: 14px; padding: 8px 12px; border-radius: 8px; }
 .sidebar .nav .nav-sub { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
 .sidebar .nav .nav-sub .nav-item { border: none !important; background: transparent !important; text-align: center; font-size: 14px; padding: 6px 0; }
-.sidebar .nav .nav-sub .nav-item.active { background: rgba(43, 176, 255, 0.12) !important; border: none !important; }
-.admin-layout .admin-topbar, .admin-layout .admin-toolbar { background: var(--surface-2); border-bottom: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
-.admin-layout .admin-toolbar .pill { background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); }
+.sidebar .nav .nav-sub .nav-item.active { background: #dbeafe !important; border: none !important; color: #1d4ed8 !important; }
+.admin-layout .admin-topbar, .admin-layout .admin-toolbar { background: var(--surface); border-bottom: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.admin-layout .admin-toolbar .pill { background: #f8fafc; border: 1px solid var(--border); color: var(--text); }
+.admin-layout .admin-toolbar .pill.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 .admin-layout .card, .card.flat, .ov-card { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-.ov-icon { background: rgba(43,176,255,0.18); color: #8dd7ff; }
+.ov-icon { background: #dbeafe; color: #2563eb; }
 .ov-title { color: var(--text); }
 .ov-desc { color: var(--muted); }
 .ov-greet.card.flat, .notice.card.flat { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
 .notice-title { color: var(--text); }
 .notice-list { color: var(--muted); }
 .app.admin-app .btn { background: var(--accent-grad); color: #fff; border: 0; box-shadow: var(--shadow); }
-.app.admin-app .btn:hover { filter: brightness(1.08); }
+.app.admin-app .btn:hover { filter: brightness(1.05); }
 .app.admin-app .btn.slim { background: var(--accent-grad); color: #fff; border: 0; box-shadow: var(--shadow); }
 .app.admin-app .link { color: var(--accent); }
-.app.admin-app .chip.info { background: rgba(43,176,255,0.16); color: #8dd7ff; }
-.app.admin-app .chip.warn { background: rgba(255,138,0,0.18); color: #ffb36a; }
-.app.admin-app .chip.ok { background: rgba(43,138,62,0.16); color: #87d6a3; }
-.app.admin-app .chip.new { background: rgba(124,77,255,0.18); color: #c8b3ff; }
+.app.admin-app .chip.info { background: #dbeafe; color: #1d4ed8; }
+.app.admin-app .chip.warn { background: #fef3c7; color: #d97706; }
+.app.admin-app .chip.ok { background: #dcfce7; color: #16a34a; }
+.app.admin-app .chip.new { background: #e0e7ff; color: #4338ca; }
 .admin-layout .content table tr { border-top: 1px solid var(--border) !important; }
 
-/* Readability & Cyber tweaks */
+/* 可读性优化 - 蓝白商务风 */
 .admin-layout h1, .admin-layout h2, .admin-layout h3, .admin-layout .title {
   color: var(--text);
-  text-shadow: 0 0 6px rgba(0, 234, 255, 0.12);
 }
 .admin-layout .desc, .ov-desc, .notice-list, .stats .stat-label, .stats.compact .stat-label {
   color: var(--muted);
 }
-.sidebar .nav a { color: var(--text); opacity: 0.92; }
+.sidebar .nav a { color: var(--text); }
 .admin-layout .admin-toolbar .pill { color: var(--text); }
 .admin-layout .nav-item { color: var(--text); }
-.qr-placeholder { border-color: var(--border); }
-.app.admin-app .btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,234,255,0.5) inset, var(--shadow); }
+.qr-placeholder { border-color: var(--border); background: #f8fafc; }
+.app.admin-app .btn:focus-visible { box-shadow: 0 0 0 3px rgba(37,99,235,0.2) inset, var(--shadow); }
 .app.admin-app .link { color: var(--accent); text-underline-offset: 3px; }
 
-/* 移动端响应式布局优化 - 统一全宽布局 */
+/* ============================================
+   统一页面容器系统 - 手机端满屏适配
+   ============================================ */
+
+/* 统一页面容器：手机端全宽显示 */
+.page-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+    padding: 12px;
+  display: flex;
+  flex-direction: column;
+    gap: 12px;
+  box-sizing: border-box;
+}
+
+/* 移动端响应式布局优化 - 满屏适配 */
 @media (max-width: 768px) {
   .screen {
-    padding: 12px;
-    gap: 12px;
+    padding: 0;
+    gap: 0;
   }
   
   .screen.borderless {
     padding: 0 !important;
-    padding-left: 6px !important;
-    padding-right: 6px !important;
   }
   
   .card.borderless-card {
     max-width: 100% !important;
     width: 100% !important;
-    padding: 16px 6px !important;
+    padding: 16px 12px !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
   }
   
   .screen.top-align {
-    padding: 12px;
-    padding-bottom: 100px;
+    padding: 0;
+    padding-bottom: 80px;
   }
   
   .app-header {
@@ -828,30 +938,40 @@ body.modal-open { overflow: hidden; }
   }
   
   .card {
-    padding: 14px;
+    padding: 14px 12px;
     margin: 0;
     width: 100%;
     box-sizing: border-box;
     max-width: 100%;
-    border-radius: 14px;
+    border-radius: 12px;
   }
   
-  .card.borderless-card {
-    padding: 12px;
+  /* 页面容器满屏 */
+  .page-container {
     max-width: 100%;
-    width: 100%;
+    padding: 12px;
+    gap: 12px;
   }
   
   .inst-container {
     width: 100%;
     max-width: 100%;
-    padding: 0;
+    padding: 12px;
+    margin: 0;
   }
   
   .inst-container .card,
   .inst-container .inst-card {
     width: 100%;
     max-width: 100%;
+  }
+  
+  /* Profile容器满屏 */
+  .profile-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
   
   .big-amount {
@@ -863,12 +983,14 @@ body.modal-open { overflow: hidden; }
   }
   
   .sub-actions {
-    flex-direction: column;
+    flex-direction: row;
     gap: 8px;
+    flex-wrap: wrap;
   }
   
   .sub-actions .btn {
-    width: 100%;
+    flex: 1;
+    min-width: 120px;
   }
   
   /* 市场概览网格优化 */
@@ -890,25 +1012,26 @@ body.modal-open { overflow: hidden; }
 
 @media (max-width: 480px) {
   .screen {
-    padding: 10px;
-    gap: 10px;
+    padding: 0;
+    gap: 0;
   }
   
   .screen.borderless {
     padding: 0 !important;
-    padding-left: 6px !important;
-    padding-right: 6px !important;
+    padding-bottom: 80px !important;
   }
   
   .card.borderless-card {
     max-width: 100% !important;
     width: 100% !important;
-    padding: 16px 6px !important;
+    padding: 14px 10px !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
   }
   
   .screen.top-align {
-    padding: 10px;
-    padding-bottom: 90px;
+    padding: 0;
+    padding-bottom: 80px;
   }
   
   .app-header {
@@ -917,22 +1040,16 @@ body.modal-open { overflow: hidden; }
   }
   
   .card {
-    padding: 12px;
-    border-radius: 12px;
+    padding: 14px 10px;
+    border-radius: 10px;
     max-width: 100%;
     width: 100%;
     margin: 0;
   }
   
-  .card.borderless-card {
-    padding: 16px 6px !important;
-    max-width: 100% !important;
-    width: 100% !important;
-  }
-  
   .card.flat {
-    padding: 10px;
-    border-radius: 10px;
+    padding: 12px 10px;
+    border-radius: 8px;
   }
   
   .big-amount {
@@ -958,15 +1075,16 @@ body.modal-open { overflow: hidden; }
   }
 }
 
-/* 底部导航基础样式 - 蓝白商务风 */
+/* 底部导航基础样式 - 深色金融风 */
 .bottom-nav {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  background: #ffffff;
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--card-border);
+  background: rgba(10, 14, 23, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding: 8px 0;
   padding-bottom: max(8px, env(safe-area-inset-bottom));
   display: grid;
@@ -974,7 +1092,7 @@ body.modal-open { overflow: hidden; }
   align-items: end;
   justify-items: center;
   z-index: 100;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
 }
 
 .bottom-nav .pill {
@@ -1011,7 +1129,7 @@ body.modal-open { overflow: hidden; }
 .pill-icon { width: 26px; height: 26px; margin-left: 5px; }
 .pill-icon.lightning-icon { width: 24px; height: 24px; margin-left: 5px; }
 
-/* 闪电图标的圆形底（仅中间按钮）- 蓝白风格 */
+/* 闪电图标的圆形底（仅中间按钮）- 深色金融风格 */
 .bottom-nav .pill.lightning { 
   display: flex; 
   align-items: center; 
@@ -1021,15 +1139,15 @@ body.modal-open { overflow: hidden; }
   margin-top: -20px;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
   border-radius: 50%;
-  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
-  border: 3px solid #ffffff;
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.5), 0 0 32px rgba(59, 130, 246, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.15);
 }
 .bottom-nav .pill.lightning .pill-icon {
   color: #ffffff;
 }
 .bottom-nav .pill.lightning:hover {
   background: linear-gradient(135deg, var(--accent-2) 0%, var(--accent-hover) 100%);
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+  box-shadow: 0 6px 28px rgba(59, 130, 246, 0.6), 0 0 40px rgba(59, 130, 246, 0.4);
   transform: scale(1.05);
 }
 
@@ -1048,8 +1166,9 @@ body.modal-open { overflow: hidden; }
   height: 64px;
   border-radius: 50%;
   overflow: hidden;
-  border: 2px solid var(--card-border);
-  background: #ffffff;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.2);
 }
 .avatar-wrap .avatar {
   width: 100% !important;
@@ -1120,60 +1239,6 @@ html, body { -webkit-text-size-adjust: 100%; }
 }
 .hello-text .hello-sub { color: var(--muted); }
 
-/* Admin Tech Theme (for admin panel only) */
- .app.admin-app {
-   --bg: #0b1220;
-   --surface: #141b2d;
-   --surface-2: #0f172a;
-   --border: #2a3d5f; /* 更亮边框提升层次 */
-   --text: #eef6ff;  /* 更亮主文本提高可读性 */
-   --muted: #c8d6ea; /* 次级文本略提亮 */
-   --accent: #00eaff; /* 赛博青更显霓虹感 */
-   --accent-2: #7c4dff;
-   --accent-grad: linear-gradient(135deg, #00eaff 0%, #2bb0ff 50%, #7c4dff 100%);
-   --shadow: 0 8px 26px rgba(0, 234, 255, 0.18);
- }
-.app.admin-app, .admin-layout { background: var(--bg); color: var(--text); }
-.admin-layout .content { background: transparent; }
-.admin-layout .sidebar { background: var(--surface); border-right: 1px solid var(--border); color: var(--muted); }
-.sidebar .nav a { color: var(--text); }
-.sidebar .nav a.active { background: rgba(43, 176, 255, 0.12); color: #c8e7ff; border: 1px solid rgba(43, 176, 255, 0.40); }
-.admin-layout .nav-item { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); }
-.admin-layout .nav-item.active { background: rgba(43, 176, 255, 0.12); color: #c8e7ff; border-color: rgba(43, 176, 255, 0.40); }
-.admin-layout .admin-topbar, .admin-layout .admin-toolbar { background: var(--surface-2); border-bottom: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
-.admin-layout .admin-toolbar .pill { background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); }
-.admin-layout .card, .card.flat, .ov-card { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-.ov-icon { background: rgba(43,176,255,0.18); color: #8dd7ff; }
-.ov-title { color: var(--text); }
-.ov-desc { color: var(--muted); }
-.ov-greet.card.flat, .notice.card.flat { background: var(--surface); border: 1px solid var(--border); color: var(--text); }
-.notice-title { color: var(--text); }
-.notice-list { color: var(--muted); }
-.app.admin-app .btn { background: var(--accent-grad); color: #fff; border: 0; box-shadow: var(--shadow); }
-.app.admin-app .btn:hover { filter: brightness(1.08); }
-.app.admin-app .btn.slim { background: var(--accent-grad); color: #fff; border: 0; box-shadow: var(--shadow); }
-.app.admin-app .link { color: var(--accent); }
-.app.admin-app .chip.info { background: rgba(43,176,255,0.16); color: #8dd7ff; }
-.app.admin-app .chip.warn { background: rgba(255,138,0,0.18); color: #ffb36a; }
-.app.admin-app .chip.ok { background: rgba(43,138,62,0.16); color: #87d6a3; }
-.app.admin-app .chip.new { background: rgba(124,77,255,0.18); color: #c8b3ff; }
-.admin-layout .content table tr { border-top: 1px solid var(--border) !important; }
-
-/* Readability & Cyber tweaks */
-.admin-layout h1, .admin-layout h2, .admin-layout h3, .admin-layout .title {
-  color: var(--text);
-  text-shadow: 0 0 6px rgba(0, 234, 255, 0.12);
-}
-.admin-layout .desc, .ov-desc, .notice-list, .stats .stat-label, .stats.compact .stat-label {
-  color: var(--muted);
-}
-.sidebar .nav a { color: var(--text); opacity: 0.92; }
-.admin-layout .admin-toolbar .pill { color: var(--text); }
-.admin-layout .nav-item { color: var(--text); }
-.qr-placeholder { border-color: var(--border); }
-.app.admin-app .btn:focus-visible { box-shadow: 0 0 0 2px rgba(0,234,255,0.5) inset, var(--shadow); }
-.app.admin-app .link { color: var(--accent); text-underline-offset: 3px; }
-
 /* Bottom nav 图标尺寸调整 */
 .bottom-nav .pill .pill-icon { width: 24px; height: 24px; }
 .bottom-nav .pill.lightning .pill-icon { width: 22px; height: 22px; }
@@ -1182,7 +1247,7 @@ html, body { -webkit-text-size-adjust: 100%; }
   caret-color: transparent;
 }
 
-/* Admin后台 - 输入框和弹窗样式修复 */
+/* Admin后台 - 输入框和弹窗样式（蓝白商务风） */
 .app.admin-app .input,
 .app.admin-app input.input,
 .app.admin-app textarea.input,
@@ -1193,9 +1258,9 @@ html, body { -webkit-text-size-adjust: 100%; }
 .admin-layout select.input,
 .admin-login .input,
 .admin-login input.input {
-  background: #1e293b !important;
-  border: 1px solid #475569 !important;
-  color: #f1f5f9 !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
   border-radius: 8px;
 }
 .app.admin-app .input::placeholder,
@@ -1206,42 +1271,42 @@ html, body { -webkit-text-size-adjust: 100%; }
 .app.admin-app .input:focus,
 .admin-layout .input:focus,
 .admin-login .input:focus {
-  border-color: #00eaff !important;
-  box-shadow: 0 0 0 2px rgba(0, 234, 255, 0.2) !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
   outline: none;
 }
 .app.admin-app .modal,
 .admin-layout .modal {
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.4);
 }
 .app.admin-app .modal-card,
 .admin-layout .modal-card {
-  background: #1e293b !important;
-  border: 1px solid #475569 !important;
-  color: #f1f5f9 !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #1e293b !important;
 }
 .app.admin-app .modal-card .title,
 .admin-layout .modal-card .title {
-  color: #f1f5f9 !important;
+  color: #1e293b !important;
 }
 .app.admin-app .modal-card .label,
 .admin-layout .modal-card .label {
-  color: #cbd5e1 !important;
+  color: #475569 !important;
 }
 .app.admin-app .modal-card .desc,
 .admin-layout .modal-card .desc {
-  color: #94a3b8 !important;
+  color: #64748b !important;
 }
 .app.admin-app .form .label,
 .admin-layout .form .label,
 .admin-login .form .label {
-  color: #cbd5e1 !important;
+  color: #475569 !important;
 }
 /* Admin登录页面卡片样式 */
 .admin-login .login-box.card {
-  background: #1e293b !important;
-  border: 1px solid #475569 !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
 }
 .admin-login .login-box .title {
-  color: #f1f5f9 !important;
+  color: #1e293b !important;
 }

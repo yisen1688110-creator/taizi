@@ -1,7 +1,7 @@
 @echo off
 setlocal
 echo ==========================================
-echo ECIM Agent Desktop Setup V6.1 (Global)
+echo GQ Agent Desktop Setup V6.1 (Global)
 echo ==========================================
 
 echo Select Mode:

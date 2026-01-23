@@ -13,57 +13,91 @@ export default function Notifications() {
   const [pinnedIds, setPinnedIds] = useState(() => {
     try { return JSON.parse(localStorage.getItem('notif:pinned') || '[]'); } catch { return []; }
   });
-  const cnToLocale = (text) => {
+  // 翻译通知内容到当前语言
+  const translateNotif = (text) => {
     try {
       const s = String(text || '').trim();
       if (!s) return s;
-      const isEs = lang === 'es';
-      const map = [
-        { re: /KYC\s*提交成功/i, en: 'KYC submitted', es: 'KYC enviado' },
-        { re: /KYC\s*审核通过/i, en: 'KYC approved', es: 'KYC aprobado' },
-        { re: /KYC\s*审核(?:未|不)通过/i, en: 'KYC rejected', es: 'KYC rechazado' },
-        { re: /KYC\s*审核结果/i, en: 'KYC review result', es: 'Resultado de revisión KYC' },
-        { re: /你的实名审核已提交，正在处理中/i, en: 'Identity verification submitted, under review', es: 'Verificación enviada, en revisión' },
-        { re: /你的实名审核已通过/i, en: 'Identity verification approved', es: 'Verificación de identidad aprobada' },
-        { re: /资金充值成功/i, en: 'Balance recharge succeeded', es: 'Recarga de saldo exitosa' },
-        { re: /你已成功充值\s*([A-Z]+)\s*([0-9.]+)/i, en: 'You have successfully recharged $1 $2', es: 'Has recargado $1 $2' },
-        { re: /你的IPO(?:申请|认购|申购)[\s\S]*?已(?:审核|审查|审批)?(?:通过|批准)[\s\S]*?数量\s*([0-9.]+)/i, en: 'Your IPO subscription approved, quantity $1', es: 'Tu suscripción IPO aprobada, cantidad $1' },
-        { re: /IPO[\s\S]*?已(?:审核|审查|审批)?(?:通过|批准)[\s\S]*?数量[:：]?\s*([0-9.]+)/i, en: 'IPO approved, quantity $1', es: 'IPO aprobado, cantidad $1' },
-        { re: /交易已执行/i, en: 'Trade Executed', es: 'Operación ejecutada' },
-        { re: /你已完成购买\s*([A-Z0-9./:-]+)，成交总金额\s*MX\$([0-9.]+)/i, en: 'You purchased $1 · Total MX$ $2', es: 'Has comprado $1 · Total MX$ $2' },
-        { re: /你已成功购买\s*([A-Z0-9./:-]+)，已支付\s*MX\$([0-9.]+)/i, en: 'You purchased $1 · Paid MX$ $2', es: 'Has comprado $1 · Pagado MX$ $2' },
-        { re: /你已(?:完成)?卖出\s*([A-Z0-9./:-]+)，(?:成交)?总计\s*MX\$([0-9.]+)/i, en: 'You sold $1 · Total MX$ $2', es: 'Has vendido $1 · Total MX$ $2' },
-        { re: /你已(?:完成)?卖出\s*([A-Z0-9./:-]+)，成交总金额\s*MX\$([0-9.]+)/i, en: 'You sold $1 · Total MX$ $2', es: 'Has vendido $1 · Total MX$ $2' },
-        { re: /你已完成平仓\s*([A-Z0-9./:-]+)，成交总金额\s*MX\$([0-9.]+)/i, en: 'You closed $1 · Total MX$ $2', es: 'Has cerrado $1 · Total MX$ $2' },
-        { re: /你申请的\s*([A-Z]+)\s*已到账/i, en: 'Your $1 withdrawal has been completed', es: 'Tu retiro de $1 se ha completado' },
-        { re: /你的提现已被驳回/i, en: 'Your withdrawal has been rejected', es: 'Tu retiro ha sido rechazado' },
-        { re: /大宗交易已购买/i, en: 'Block Trade Purchased', es: 'Bloque Comprado' },
-        { re: /大宗交易已卖出/i, en: 'Block Trade Sold', es: 'Bloque Vendido' },
-        { re: /信用分更新/i, en: 'Credit Score Updated', es: 'Puntaje de crédito actualizado' }
+      
+      // 多语言映射表
+      const translations = [
+        // KYC 相关
+        { patterns: [/KYC\s*submitted/i, /KYC\s*przesłany/i, /KYC\s*提交成功/i], zh: 'KYC 已提交', en: 'KYC submitted', pl: 'KYC przesłany' },
+        { patterns: [/KYC\s*approved/i, /KYC\s*zatwierdzony/i, /KYC\s*审核通过/i], zh: 'KYC 已通过', en: 'KYC approved', pl: 'KYC zatwierdzony' },
+        { patterns: [/KYC\s*rejected/i, /KYC\s*odrzucony/i, /KYC\s*审核(?:未|不)通过/i], zh: 'KYC 已拒绝', en: 'KYC rejected', pl: 'KYC odrzucony' },
+        { patterns: [/Identity verification submitted/i, /Weryfikacja przesłana/i, /你的实名审核已提交/i], zh: '身份验证已提交，审核中', en: 'Identity verification submitted, under review', pl: 'Weryfikacja przesłana, w trakcie przetwarzania' },
+        { patterns: [/Identity verification approved/i, /Weryfikacja tożsamości zatwierdzona/i, /你的实名审核已通过/i], zh: '身份验证已通过', en: 'Identity verification approved', pl: 'Weryfikacja tożsamości zatwierdzona' },
+        // 交易相关
+        { patterns: [/Trade\s*Executed/i, /Transakcja wykonana/i, /交易已执行/i], zh: '交易已执行', en: 'Trade Executed', pl: 'Transakcja wykonana' },
+        { patterns: [/Block\s*Trade\s*Purchased/i, /Transakcja blokowa zakupiona/i, /大宗交易已购买/i], zh: '大宗交易已购买', en: 'Block Trade Purchased', pl: 'Transakcja blokowa zakupiona' },
+        { patterns: [/Block\s*Trade\s*Sold/i, /Transakcja blokowa sprzedana/i, /大宗交易已卖出/i], zh: '大宗交易已卖出', en: 'Block Trade Sold', pl: 'Transakcja blokowa sprzedana' },
+        // IPO/认购相关
+        { patterns: [/Suscripci[oó]n\s*Aprobada/i, /Subscription\s*Approved/i, /认购.*?(?:通过|批准)/i], zh: 'IPO认购已批准', en: 'Subscription Approved', pl: 'Subskrypcja zatwierdzona' },
+        // 充值/提现
+        { patterns: [/Balance recharge/i, /Doładowanie salda/i, /资金充值/i], zh: '充值成功', en: 'Balance recharge succeeded', pl: 'Doładowanie salda udane' },
+        { patterns: [/withdrawal.*completed/i, /wypłata.*zrealizowana/i, /提现.*到账/i], zh: '提现已到账', en: 'Withdrawal completed', pl: 'Wypłata zrealizowana' },
+        { patterns: [/withdrawal.*rejected/i, /wypłata.*odrzucona/i, /提现.*驳回/i], zh: '提现已被驳回', en: 'Withdrawal rejected', pl: 'Wypłata odrzucona' },
+        // 持仓变动
+        { patterns: [/持仓变动/i, /Position\s*Change/i, /Zmiana pozycji/i], zh: '持仓变动', en: 'Position Change', pl: 'Zmiana pozycji' },
+        // 信用分
+        { patterns: [/Credit\s*Score\s*Updated/i, /Punktacja kredytowa/i, /信用分更新/i], zh: '信用分已更新', en: 'Credit Score Updated', pl: 'Punktacja kredytowa zaktualizowana' },
       ];
-      for (const m of map) {
-        if (m.re.test(s)) return s.replace(m.re, isEs ? m.es : m.en);
-      }
-      // Trade notifications mapping
-      if (/交易已执行/.test(s)) return isEs ? 'Operación ejecutada' : 'Trade Executed';
-      const mBuy = s.match(/你已完成购买\s*([A-Z0-9./:-]+)，成交总金额\s*MX\$\s*([0-9.]+)/);
-      if (mBuy) return isEs ? `Has comprado ${mBuy[1]} · Total MX$ ${mBuy[2]}` : `You purchased ${mBuy[1]} · Total MX$ ${mBuy[2]}`;
-      const mBuy2 = s.match(/你已成功购买\s*([A-Z0-9./:-]+)，已支付\s*MX\$\s*([0-9.]+)/);
-      if (mBuy2) return isEs ? `Has comprado ${mBuy2[1]} · Pagado MX$ ${mBuy2[2]}` : `You purchased ${mBuy2[1]} · Paid MX$ ${mBuy2[2]}`;
-      const mSell = s.match(/你已(?:完成)?卖出\s*([A-Z0-9./:-]+)，(?:成交)?(?:总金额|总计)\s*MX\$\s*([0-9.]+)/);
-      if (mSell) return isEs ? `Has vendido ${mSell[1]} · Total MX$ ${mSell[2]}` : `You sold ${mSell[1]} · Total MX$ ${mSell[2]}`;
-      const mClose = s.match(/你已完成平仓\s*([A-Z0-9./:-]+)，成交总金额\s*MX\$\s*([0-9.]+)/);
-      if (mClose) return isEs ? `Has cerrado ${mClose[1]} · Total MX$ ${mClose[2]}` : `You closed ${mClose[1]} · Total MX$ ${mClose[2]}`;
-      // Fallback: generic translation for Chinese text
-      if (/[\u4e00-\u9fa5]/.test(s)) {
-        const mQty = s.match(/数量[:：]?\s*([0-9.]+)/);
-        if (mQty) {
-          return isEs ? `Aprobado, cantidad ${mQty[1]}` : `Approved, quantity ${mQty[1]}`;
+      
+      // 尝试匹配并翻译
+      for (const t of translations) {
+        for (const pattern of t.patterns) {
+          if (pattern.test(s)) {
+            return lang === 'zh' ? t.zh : (lang === 'pl' ? t.pl : t.en);
+          }
         }
-        // Try to keep original if it looks like a title
-        if (s.length < 10 && !/[:，,。]/.test(s)) return s; // Short title-like strings might be better left alone or added to map
-        return isEs ? 'Notificación' : 'Notification';
       }
+      
+      // 处理带参数的通知（如购买/卖出金额）
+      // 购买通知
+      const buyMatch = s.match(/(?:You purchased|Kupiłeś|你已.*购买)\s*([A-Z0-9./:-]+).*?(?:Total|Razem|Paid|Zapłacono|总金额|已支付)\s*([0-9,.]+)\s*(?:PLN)?/i);
+      if (buyMatch) {
+        const [, symbol, amount] = buyMatch;
+        return lang === 'zh' ? `你已购买 ${symbol} · 总额 ${amount} PLN` : (lang === 'pl' ? `Kupiłeś ${symbol} · Razem ${amount} PLN` : `You purchased ${symbol} · Total ${amount} PLN`);
+      }
+      
+      // 卖出通知
+      const sellMatch = s.match(/(?:You sold|Sprzedałeś|你已.*卖出)\s*([A-Z0-9./:-]+).*?(?:Total|Razem|总金额|总计)\s*([0-9,.]+)\s*(?:PLN)?/i);
+      if (sellMatch) {
+        const [, symbol, amount] = sellMatch;
+        return lang === 'zh' ? `你已卖出 ${symbol} · 总额 ${amount} PLN` : (lang === 'pl' ? `Sprzedałeś ${symbol} · Razem ${amount} PLN` : `You sold ${symbol} · Total ${amount} PLN`);
+      }
+      
+      // 平仓通知
+      const closeMatch = s.match(/(?:You closed|Zamknąłeś|你已.*平仓)\s*([A-Z0-9./:-]+).*?(?:Total|Razem|总金额)\s*([0-9,.]+)\s*(?:PLN)?/i);
+      if (closeMatch) {
+        const [, symbol, amount] = closeMatch;
+        return lang === 'zh' ? `你已平仓 ${symbol} · 总额 ${amount} PLN` : (lang === 'pl' ? `Zamknąłeś ${symbol} · Razem ${amount} PLN` : `You closed ${symbol} · Total ${amount} PLN`);
+      }
+      
+      // IPO认购通知（带数量）
+      const ipoMatch = s.match(/(?:IPO|认购|Subscription|Subskrypcja).*?(?:approved|zatwierdzona|通过|批准).*?(?:quantity|ilość|数量)[:\s]*([0-9]+)/i);
+      if (ipoMatch) {
+        const qty = ipoMatch[1];
+        return lang === 'zh' ? `IPO认购已批准，数量: ${qty}` : (lang === 'pl' ? `Subskrypcja IPO zatwierdzona, ilość: ${qty}` : `IPO subscription approved, quantity: ${qty}`);
+      }
+      
+      // 西班牙语通知翻译
+      if (/Tu solicitud de suscripci[oó]n/i.test(s)) {
+        const match = s.match(/para\s+(.+?)\.\s*(?:ha sido aprobada|Cantidad)[:\s]*(\d+)?/i);
+        if (match) {
+          const name = match[1] || '';
+          const qty = match[2] || '';
+          const qtyText = qty ? (lang === 'zh' ? `，数量: ${qty}` : (lang === 'pl' ? `, ilość: ${qty}` : `, quantity: ${qty}`)) : '';
+          return lang === 'zh' ? `你的 ${name} 认购申请已通过${qtyText}` : (lang === 'pl' ? `Twoja subskrypcja ${name} została zatwierdzona${qtyText}` : `Your ${name} subscription has been approved${qtyText}`);
+        }
+        return lang === 'zh' ? 'IPO认购已批准' : (lang === 'pl' ? 'Subskrypcja zatwierdzona' : 'Subscription Approved');
+      }
+      
+      // 如果文本是中文且当前语言就是中文，直接返回
+      if (lang === 'zh' && /[\u4e00-\u9fa5]/.test(s)) {
+        return s;
+      }
+      
       return s;
     } catch { return text; }
   };
@@ -76,7 +110,7 @@ export default function Notifications() {
         const arr = Array.isArray(data?.items) ? data.items : [];
         if (!cancelled) {
           const ids = new Set(pinnedIds || []);
-          const items = arr.map(it => ({ id: it.id, title: cnToLocale(it.title || 'Notification'), body: cnToLocale(it.message || ''), ts: new Date(it.created_at).getTime(), pinned: (ids.has(it.id) || Boolean(it.pinned)) }));
+          const items = arr.map(it => ({ id: it.id, title: translateNotif(it.title || 'Notification'), body: translateNotif(it.message || ''), ts: new Date(it.created_at).getTime(), pinned: (ids.has(it.id) || Boolean(it.pinned)) }));
           setList(items.sort((a, b) => (Number(b.ts) - Number(a.ts))));
           return;
         }
@@ -90,7 +124,7 @@ export default function Notifications() {
 
   useEffect(() => {
     // immediate re-map on language change without waiting for polling
-    setList(ls => ls.map(x => ({ ...x, title: cnToLocale(x.title), body: cnToLocale(x.body) })));
+    setList(ls => ls.map(x => ({ ...x, title: translateNotif(x.title), body: translateNotif(x.body) })));
   }, [lang]);
 
   const togglePin = (id) => {
@@ -104,10 +138,10 @@ export default function Notifications() {
     });
   };
 
-  const title = lang === "es" ? "Notificaciones" : "Notifications";
-  const emptyText = lang === "es" ? "Sin notificaciones" : "No notifications";
-  const pinnedText = lang === "es" ? "Fijado" : "Pinned";
-  const timeOf = (ts) => new Date(ts).toLocaleString(lang === "es" ? "es-MX" : "en-US");
+  const title = lang === "zh" ? "通知" : (lang === "pl" ? "Powiadomienia" : "Notifications");
+  const emptyText = lang === "zh" ? "暂无通知" : (lang === "pl" ? "Brak powiadomień" : "No notifications");
+  const pinnedText = lang === "zh" ? "已置顶" : (lang === "pl" ? "Przypięte" : "Pinned");
+  const timeOf = (ts) => new Date(ts).toLocaleString(lang === "zh" ? "zh-CN" : (lang === "pl" ? "pl-PL" : "en-US"));
   const clearAll = async () => {
     try { await api.post('/me/notifications/clear'); } catch { }
     try { notificationsApi.clear(uid); } catch { }
@@ -118,12 +152,13 @@ export default function Notifications() {
     } catch { setList([]); }
   };
   return (
-    <div className="screen top-align" style={{ padding: '16px 10px', paddingBottom: 100 }}>
-      <h1 className="title" style={{ marginTop: 0, marginBottom: 8 }}>{title}</h1>
-      <div style={{ width: '100%', maxWidth: '100%' }}>
+    <div className="screen top-align" style={{ padding: 0, width: '100%', maxWidth: '100%' }}>
+      <div style={{ padding: '16px', width: '100%', boxSizing: 'border-box', paddingBottom: 100 }}>
+        <h1 className="title" style={{ marginTop: 0, marginBottom: 8 }}>{title}</h1>
+        <div style={{ width: '100%' }}>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button className="pill" onClick={async () => { try { const data = await api.get('/me/notifications'); const arr = Array.isArray(data?.items) ? data.items : []; const items = arr.map(it => ({ id: it.id, title: cnToLocale(it.title || 'Notification'), body: cnToLocale(it.message || ''), ts: new Date(it.created_at).getTime(), pinned: Boolean(it.pinned) })); setList(items.sort((a, b) => (Number(b.ts) - Number(a.ts)))); } catch { } }}>{lang === 'es' ? 'Actualizar' : (lang === 'en' ? 'Refresh' : '刷新')}</button>
-          <button className="pill" onClick={clearAll}>{lang === 'es' ? 'Borrar' : (lang === 'en' ? 'Clear' : '清空')}</button>
+          <button className="pill" onClick={async () => { try { const data = await api.get('/me/notifications'); const arr = Array.isArray(data?.items) ? data.items : []; const items = arr.map(it => ({ id: it.id, title: translateNotif(it.title || 'Notification'), body: translateNotif(it.message || ''), ts: new Date(it.created_at).getTime(), pinned: Boolean(it.pinned) })); setList(items.sort((a, b) => (Number(b.ts) - Number(a.ts)))); } catch { } }}>{lang === 'zh' ? '刷新' : (lang === 'pl' ? 'Odśwież' : 'Refresh')}</button>
+          <button className="pill" onClick={clearAll}>{lang === 'zh' ? '清空' : (lang === 'pl' ? 'Wyczyść' : 'Clear')}</button>
         </div>
         {list.length === 0 ? (
           <div style={{ display: "grid", placeItems: "center", height: 160 }}>
@@ -135,7 +170,7 @@ export default function Notifications() {
               <div key={it.id} className="card flat" style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", alignItems: "center", gap: 10 }}>
                 <div className="ov-icon">🔔</div>
                 <div>
-                  <div className="notice-title">{it.title || (lang === "es" ? "Notificación" : "Notification")}</div>
+                  <div className="notice-title">{it.title || (lang === "zh" ? "通知" : (lang === "pl" ? "Powiadomienie" : "Notification"))}</div>
                   <div className="notice-list">{it.body}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
@@ -145,6 +180,7 @@ export default function Notifications() {
             ))}
           </div>
         )}
+        </div>
       </div>
       <BottomNav />
     </div>

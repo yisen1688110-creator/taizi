@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>ECIM</title>
+  <title>GQ Trade</title>
   <link rel="icon" href="/im-api/tiny.png" />
   <style>
     html,
@@ -18,7 +18,7 @@
     body {
       font-family: ui-sans-serif, system-ui, -apple-system;
       margin: 0;
-      background: #f5f6f8
+      background: #f5f7fb
     }
 
     .container {
@@ -348,8 +348,8 @@
 
     .composer {
       padding: 12px;
-      background: #fff;
-      border-top: 1px solid #eee;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
       display: flex;
       gap: 8px
     }
@@ -357,11 +357,25 @@
     input,
     textarea {
       padding: 8px 10px;
-      border: 1px solid #ddd;
+      border: 1px solid #e2e8f0;
       border-radius: 6px;
       flex: 1;
       resize: none;
-      font-size: 16px
+      font-size: 16px;
+      background: #ffffff;
+      color: #1e293b
+    }
+    
+    input::placeholder,
+    textarea::placeholder {
+      color: #94a3b8
+    }
+    
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1)
     }
 
     textarea {
@@ -372,8 +386,12 @@
       padding: 8px 12px;
       border: 0;
       border-radius: 6px;
-      background: #2860ff;
+      background: #2563eb;
       color: #fff
+    }
+    
+    button:hover {
+      background: #1d4ed8
     }
 
     .msg {
@@ -384,14 +402,15 @@
 
     .msg.me {
       margin-left: auto;
-      background: #2860ff;
+      background: #2563eb;
       color: #fff
     }
 
     .msg.other {
       margin-right: auto;
-      background: #e9eefc;
-      color: #1a1f36
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #e2e8f0
     }
 
     .msg.flash {
@@ -520,8 +539,8 @@
       left: 0;
       right: 0;
       z-index: 5;
-      background: #0f1c2d;
-      border-bottom: 1px solid #16263d;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
       padding: 12px
     }
 
@@ -529,7 +548,7 @@
       width: 28px;
       height: 28px;
       border-radius: 14px;
-      background: #3b82f6;
+      background: #2563eb;
       color: #fff;
       display: flex;
       align-items: center;
@@ -546,21 +565,25 @@
       height: 32px;
       border: none;
       background: transparent;
-      color: #8dd7ff;
+      color: #2563eb;
       cursor: pointer;
       z-index: 6
     }
 
     .back-btn:hover {
-      color: #c8e7ff
+      color: #1d4ed8
     }
 
     .icon-btn {
       width: 36px;
       height: 36px;
       border-radius: 8px;
-      background: #2860ff;
+      background: #2563eb;
       color: #fff
+    }
+    
+    .icon-btn:hover {
+      background: #1d4ed8
     }
 
     .popup-menu {
@@ -615,18 +638,19 @@
       left: 12px;
       right: 120px;
       bottom: 68px;
-      background: #0f1c2d;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 8px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px
+      gap: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08)
     }
 
     .reply-preview-text {
-      color: #e6edf7;
+      color: #1e293b;
       font-size: 12px;
       opacity: .9;
       overflow: hidden;
@@ -635,7 +659,7 @@
     }
 
     .reply-preview-cancel {
-      background: #3b82f6;
+      background: #2563eb;
       color: #fff;
       border: 0;
       border-radius: 6px;
@@ -660,7 +684,7 @@
       height: 36px;
       padding: 0;
       border-radius: 18px;
-      background: #2da1e9;
+      background: #2563eb;
       display: flex;
       align-items: center;
       justify-content: center
@@ -735,7 +759,7 @@
     .preview-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(15, 28, 45, .6);
+      background: rgba(0, 0, 0, .4);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -743,10 +767,10 @@
     }
 
     .preview-box {
-      background: #0f1c2d;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
       border-radius: 12px;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, .45);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
       padding: 12px;
       max-width: 90vw
     }
@@ -766,24 +790,24 @@
     }
 
     .preview-actions button {
-      background: #0f1c2d;
-      color: #e6edf7;
-      border: 1px solid #1b2c48;
+      background: #f8fafc;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
       padding: 8px 12px
     }
 
     .preview-actions button:hover {
-      background: #173152
+      background: #f0f4f8
     }
 
     .msg-menu {
       position: fixed;
-      background: #0f1c2d;
-      color: #e6edf7;
-      border: 1px solid #1b2c48;
+      background: #ffffff;
+      color: #1e293b;
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
-      box-shadow: 0 12px 24px rgba(0, 0, 0, .45);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
       min-width: 140px;
       z-index: 10002;
       padding: 6px 0
@@ -796,16 +820,16 @@
     }
 
     .msg-menu-item:hover {
-      background: #173152
+      background: #f0f4f8
     }
 
     .msg-menu-item.danger {
-      color: #fca5a5
+      color: #dc2626
     }
   </style>
 </head>
 
-<body class="theme-dark">
+<body class="theme-light">
   <div class="container customer">
     <div class="header header-mobile">
       <button id="backBtn" class="back-btn">←</button>
@@ -907,14 +931,14 @@
     const previewOverlay = document.getElementById('previewOverlay') || (() => {
       const o = document.createElement('div'); o.id = 'previewOverlay'; o.className = 'preview-overlay hidden';
       // overlay style
-      o.style.position = 'fixed'; o.style.inset = '0'; o.style.background = 'rgba(0,0,0,0.35)'; o.style.display = 'flex'; o.style.alignItems = 'center'; o.style.justifyContent = 'center'; o.style.zIndex = '10050';
+      o.style.position = 'fixed'; o.style.inset = '0'; o.style.background = 'rgba(0,0,0,0.4)'; o.style.display = 'flex'; o.style.alignItems = 'center'; o.style.justifyContent = 'center'; o.style.zIndex = '10050';
       const b = document.createElement('div'); b.className = 'preview-box';
       // box style (smaller)
-      b.style.width = '360px'; b.style.maxWidth = '92vw'; b.style.maxHeight = '80vh'; b.style.background = '#111d33'; b.style.borderRadius = '12px'; b.style.boxShadow = '0 8px 24px rgba(0,0,0,0.35)'; b.style.padding = '12px'; b.style.display = 'flex'; b.style.flexDirection = 'column'; b.style.gap = '12px';
+      b.style.width = '360px'; b.style.maxWidth = '92vw'; b.style.maxHeight = '80vh'; b.style.background = '#ffffff'; b.style.borderRadius = '12px'; b.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)'; b.style.padding = '12px'; b.style.display = 'flex'; b.style.flexDirection = 'column'; b.style.gap = '12px';
       const i = document.createElement('img'); i.className = 'preview-image'; i.style.width = '100%'; i.style.height = 'auto'; i.style.borderRadius = '8px'; i.style.objectFit = 'contain'; i.style.maxHeight = '56vh';
       const a = document.createElement('div'); a.className = 'preview-actions'; a.style.display = 'flex'; a.style.justifyContent = 'flex-end'; a.style.gap = '8px'; a.style.pointerEvents = 'auto';
-      const c = document.createElement('button'); c.textContent = '取消'; c.id = 'previewCancelBtn'; c.type = 'button'; c.style.minWidth = '84px'; c.style.height = '32px'; c.style.borderRadius = '8px'; c.style.background = '#0d2545'; c.style.color = '#e6f1ff'; c.style.border = '1px solid #1e3b68'; c.style.cursor = 'pointer';
-      const s = document.createElement('button'); s.textContent = '发送图片'; s.id = 'previewSendBtn'; s.type = 'button'; s.style.minWidth = '96px'; s.style.height = '32px'; s.style.borderRadius = '8px'; s.style.background = '#2e7de9'; s.style.color = '#fff'; s.style.border = 'none'; s.style.cursor = 'pointer';
+      const c = document.createElement('button'); c.textContent = '取消'; c.id = 'previewCancelBtn'; c.type = 'button'; c.style.minWidth = '84px'; c.style.height = '32px'; c.style.borderRadius = '8px'; c.style.background = '#f8fafc'; c.style.color = '#1e293b'; c.style.border = '1px solid #e2e8f0'; c.style.cursor = 'pointer';
+      const s = document.createElement('button'); s.textContent = '发送图片'; s.id = 'previewSendBtn'; s.type = 'button'; s.style.minWidth = '96px'; s.style.height = '32px'; s.style.borderRadius = '8px'; s.style.background = '#2563eb'; s.style.color = '#fff'; s.style.border = 'none'; s.style.cursor = 'pointer';
       a.appendChild(c); a.appendChild(s); b.appendChild(i); b.appendChild(a); o.appendChild(b); document.body.appendChild(o); o._img = i; o._send = s; o._cancel = c;
       try { c.onclick = (e) => { e && e.stopPropagation && e.stopPropagation(); cancelPreview() } } catch { }
       try { c.addEventListener('pointerup', (e) => { e.stopPropagation(); cancelPreview() }, { capture: true }) } catch { }
