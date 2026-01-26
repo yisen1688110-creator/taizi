@@ -1,7 +1,98 @@
-// Unified market data service with provider selection and graceful fallback.
-// Supports: Twelve Data (VITE_TWELVEDATA_KEY), FMP (optional, free demo), Finnhub (VITE_FINNHUB_TOKEN, partial), Custom Index API (VITE_INDEX_API_BASE).
-// Behavior: show real-time when market is open; show last close when closed.
+// Unified market data service - 使用 EODHD API 通过后端代理
+// 前端所有数据请求都通过后端，不直接连接外部 API
+// EODHD API Key 保存在后端，前端无需配置
 
+// ================================================================
+// 后端 EODHD API 代理端点
+// ================================================================
+const API_BASE = import.meta.env.VITE_API_BASE || '';
+
+// EODHD API 调用函数（通过后端代理）
+async function fetchEodhdRealtime(symbols, market = 'us') {
+  const symsStr = Array.isArray(symbols) ? symbols.join(',') : symbols;
+  const url = `${API_BASE}/api/eodhd/realtime?symbols=${encodeURIComponent(symsStr)}&market=${market}`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json?.data || [];
+  } catch (err) {
+    console.warn('[EODHD/realtime] fetch error:', err.message);
+    return [];
+  }
+}
+
+async function fetchEodhdCryptoRealtime(symbols) {
+  const symsStr = Array.isArray(symbols) ? symbols.join(',') : symbols;
+  const url = `${API_BASE}/api/eodhd/crypto/realtime?symbols=${encodeURIComponent(symsStr)}`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json?.data || [];
+  } catch (err) {
+    console.warn('[EODHD/crypto/realtime] fetch error:', err.message);
+    return [];
+  }
+}
+
+async function fetchEodhdIntraday(symbol, market = 'us', interval = '5m') {
+  const url = `${API_BASE}/api/eodhd/intraday?symbol=${encodeURIComponent(symbol)}&market=${market}&interval=${interval}`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json?.data || [];
+  } catch (err) {
+    console.warn('[EODHD/intraday] fetch error:', err.message);
+    return [];
+  }
+}
+
+async function fetchEodhdCryptoIntraday(symbol, interval = '5m') {
+  const url = `${API_BASE}/api/eodhd/crypto/intraday?symbol=${encodeURIComponent(symbol)}&interval=${interval}`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json?.data || [];
+  } catch (err) {
+    console.warn('[EODHD/crypto/intraday] fetch error:', err.message);
+    return [];
+  }
+}
+
+async function fetchEodhdForex(pair = 'USDPLN') {
+  const url = `${API_BASE}/api/eodhd/forex?pair=${encodeURIComponent(pair)}`;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return json;
+  } catch (err) {
+    console.warn('[EODHD/forex] fetch error:', err.message);
+    return null;
+  }
+}
+
+// ================================================================
+// 旧代码兼容（保留部分函数但标记为备用）
+// ================================================================
 const TD_BASE = "https://api.twelvedata.com";
 const AV_BASE = "https://www.alphavantage.co/query";
 import yahooFinance from "./yahooFinanceService.js";
@@ -755,123 +846,100 @@ export async function getQuotes({ market, symbols }) {
   if (!syms.length) return [];
 
   const isPL = market === 'pl';
-
-  // Partition indices vs non-index to avoid TD ETF mispricing
-  const indexSyms = syms.filter(isIndexSymbol);
-  const nonIndexSyms = syms.filter(s => !isIndexSymbol(s));
-
   const results = [];
 
-  // 1) Indices: prefer custom API → Finnhub → FMP → none
+  // ================================================================
+  // 优先使用 EODHD API（通过后端代理）
+  // ================================================================
   try {
-    if (indexSyms.length) {
-      const idx = await fetchCustomIndexQuotes(indexSyms);
-      if (idx.length) {
-        try { localStorage.setItem("provider:last:index", "custom"); } catch { }
-        results.push(...idx);
-      } else if (has("VITE_FINNHUB_TOKEN")) {
-        const fh = await fetchFinnhubQuotes(indexSyms);
-        if (fh.length) {
-          try { localStorage.setItem("provider:last:index", "finnhub"); } catch { }
-          results.push(...fh);
-        }
-      } else {
-        // Try FMP for index quotes (supports major indices with demo key)
-        const fmpIdx = await fetchFmpQuotes(indexSyms, "us");
-        if (fmpIdx.length) {
-          try { localStorage.setItem("provider:last:index", "fmp"); } catch { }
-          results.push(...fmpIdx);
-        } else {
-          // Skip Yahoo by default; let page-level static fallback handle indices when providers unavailable.
-          try { localStorage.setItem("provider:last:index", "none-yf-disabled"); } catch { }
-        }
-      }
+    const eodhdData = await fetchEodhdRealtime(syms, isPL ? 'pl' : 'us');
+    if (eodhdData && eodhdData.length) {
+      const normalized = eodhdData.map(item => normalizeResult({
+        symbol: item.symbol,
+        name: INDEX_NAME_MAP[item.symbol] || item.symbol,
+        price: item.price || item.previousClose,
+        changePct: item.changePct,
+        volume: item.volume,
+        provider: "eodhd",
+        exchange: item.exchange,
+      }));
+      results.push(...normalized);
+      try { localStorage.setItem("provider:last", "eodhd"); } catch { }
     }
-  } catch (_) { }
-
-  // 2) 波兰股票：优先使用 Yahoo Finance
-  if (isPL && nonIndexSyms.length) {
-    try {
-      const yahoo = await fetchYahooMxQuotes(nonIndexSyms);
-      if (yahoo.length) {
-        try { localStorage.setItem("provider:last", "yahoo"); } catch { }
-        results.push(...yahoo);
-        // 检查是否有遗漏的符号，用 TD 补充
-        const missing = nonIndexSyms.filter(s => !yahoo.find(r => r.symbol === s));
-        if (missing.length) {
-          try {
-            const td = await fetchTwelveDataQuotes(missing, market);
-            if (td.length) results.push(...td);
-          } catch { }
-        }
-        return results;
-      }
-    } catch { }
-    // Yahoo 失败，回退到 Twelve Data
-    try {
-      const td = await fetchTwelveDataQuotes(nonIndexSyms, market);
-      if (td.length) {
-        try { localStorage.setItem("provider:last", "twelve"); } catch { }
-        results.push(...td);
-        return results;
-      }
-    } catch { }
+  } catch (err) {
+    console.warn('[getQuotes] EODHD failed, trying fallback:', err.message);
   }
 
-  // 3) 美股：TD → FMP (US) → Finnhub → TD price-only
-  try {
-    if (!isPL && nonIndexSyms.length) {
-      let td = [];
-      try { td = await fetchTwelveDataQuotes(nonIndexSyms, market); } catch { td = []; }
-      if (td.length) {
-        try { localStorage.setItem("provider:last", "twelve"); } catch { }
-        results.push(...td);
-        const missing = nonIndexSyms.filter(s => !td.find(r => r.symbol === s));
-        if (missing.length) {
-          try {
-            const fmpMissing = await fetchFmpQuotes(missing, market);
-            if (fmpMissing.length) { results.push(...fmpMissing); }
-            else if (has("VITE_FINNHUB_TOKEN")) {
-              const fhMissing = await fetchFinnhubQuotes(missing);
-              if (fhMissing.length) { results.push(...fhMissing); }
-            }
-          } catch { }
+  // 如果 EODHD 获取到了所有数据，直接返回
+  if (results.length >= syms.length) {
+    const bySymbol = new Map(results.map(r => [r.symbol.toUpperCase(), r]));
+    const ordered = syms.map(s => bySymbol.get(s.toUpperCase())).filter(Boolean);
+    return ordered;
+  }
+
+  // ================================================================
+  // 备用：使用其他数据源补充缺失的符号
+  // ================================================================
+  const gotSymbols = new Set(results.map(r => r.symbol.toUpperCase()));
+  const missing = syms.filter(s => !gotSymbols.has(s.toUpperCase()));
+
+  if (missing.length) {
+    // Partition indices vs non-index to avoid TD ETF mispricing
+    const indexSyms = missing.filter(isIndexSymbol);
+    const nonIndexSyms = missing.filter(s => !isIndexSymbol(s));
+
+    // 1) Indices: prefer custom API → Finnhub → FMP → none
+    try {
+      if (indexSyms.length) {
+        const idx = await fetchCustomIndexQuotes(indexSyms);
+        if (idx.length) {
+          try { localStorage.setItem("provider:last:index", "custom"); } catch { }
+          results.push(...idx);
+        } else if (has("VITE_FINNHUB_TOKEN")) {
+          const fh = await fetchFinnhubQuotes(indexSyms);
+          if (fh.length) {
+            try { localStorage.setItem("provider:last:index", "finnhub"); } catch { }
+            results.push(...fh);
+          }
+        } else {
+          // Try FMP for index quotes (supports major indices with demo key)
+          const fmpIdx = await fetchFmpQuotes(indexSyms, "us");
+          if (fmpIdx.length) {
+            try { localStorage.setItem("provider:last:index", "fmp"); } catch { }
+            results.push(...fmpIdx);
+          }
         }
-      } else {
-        // TD failed entirely; try FMP/Finnhub batch for non-index
+      }
+    } catch (_) { }
+
+    // 2) 波兰股票：备用 Yahoo Finance
+    if (isPL && nonIndexSyms.length) {
+      try {
+        const yahoo = await fetchYahooMxQuotes(nonIndexSyms);
+        if (yahoo.length) {
+          try { localStorage.setItem("provider:last", "yahoo"); } catch { }
+          results.push(...yahoo);
+        }
+      } catch { }
+    }
+
+    // 3) 美股：TD → FMP → Finnhub
+    if (!isPL && nonIndexSyms.length) {
+      const stillMissing = nonIndexSyms.filter(s => !results.find(r => r.symbol.toUpperCase() === s.toUpperCase()));
+      if (stillMissing.length) {
         try {
-          const fmp = await fetchFmpQuotes(nonIndexSyms, market);
-          if (fmp.length) {
-            try { localStorage.setItem("provider:last", "fmp"); } catch { }
-            results.push(...fmp);
-          } else if (has("VITE_FINNHUB_TOKEN")) {
-            const fh = await fetchFinnhubQuotes(nonIndexSyms);
-            if (fh.length) {
-              try { localStorage.setItem("provider:last", "finnhub"); } catch { }
-              results.push(...fh);
-            }
+          const td = await fetchTwelveDataQuotes(stillMissing, market);
+          if (td.length) {
+            results.push(...td);
           }
         } catch { }
       }
     }
-  } catch (_) { }
-
-  // 3) Last-resort for any remaining non-index: TD price-only
-  const missingAll = syms.filter(s => !results.find(r => r.symbol === s));
-  try {
-    const nonIdxMissing = missingAll.filter(s => !isIndexSymbol(s));
-    if (nonIdxMissing.length) {
-      const tdPrices = await fetchTwelveDataPrices(nonIdxMissing, market);
-      if (tdPrices.length) {
-        try { localStorage.setItem("provider:last", "twelve_price"); } catch { }
-        results.push(...tdPrices);
-      }
-    }
-  } catch (_) { }
+  }
 
   // Return in input order
-  const bySymbol = new Map(results.map(r => [r.symbol, r]));
-  const ordered = syms.map(s => bySymbol.get(s)).filter(Boolean);
+  const bySymbol = new Map(results.map(r => [r.symbol.toUpperCase(), r]));
+  const ordered = syms.map(s => bySymbol.get(s.toUpperCase())).filter(Boolean);
   if (!ordered.length) {
     try { localStorage.setItem("provider:last", "none"); } catch { }
   }
@@ -888,7 +956,7 @@ export async function getQuotes({ market, symbols }) {
 }
 
 // --- FX: USD/PLN 实时汇率 ---
-// 优先使用 TwelveData 的 forex/quote；失败则回退至 open.er-api；带本地缓存与TTL
+// 优先使用 EODHD forex API（通过后端代理）
 export async function getUsdPlnRate() {
   const cacheKey = "fx:USD:PLN";
   const ttlMs = (() => {
@@ -905,13 +973,27 @@ export async function getUsdPlnRate() {
     }
   } catch { }
 
-  const key = getTDKey();
   const save = (rate, source) => {
     try { localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), rate, source })); } catch { }
     return { rate, source };
   };
 
-  // Primary: TwelveData forex quote
+  // ================================================================
+  // 1. 优先使用 EODHD forex API（通过后端代理）
+  // ================================================================
+  try {
+    const result = await fetchEodhdForex('USDPLN');
+    if (result && result.ok && Number.isFinite(result.rate) && result.rate > 0) {
+      return save(result.rate, "eodhd");
+    }
+  } catch (err) {
+    console.warn('[getUsdPlnRate] EODHD failed:', err.message);
+  }
+
+  // ================================================================
+  // 2. 备用：TwelveData forex quote
+  // ================================================================
+  const key = getTDKey();
   if (key) {
     try {
       const params = new URLSearchParams({ symbol: "USD/PLN", apikey: key });
@@ -923,18 +1005,22 @@ export async function getUsdPlnRate() {
     } catch { }
   }
 
-  // Fallback: open.er-api
+  // ================================================================
+  // 3. 备用：open.er-api
+  // ================================================================
   try {
     const j = await fetch("https://open.er-api.com/v6/latest/USD").then(r => r.json());
-    const rate = Number(j?.rates?.WAN || NaN);
+    const rate = Number(j?.rates?.PLN || NaN);
     if (Number.isFinite(rate) && rate > 0) return save(rate, "er-api");
   } catch { }
 
-  // Secondary fallback: exchangerate.host (free, no key, real-time-ish)
+  // ================================================================
+  // 4. 备用：exchangerate.host
+  // ================================================================
   try {
     const res = await fetch("https://api.exchangerate.host/latest?base=USD&symbols=PLN");
     const j = await res.json();
-    const rate = Number(j?.rates?.WAN || NaN);
+    const rate = Number(j?.rates?.PLN || NaN);
     if (Number.isFinite(rate) && rate > 0) return save(rate, "exchangerate.host");
   } catch { }
 
@@ -960,25 +1046,50 @@ const COINGECKO_ID_MAP = {
 };
 
 // Exported helpers for crypto (USD pricing; pages compute PLN)
-// 多数据源策略：Binance -> CoinGecko -> Twelve Data -> 静态数据
+// 优先使用 EODHD API（通过后端代理），备用 Binance/CoinGecko
 export async function getCryptoQuotes({ symbols }) {
   const syms = Array.isArray(symbols) ? symbols : String(symbols || "").split(",").filter(Boolean);
   if (!syms.length) return [];
   
-  // 1. 尝试 Binance API
+  // ================================================================
+  // 1. 优先使用 EODHD API（通过后端代理）
+  // ================================================================
+  try {
+    const eodhdData = await fetchEodhdCryptoRealtime(syms);
+    if (eodhdData && eodhdData.length) {
+      const out = eodhdData.map(item => ({
+        symbol: item.symbol,
+        priceUSD: item.priceUSD || item.price || item.previousClose,
+        changePct: item.changePct || 0,
+        volume: item.volume || 0,
+        name: CRYPTO_NAME_MAP[item.symbol] || item.symbol,
+        provider: 'eodhd'
+      }));
+      if (out.length >= syms.length * 0.5) {
+        console.log('[Crypto] 使用 EODHD API');
+        return out;
+      }
+    }
+  } catch (err) {
+    console.warn('[getCryptoQuotes] EODHD failed:', err.message);
+  }
+
+  // ================================================================
+  // 2. 备用：尝试 Binance API（通过后端代理）
+  // ================================================================
   try {
     const out = [];
-      await Promise.all(syms.map(async (base) => {
-        try {
-          const pair = `${String(base).toUpperCase()}USDT`;
-          const url = `/binance-api/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
+    await Promise.all(syms.map(async (base) => {
+      try {
+        const pair = `${String(base).toUpperCase()}USDT`;
+        const url = `/binance-api/api/v3/ticker/24hr?symbol=${encodeURIComponent(pair)}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         const j = await fetch(url, { signal: controller.signal }).then(r => r.json()).catch(() => null);
         clearTimeout(timeoutId);
-          if (!j || j.code) return;
-          const priceUSD = toNumber(j.lastPrice ?? j.weightedAvgPrice ?? j.prevClosePrice);
-          const changePct = toNumber(j.priceChangePercent);
+        if (!j || j.code) return;
+        const priceUSD = toNumber(j.lastPrice ?? j.weightedAvgPrice ?? j.prevClosePrice);
+        const changePct = toNumber(j.priceChangePercent);
         const volumeQuote = toNumber(j.quoteVolume);
         const symbol = String(base).toUpperCase();
         if (Number.isFinite(priceUSD) && priceUSD > 0) {
@@ -987,15 +1098,21 @@ export async function getCryptoQuotes({ symbols }) {
             priceUSD, 
             changePct, 
             volume: volumeQuote, 
-            name: CRYPTO_NAME_MAP[symbol] || symbol 
+            name: CRYPTO_NAME_MAP[symbol] || symbol,
+            provider: 'binance'
           });
-          }
-        } catch { }
-      }));
-    if (out.length >= syms.length * 0.5) return out; // 至少获取到一半数据才认为成功
+        }
+      } catch { }
+    }));
+    if (out.length >= syms.length * 0.5) {
+      console.log('[Crypto] 使用 Binance API');
+      return out;
+    }
   } catch (_) { }
   
-  // 2. 尝试 CoinGecko API（免费，无需代理）
+  // ================================================================
+  // 3. 备用：尝试 CoinGecko API
+  // ================================================================
   try {
     const ids = syms.map(s => COINGECKO_ID_MAP[String(s).toUpperCase()]).filter(Boolean);
     if (ids.length) {
@@ -1015,61 +1132,37 @@ export async function getCryptoQuotes({ symbols }) {
               priceUSD: toNumber(d.usd),
               changePct: toNumber(d.usd_24h_change),
               volume: toNumber(d.usd_24h_vol),
-              name: CRYPTO_NAME_MAP[String(sym).toUpperCase()] || sym
+              name: CRYPTO_NAME_MAP[String(sym).toUpperCase()] || sym,
+              provider: 'coingecko'
             });
           }
         }
-        if (out.length) return out;
+        if (out.length) {
+          console.log('[Crypto] 使用 CoinGecko API');
+          return out;
+        }
       }
     }
   } catch (_) { }
   
-  // 3. 尝试 OKX API（通过代理绕过CORS）
-  try {
-    const out = [];
-    await Promise.all(syms.map(async (base) => {
-      try {
-        const instId = `${String(base).toUpperCase()}-USDT`;
-        const url = `/okx-api/api/v5/market/ticker?instId=${encodeURIComponent(instId)}`;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) return;
-        const j = await res.json();
-        if (j.code !== '0' || !j.data || !j.data[0]) return;
-        const ticker = j.data[0];
-        const priceUSD = toNumber(ticker.last);
-        const open24h = toNumber(ticker.open24h);
-        const changePct = open24h > 0 ? ((priceUSD - open24h) / open24h * 100) : 0;
-        const volume = toNumber(ticker.vol24h);
-        const symbol = String(base).toUpperCase();
-      if (Number.isFinite(priceUSD) && priceUSD > 0) {
-          out.push({ 
-            symbol, 
-            priceUSD, 
-            changePct, 
-            volume, 
-            name: CRYPTO_NAME_MAP[symbol] || symbol 
-          });
-        }
-      } catch { }
-    }));
-    if (out.length >= syms.length * 0.5) return out;
-  } catch (_) { }
-  
-  // 4. 尝试 Twelve Data
+  // ================================================================
+  // 4. 备用：尝试 Twelve Data
+  // ================================================================
   try {
     const td = await fetchTwelveDataCryptoQuotes(syms);
     if (Array.isArray(td) && td.length) {
+      console.log('[Crypto] 使用 Twelve Data');
       return td.map(q => ({
         ...q,
-        name: CRYPTO_NAME_MAP[String(q.symbol).toUpperCase()] || q.name || q.symbol
+        name: CRYPTO_NAME_MAP[String(q.symbol).toUpperCase()] || q.name || q.symbol,
+        provider: 'twelvedata'
       }));
     }
   } catch (_) { }
   
-  // 5. 返回静态兜底数据（2026年1月数据）
+  // ================================================================
+  // 5. 静态兜底数据（2026年1月数据）
+  // ================================================================
   const fallbackData = {
     BTC: { priceUSD: 104500, changePct: 2.35, volume: 32000000000 },
     ETH: { priceUSD: 3280, changePct: 1.85, volume: 15000000000 },
@@ -1091,21 +1184,47 @@ export async function getCryptoQuotes({ symbols }) {
       priceUSD: fb.priceUSD,
       changePct: fb.changePct,
       volume: fb.volume,
-      name: CRYPTO_NAME_MAP[s] || s
+      name: CRYPTO_NAME_MAP[s] || s,
+      provider: 'fallback'
     };
   });
-      }
+}
 
 export async function getCryptoSpark(base, opts = {}) {
   const { interval = "5min", points = 60 } = opts;
-  // 将 Twelve Data 的间隔映射到 Binance K线间隔
+  
+  // 将间隔映射到 EODHD 格式
+  const eodhdIntervalMap = {
+    "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m",
+    "1h": "1h", "4h": "4h", "1day": "1d", "1week": "1w"
+  };
+  const eodhdInterval = eodhdIntervalMap[interval] || "5m";
+  
+  // ================================================================
+  // 1. 优先使用 EODHD API（通过后端代理）
+  // ================================================================
+  try {
+    const candles = await fetchEodhdCryptoIntraday(base, eodhdInterval);
+    if (Array.isArray(candles) && candles.length) {
+      const closes = candles.map(c => toNumber(c.close)).filter(v => Number.isFinite(v) && v > 0);
+      if (closes.length >= 10) {
+        // 取最后 points 个数据点
+        return closes.slice(-points);
+      }
+    }
+  } catch (err) {
+    console.warn('[getCryptoSpark] EODHD failed:', err.message);
+  }
+  
+  // ================================================================
+  // 2. 备用：Binance Kline API
+  // ================================================================
   const binanceIntervalMap = {
     "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m",
     "1h": "1h", "4h": "4h", "1day": "1d", "1week": "1w"
   };
   const binanceInterval = binanceIntervalMap[interval] || "5m";
   
-  // 1. 优先使用 Binance Kline API
   try {
     const pair = `${String(base).toUpperCase()}USDT`;
     const url = `/binance-api/api/v3/klines?symbol=${encodeURIComponent(pair)}&interval=${binanceInterval}&limit=${points}`;
@@ -1115,10 +1234,12 @@ export async function getCryptoSpark(base, opts = {}) {
     clearTimeout(timeoutId);
     if (Array.isArray(j) && j.length) {
       return j.map(k => toNumber(k[4])).filter(v => Number.isFinite(v) && v > 0);
-  }
+    }
   } catch (_) { }
   
-  // 2. 尝试 CoinGecko 7天历史数据
+  // ================================================================
+  // 3. 备用：CoinGecko 历史数据
+  // ================================================================
   try {
     const id = COINGECKO_ID_MAP[String(base).toUpperCase()];
     if (id) {
@@ -1128,7 +1249,6 @@ export async function getCryptoSpark(base, opts = {}) {
       const data = await fetch(url, { signal: controller.signal }).then(r => r.json()).catch(() => null);
       clearTimeout(timeoutId);
       if (data && Array.isArray(data.prices) && data.prices.length) {
-        // 每隔几个点取一个，确保数据点数量合适
         const prices = data.prices.map(p => p[1]);
         const step = Math.max(1, Math.floor(prices.length / points));
         const result = [];
@@ -1140,7 +1260,9 @@ export async function getCryptoSpark(base, opts = {}) {
     }
   } catch (_) { }
   
-  // 3. Fallback: Twelve Data
+  // ================================================================
+  // 4. 最后备用：Twelve Data
+  // ================================================================
   try {
     return await fetchTwelveDataCryptoSpark(base, opts);
   } catch (_) {
@@ -1149,7 +1271,36 @@ export async function getCryptoSpark(base, opts = {}) {
 }
 
 // Exported helper for stock sparkline
-export async function getStockSpark(symbol, market, opts) {
+export async function getStockSpark(symbol, market, opts = {}) {
+  const { interval = "1min", points = 60 } = opts;
+  
+  // 将间隔映射到 EODHD 格式
+  const eodhdIntervalMap = {
+    "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m",
+    "1h": "1h", "4h": "4h", "1day": "1d", "1week": "1w"
+  };
+  const eodhdInterval = eodhdIntervalMap[interval] || "5m";
+  const isPL = market === 'pl';
+  
+  // ================================================================
+  // 1. 优先使用 EODHD API（通过后端代理）
+  // ================================================================
+  try {
+    const candles = await fetchEodhdIntraday(symbol, isPL ? 'pl' : 'us', eodhdInterval);
+    if (Array.isArray(candles) && candles.length) {
+      const closes = candles.map(c => toNumber(c.close)).filter(v => Number.isFinite(v) && v > 0);
+      if (closes.length >= 5) {
+        // 取最后 points 个数据点
+        return closes.slice(-points);
+      }
+    }
+  } catch (err) {
+    console.warn('[getStockSpark] EODHD failed:', err.message);
+  }
+  
+  // ================================================================
+  // 2. 备用：Twelve Data
+  // ================================================================
   try {
     return await fetchTwelveDataStockSpark(symbol, market, opts);
   } catch {

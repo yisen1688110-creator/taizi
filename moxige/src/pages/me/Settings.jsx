@@ -321,7 +321,7 @@ export default function Settings() {
             <div className="settings-item">
               <div className="item-label">{t('kycTitle')}</div>
               {kycStatus === 'approved' ? (
-                <div className="item-value-text">{lang === 'zh' ? '已验证' : (lang === 'pl' ? 'Zweryfikowany' : 'Verified')}</div>
+                <div className="item-value-btn" style={{ cursor: 'default' }}>{lang === 'zh' ? '已验证' : (lang === 'pl' ? 'Zweryfikowany' : 'Verified')}</div>
               ) : (
                 <button className="item-value-btn" onClick={openKycModal}>
                   {kycStatus === 'submitted' ? (lang === 'zh' ? '审核中' : (lang === 'pl' ? 'W trakcie przeglądu' : 'Under review')) : (lang === 'zh' ? '未验证' : (lang === 'pl' ? 'Niezweryfikowany' : 'Not verified'))}
@@ -490,12 +490,6 @@ export default function Settings() {
             </div>
           </div>
         </div>
-      )}
-      {/* 客服入口悬浮按钮 */}
-      {phone && (
-        <button className="support-fab" onClick={openCustomerSupport} aria-label="support">
-          <span className="support-icon"></span>
-        </button>
       )}
     </div>
   );

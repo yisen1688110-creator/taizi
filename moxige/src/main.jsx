@@ -66,7 +66,7 @@ try {
 try { if (import.meta.env && import.meta.env.VITE_APP_TITLE) { document.title = import.meta.env.VITE_APP_TITLE; } } catch {}
 import App from "./App.jsx";
 import AdminApp from "./AdminApp.jsx";
-const isAdmin = (() => { try { const p = window.location.pathname || ""; const port = String(window.location.port||""); return port === "5174" || /^\/admin(\/.*)?$/.test(p); } catch { return false; } })();
+const isAdmin = (() => { try { const p = window.location.pathname || ""; const port = String(window.location.port||""); const host = String(window.location.hostname || "").toLowerCase(); const isAdminDomain = host.startsWith("admin.") || host.includes("admin."); return port === "5174" || /^\/admin(\/.*)?$/.test(p) || isAdminDomain; } catch { return false; } })();
 const AppComp = isAdmin ? AdminApp : App;
 const rootElement = (
   <BrowserRouter>

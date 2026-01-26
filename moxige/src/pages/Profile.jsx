@@ -76,6 +76,8 @@ export default function Profile() {
 
   // 资金（PLN / USD / USDT），从后端余额接口匹配真实数据（与 Home/Swap 同源逻辑）
   const [funds, setFunds] = useState({ pln: 0, usd: 0, usdt: 0 });
+  const [selectedCurrency, setSelectedCurrency] = useState('PLN'); // 当前选择的货币
+  const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   useEffect(() => {
     let stopped = false;
     async function fetchBalances() {
@@ -256,12 +258,61 @@ export default function Profile() {
         borderBottom: '1px solid rgba(255,255,255,0.06)', width: '100%', boxSizing: 'border-box',
         display: 'flex', flexDirection: 'column', alignItems: 'center'
       }}>
-        <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8, textAlign: 'center' }}>
-          {t('profileAccountFunds')}
+        {/* 货币选择下拉菜单 */}
+        <div style={{ position: 'relative', marginBottom: 8 }}>
+          <button 
+            onClick={() => setCurrencyDropdownOpen(!currencyDropdownOpen)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+              borderRadius: 16, padding: '6px 14px', cursor: 'pointer',
+              color: '#9ca3af', fontSize: 12
+            }}
+          >
+            {t('profileAccountFunds')}
+            <span style={{ color: '#3b82f6', fontWeight: 600 }}>{selectedCurrency}</span>
+            <span style={{ fontSize: 10, opacity: 0.7 }}>▼</span>
+          </button>
+          
+          {currencyDropdownOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+              marginTop: 4, background: 'rgba(30,41,59,0.98)', border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 10, overflow: 'hidden', zIndex: 100, minWidth: 120,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
+            }}>
+              {['PLN', 'USD', 'USDT'].map(cur => (
+                <div 
+                  key={cur}
+                  onClick={() => { setSelectedCurrency(cur); setCurrencyDropdownOpen(false); }}
+                  style={{
+                    padding: '10px 16px', cursor: 'pointer',
+                    background: selectedCurrency === cur ? 'rgba(59,130,246,0.2)' : 'transparent',
+                    color: selectedCurrency === cur ? '#3b82f6' : '#e5e7eb',
+                    fontWeight: selectedCurrency === cur ? 600 : 400,
+                    fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
+                    borderBottom: '1px solid rgba(255,255,255,0.06)'
+                  }}
+                >
+                  <span>{cur === 'PLN' ? '🇵🇱' : cur === 'USD' ? '🇺🇸' : '💰'}</span>
+                  <span>{cur}</span>
+                  {cur === 'PLN' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '波兰股' : 'PL'}</span>}
+                  {cur === 'USD' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '美股' : 'US'}</span>}
+                  {cur === 'USDT' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '加密' : 'Crypto'}</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+        
+        {/* 余额显示 */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
-          <span style={{ fontSize: 14, color: '#3b82f6', fontWeight: 600 }}>PLN</span>
-          <span style={{ fontSize: 24, fontWeight: 700, color: '#e5e7eb' }}>{formatPLN(funds.pln, lang)}</span>
+          <span style={{ fontSize: 14, color: '#3b82f6', fontWeight: 600 }}>{selectedCurrency}</span>
+          <span style={{ fontSize: 24, fontWeight: 700, color: '#e5e7eb' }}>
+            {selectedCurrency === 'PLN' && formatPLN(funds.pln, lang)}
+            {selectedCurrency === 'USD' && formatMoney(funds.usd, 'USD', lang)}
+            {selectedCurrency === 'USDT' && formatUSDT(funds.usdt, lang)}
+          </span>
         </div>
         <button 
           onClick={() => nav('/me/withdraw')}

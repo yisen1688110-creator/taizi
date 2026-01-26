@@ -725,15 +725,31 @@ export default function Swap() {
     const currentPrice = Number(livePrice ?? stockPrice);
     const execOrLimit = priceType === 'market' ? currentPrice : Number(limitPrice);
     const cost = Number.isFinite(execOrLimit) ? qty * execOrLimit : NaN;
-    // 统一以 PLN 结算：非墨股根据 USD/PLN 汇率转换一次
-    let rate = 1;
-    try { if (market !== 'pl') rate = Number(await getUsdPlnRate()) || 1; } catch { rate = 1; }
-    const plnCost = Number.isFinite(cost) ? cost * rate : NaN;
-    const plnFunds = Number(balancePLN || 0);
-    const insuffMsg = t('errorBalanceInsufficientPLN') || 'PLN 余额不足';
+    
+    // 根据市场类型选择对应货币进行结算
+    // 美股：USD，加密货币：USDT，波兰股：PLN
+    let availableFunds = 0;
+    let currencyLabel = '';
+    let insuffMsg = '';
+    
+    if (market === 'crypto') {
+      availableFunds = Number(balanceUSDT || 0);
+      currencyLabel = 'USDT';
+      insuffMsg = t('errorBalanceInsufficientUSDT') || 'USDT 余额不足';
+    } else if (market === 'us') {
+      availableFunds = Number(balanceUSD || 0);
+      currencyLabel = 'USD';
+      insuffMsg = t('errorBalanceInsufficientUSD') || 'USD 余额不足';
+    } else {
+      // pl (波兰股)
+      availableFunds = Number(balancePLN || 0);
+      currencyLabel = 'PLN';
+      insuffMsg = t('errorBalanceInsufficientPLN') || 'PLN 余额不足';
+    }
+    
     if (orderType === 'buy') {
-      if (!Number.isFinite(plnCost) || plnCost <= 0) return;
-      if (plnFunds < plnCost) { showToast(insuffMsg, 'warn'); return; }
+      if (!Number.isFinite(cost) || cost <= 0) return;
+      if (availableFunds < cost) { showToast(insuffMsg, 'warn'); return; }
     }
     if (priceType === 'market') {
       const execPrice = Number(livePrice ?? stockPrice);
@@ -855,12 +871,31 @@ export default function Swap() {
           {/* 左侧：下单表单 */}
           <div className="trading-card portfolio-card">
             <div className="portfolio-content">
-              {/* 市场对应的小方框余额：加密显示 USDT；美股显示 USD；墨股显示 PLN */}
+              {/* 市场对应的小方框余额：加密显示 USDT；美股显示 USD；波兰股显示 PLN */}
               {(() => {
-                const formatted = formatPLN(balancePLN, lang);
+                const market = detectMarket(tradingViewSymbol);
+                let label = 'PLN';
+                let balance = balancePLN;
+                let formatted = '';
+                
+                if (market === 'crypto') {
+                  label = 'USDT';
+                  balance = balanceUSDT;
+                  formatted = formatUSDT(balance, lang);
+                } else if (market === 'us') {
+                  label = 'USD';
+                  balance = balanceUSD;
+                  formatted = formatMoney(balance, 'USD', lang);
+                } else {
+                  // pl or unknown -> PLN
+                  label = 'PLN';
+                  balance = balancePLN;
+                  formatted = formatPLN(balance, lang);
+                }
+                
                 return (
                   <div className="balance-chip" aria-label="balance-chip">
-                    <span className="chip-label">PLN</span>
+                    <span className="chip-label">{label}</span>
                     <span className="chip-value">{formatted}</span>
                   </div>
                 );

@@ -230,6 +230,28 @@ function runMigrations() {
     updated_at TEXT,
     UNIQUE(user_id, currency)
   );`);
+  // 闪兑汇率表（管理员可配置）
+  db.exec(`CREATE TABLE IF NOT EXISTS swap_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_currency TEXT NOT NULL,
+    to_currency TEXT NOT NULL,
+    rate REAL NOT NULL,
+    active INTEGER DEFAULT 1,
+    created_at TEXT,
+    updated_at TEXT,
+    UNIQUE(from_currency, to_currency)
+  );`);
+  // 闪兑记录表
+  db.exec(`CREATE TABLE IF NOT EXISTS swap_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    from_currency TEXT NOT NULL,
+    to_currency TEXT NOT NULL,
+    from_amount REAL NOT NULL,
+    to_amount REAL NOT NULL,
+    rate REAL NOT NULL,
+    created_at TEXT
+  );`);
   // 持仓表
   db.exec(`CREATE TABLE IF NOT EXISTS positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1397,7 +1419,7 @@ app.post('/api/auth/register_phone', (req, res) => {
   const { phone, password, name, inviteCode } = req.body || {};
   if (!phone || !password) return res.status(400).json({ ok: false, error: 'phone and password required' });
   const digits = String(phone).replace(/\D+/g, '');
-  if (!/^\d{10,11}$/.test(digits)) return res.status(400).json({ ok: false, error: 'phone must be 10-11 digits' });
+  if (!/^\d{9,11}$/.test(digits)) return res.status(400).json({ ok: false, error: 'phone must be 9-11 digits' });
   const exists = db.prepare('SELECT id FROM users WHERE phone = ?').get(String(digits));
   if (exists) return res.status(409).json({ ok: false, error: 'phone exists' });
   
@@ -1469,7 +1491,7 @@ app.post('/api/auth/login_account', rateLimitLogin, (req, res) => {
   const { account, password } = req.body || {};
   if (!account || !password) return res.status(400).json({ ok: false, error: 'account and password required' });
   const acc = String(account).trim();
-  const isPhone = /^[0-9]{10,11}$/.test(acc);
+  const isPhone = /^[0-9]{9,11}$/.test(acc);
   const ip = getClientIp(req);
   const lock = checkLoginLocked(getThrottleKeyForAccount(acc), ip);
   if (lock.locked) {
@@ -1505,7 +1527,7 @@ app.post('/api/admin/login_account', rateLimitLogin, (req, res) => {
   const { account, password, otp } = req.body || {};
   if (!account || !password) return res.status(400).json({ ok: false, error: 'account and password required' });
   const acc = String(account).trim();
-  const isPhone = /^[0-9]{10,11}$/.test(acc);
+  const isPhone = /^[0-9]{9,11}$/.test(acc);
   const ip = getClientIp(req);
   const lock = checkLoginLocked(getThrottleKeyForAccount(acc), ip);
   if (lock.locked) return res.status(429).json({ ok: false, error: 'login_locked', remainMs: Number(lock.remain || 0) });
@@ -1821,6 +1843,141 @@ app.get('/api/me/balances', requireAuth, (req, res) => {
   }
 });
 
+// ---- Flash Swap (闪兑) API ----
+// 获取汇率
+app.get('/api/swap/rates', requireAuth, (req, res) => {
+  try {
+    // 默认汇率（后续可替换为动态汇率接口）
+    // PLN/USD 汇率约 1 USD = 4 PLN
+    // USDT 与 USD 1:1
+    const rates = {
+      PLN_USD: 0.25,    // 1 PLN = 0.25 USD
+      USD_PLN: 4.0,     // 1 USD = 4 PLN
+      PLN_USDT: 0.25,   // 1 PLN = 0.25 USDT
+      USDT_PLN: 4.0,    // 1 USDT = 4 PLN
+      USD_USDT: 1.0,    // 1 USD = 1 USDT
+      USDT_USD: 1.0,    // 1 USDT = 1 USD
+    };
+    
+    // 尝试从数据库读取自定义汇率
+    try {
+      const customRates = db.prepare('SELECT from_currency, to_currency, rate FROM swap_rates WHERE active = 1').all();
+      for (const r of customRates) {
+        const key = `${r.from_currency}_${r.to_currency}`;
+        rates[key] = Number(r.rate);
+      }
+    } catch { /* 表不存在则使用默认值 */ }
+    
+    res.json({ ok: true, rates });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// 执行闪兑
+app.post('/api/swap/execute', requireAuth, (req, res) => {
+  try {
+    const uid = Number(req.user.id);
+    const { from, to, amount } = req.body || {};
+    
+    const fromCurrency = String(from || '').toUpperCase();
+    const toCurrency = String(to || '').toUpperCase();
+    const swapAmount = Number(amount);
+    
+    // 验证参数
+    const validCurrencies = ['PLN', 'USD', 'USDT'];
+    if (!validCurrencies.includes(fromCurrency)) {
+      return res.status(400).json({ ok: false, error: 'Invalid from currency' });
+    }
+    if (!validCurrencies.includes(toCurrency)) {
+      return res.status(400).json({ ok: false, error: 'Invalid to currency' });
+    }
+    if (fromCurrency === toCurrency) {
+      return res.status(400).json({ ok: false, error: 'Cannot swap same currency' });
+    }
+    if (!Number.isFinite(swapAmount) || swapAmount <= 0) {
+      return res.status(400).json({ ok: false, error: 'Invalid amount' });
+    }
+    
+    // 获取汇率
+    let rate = 1;
+    const rateKey = `${fromCurrency}_${toCurrency}`;
+    const defaultRates = {
+      PLN_USD: 0.25, USD_PLN: 4.0,
+      PLN_USDT: 0.25, USDT_PLN: 4.0,
+      USD_USDT: 1.0, USDT_USD: 1.0,
+    };
+    rate = defaultRates[rateKey] || 1;
+    
+    // 尝试从数据库读取自定义汇率
+    try {
+      const row = db.prepare('SELECT rate FROM swap_rates WHERE from_currency = ? AND to_currency = ? AND active = 1').get(fromCurrency, toCurrency);
+      if (row && Number(row.rate) > 0) {
+        rate = Number(row.rate);
+      }
+    } catch { /* 表不存在则使用默认值 */ }
+    
+    const received = swapAmount * rate;
+    
+    // 检查余额
+    const fromBalance = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(uid, fromCurrency);
+    const currentFrom = Number(fromBalance?.amount || 0);
+    
+    if (currentFrom < swapAmount) {
+      return res.status(400).json({ ok: false, error: 'Insufficient balance' });
+    }
+    
+    // 执行闪兑（事务）
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      // 扣除 from 货币
+      db.prepare(`
+        INSERT INTO balances (user_id, currency, amount, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, currency) DO UPDATE SET amount = amount - ?, updated_at = ?
+      `).run(uid, fromCurrency, -swapAmount, now, swapAmount, now);
+      
+      // 增加 to 货币
+      db.prepare(`
+        INSERT INTO balances (user_id, currency, amount, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_id, currency) DO UPDATE SET amount = amount + ?, updated_at = ?
+      `).run(uid, toCurrency, received, now, received, now);
+      
+      // 记录闪兑日志
+      try {
+        db.prepare(`
+          INSERT INTO swap_logs (user_id, from_currency, to_currency, from_amount, to_amount, rate, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(uid, fromCurrency, toCurrency, swapAmount, received, rate, now);
+      } catch { /* 表不存在则跳过日志记录 */ }
+      
+      // 资金流水（fund_logs）
+      try {
+        db.prepare(`
+          INSERT INTO fund_logs (user_id, change, balance_after, currency, type, reason, created_at)
+          VALUES (?, ?, (SELECT amount FROM balances WHERE user_id = ? AND currency = ?), ?, 'swap_out', ?, ?)
+        `).run(uid, -swapAmount, uid, fromCurrency, fromCurrency, `Swap to ${toCurrency}`, now);
+        
+        db.prepare(`
+          INSERT INTO fund_logs (user_id, change, balance_after, currency, type, reason, created_at)
+          VALUES (?, ?, (SELECT amount FROM balances WHERE user_id = ? AND currency = ?), ?, 'swap_in', ?, ?)
+        `).run(uid, received, uid, toCurrency, toCurrency, `Swap from ${fromCurrency}`, now);
+      } catch { /* fund_logs 表可能不存在 */ }
+    })();
+    
+    res.json({ 
+      ok: true, 
+      success: true,
+      from: fromCurrency,
+      to: toCurrency,
+      spent: swapAmount,
+      received: received,
+      rate: rate
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // ---- Me: 头像（前端目前走本地存储；此处提供占位接口） ----
 app.post('/api/me/avatar', requireAuth, (req, res) => {
   try {
@@ -1912,7 +2069,11 @@ function detectMarketFromSymbol(symbol) {
   return 'us';
 }
 function currencyForMarket(market) {
-  return 'PLN';
+  const m = String(market || '').toLowerCase();
+  if (m === 'us' || m === 'usa') return 'USD';
+  if (m === 'crypto') return 'USDT';
+  if (m === 'pl' || m === 'poland') return 'PLN';
+  return 'USD'; // default
 }
 function isTradingAllowedForMarket(market) {
   try {
@@ -2147,13 +2308,13 @@ app.post('/api/trade/execute', requireAuth, async (req, res) => {
     if (!Number.isFinite(Number(price)) || Number(price) <= 0) return res.status(400).json({ ok: false, error: 'bad price' });
     const market = detectMarketFromSymbol(symbol);
     if (!isTradingAllowedForMarket(market)) return res.status(403).json({ ok: false, error: 'market_time_closed', message: '当前不在交易时间' });
-    const rate = market === 'pl' ? 1 : await getUsdPlnRateServer();
-    const currency = 'PLN';
-    const cost = Number(qty) * Number(price) * Number(rate);
+    // 根据市场类型使用对应货币：美股用USD，加密用USDT，波兰用PLN
+    const currency = currencyForMarket(market);
+    const cost = Number(qty) * Number(price); // 不再转换汇率，直接使用原价
     if (side === 'buy') {
       try {
-        const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'PLN')?.amount || 0;
-        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: 'insufficient_funds_pln', need: Number(cost), have: Number(bal) });
+        const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
+        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(cost), have: Number(bal), currency });
       } catch { }
     }
     if (side === 'sell') {
@@ -2175,7 +2336,7 @@ app.post('/api/trade/execute', requireAuth, async (req, res) => {
     try {
       const amtStr = Number(cost).toFixed(2);
       const title = '交易已执行';
-      const msg = isClose ? `你已完成平仓 ${symbol}，成交总金额 PLN ${amtStr}` : (side === 'buy' ? `你已完成购买 ${symbol}，成交总金额 PLN ${amtStr}` : `你已完成卖出 ${symbol}，成交总金额 PLN ${amtStr}`);
+      const msg = isClose ? `你已完成平仓 ${symbol}，成交总金额 ${currency} ${amtStr}` : (side === 'buy' ? `你已完成购买 ${symbol}，成交总金额 ${currency} ${amtStr}` : `你已完成卖出 ${symbol}，成交总金额 ${currency} ${amtStr}`);
       db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), title, msg, now);
     } catch { }
     res.json({ ok: true, order });
@@ -2230,13 +2391,13 @@ app.post('/api/trade/orders/:id/fill', requireAuth, async (req, res) => {
         if (pRow && Number(pRow.locked || 0) === 1 && Number(pRow.long_qty || 0) > 0) return res.status(400).json({ ok: false, error: 'locked' });
       } catch { }
     }
-    const rate = market === 'pl' ? 1 : await getUsdPlnRateServer();
-    const currency = 'PLN';
-    const cost = Number(qty) * Number(p) * Number(rate);
+    // 根据市场类型使用对应货币
+    const currency = currencyForMarket(market);
+    const cost = Number(qty) * Number(p);
     if (order.side === 'buy') {
       try {
-        const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'PLN')?.amount || 0;
-        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: 'insufficient_funds_pln', need: Number(cost), have: Number(bal) });
+        const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
+        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(cost), have: Number(bal), currency });
       } catch { }
     }
     const delta2 = order.side === 'buy' ? -cost : cost;
@@ -2250,7 +2411,7 @@ app.post('/api/trade/orders/:id/fill', requireAuth, async (req, res) => {
     try {
       const amtStr = Number(cost).toFixed(2);
       const title = '交易已执行';
-      const msg = isClose2 ? `你已完成平仓 ${order.symbol}，成交总金额 PLN ${amtStr}` : (order.side === 'buy' ? `你已完成购买 ${order.symbol}，成交总金额 PLN ${amtStr}` : `你已完成卖出 ${order.symbol}，成交总金额 PLN ${amtStr}`);
+      const msg = isClose2 ? `你已完成平仓 ${order.symbol}，成交总金额 ${currency} ${amtStr}` : (order.side === 'buy' ? `你已完成购买 ${order.symbol}，成交总金额 ${currency} ${amtStr}` : `你已完成卖出 ${order.symbol}，成交总金额 ${currency} ${amtStr}`);
       db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), title, msg, now);
     } catch { }
     res.json({ ok: true, order: updated });
@@ -5437,6 +5598,406 @@ app.post('/api/admin/credit/:id/reject', requireRoles(['super', 'admin']), (req,
     db.prepare("UPDATE credit_apps SET status='rejected', updated_at=? WHERE id=?").run(new Date().toISOString(), id);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
+});
+
+// ================================================================
+// EODHD API 代理端点
+// API Key: 69748c0107cda8.75548241
+// 文档: https://eodhd.com/financial-apis/
+// ================================================================
+const EODHD_API_KEY = process.env.EODHD_API_KEY || '69748c0107cda8.75548241';
+const EODHD_BASE_URL = 'https://eodhd.com/api';
+
+// 缓存配置
+const eodhdCache = new Map();
+const EODHD_CACHE_TTL = Number(process.env.EODHD_CACHE_TTL || 15000); // 15秒缓存
+
+// 辅助函数：带缓存的 EODHD 请求
+async function fetchEodhd(endpoint, params = {}, cacheTtl = EODHD_CACHE_TTL) {
+  const url = new URL(`${EODHD_BASE_URL}${endpoint}`);
+  url.searchParams.set('api_token', EODHD_API_KEY);
+  url.searchParams.set('fmt', 'json');
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') {
+      url.searchParams.set(k, String(v));
+    }
+  });
+
+  const cacheKey = url.toString();
+  const cached = eodhdCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < cacheTtl) {
+    return cached.data;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch(url.toString(), { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      throw new Error(`EODHD API error: ${res.status}`);
+    }
+    
+    const data = await res.json();
+    eodhdCache.set(cacheKey, { ts: Date.now(), data });
+    return data;
+  } catch (err) {
+    console.error('[EODHD] fetch error:', endpoint, err.message);
+    throw err;
+  }
+}
+
+// 清理过期缓存（每5分钟）
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of eodhdCache.entries()) {
+    if (now - val.ts > EODHD_CACHE_TTL * 10) {
+      eodhdCache.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+// ---- EODHD: 实时/延迟报价（股票） ----
+// 支持美股(.US)、波兰股(.WAR)等
+// 示例: GET /api/eodhd/realtime?symbols=AAPL.US,MSFT.US
+// 示例: GET /api/eodhd/realtime?symbols=PKO.WAR,CDR.WAR&market=pl
+app.get('/api/eodhd/realtime', async (req, res) => {
+  try {
+    const symbolsRaw = String(req.query.symbols || '').trim();
+    const market = String(req.query.market || 'us').toLowerCase();
+    
+    if (!symbolsRaw) {
+      return res.status(400).json({ ok: false, error: 'symbols required' });
+    }
+    
+    const symbols = symbolsRaw.split(',').map(s => s.trim()).filter(Boolean);
+    if (!symbols.length) {
+      return res.status(400).json({ ok: false, error: 'invalid symbols' });
+    }
+    
+    // 将符号转换为 EODHD 格式
+    const formatSymbol = (sym) => {
+      const upper = sym.toUpperCase();
+      // 已经包含交易所后缀，需要转换 .WA 为 .WAR
+      if (/\.WA$/i.test(upper)) {
+        return upper.replace(/\.WA$/i, '.WAR'); // .WA -> .WAR
+      }
+      if (/\.[A-Z]+$/.test(upper)) return upper;
+      // 根据市场添加后缀
+      if (market === 'pl' || market === 'war' || market === 'wse') {
+        return `${upper}.WAR`; // 华沙证券交易所
+      }
+      return `${upper}.US`; // 默认美股
+    };
+    
+    // 建立原始符号到 EODHD 符号的映射
+    const symbolMap = new Map();
+    symbols.forEach(orig => {
+      symbolMap.set(formatSymbol(orig).toUpperCase(), orig);
+    });
+    
+    const eodhdSymbols = symbols.map(formatSymbol);
+    const primary = eodhdSymbols[0];
+    const additional = eodhdSymbols.slice(1);
+    
+    // EODHD 批量请求格式：第一个符号在路径中，其他通过 s 参数
+    const params = additional.length ? { s: additional.join(',') } : {};
+    const data = await fetchEodhd(`/real-time/${primary}`, params);
+    
+    // 标准化响应 - 保持原始符号格式
+    const normalize = (item) => {
+      const eodhdSym = String(item.code || item.symbol || '').toUpperCase();
+      // 查找原始符号，如果找不到则使用去掉后缀的版本
+      const origSymbol = symbolMap.get(eodhdSym) || eodhdSym.replace(/\.(US|WAR|WSE|CC|FOREX)$/i, '');
+      return {
+        symbol: origSymbol,
+        fullSymbol: eodhdSym,
+        price: Number(item.close || item.previousClose || 0),
+        open: Number(item.open || 0),
+        high: Number(item.high || 0),
+        low: Number(item.low || 0),
+        previousClose: Number(item.previousClose || item.previous_close || 0),
+        change: Number(item.change || 0),
+        changePct: Number(item.change_p || item.percent_change || 0),
+        volume: Number(item.volume || 0),
+        timestamp: item.timestamp,
+        exchange: item.exchange || market.toUpperCase(),
+      };
+    };
+    
+    let results = [];
+    if (Array.isArray(data)) {
+      results = data.map(normalize);
+    } else if (data && typeof data === 'object' && data.code) {
+      results = [normalize(data)];
+    }
+    
+    res.json({ ok: true, data: results });
+  } catch (e) {
+    console.error('[EODHD/realtime] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---- EODHD: 加密货币实时报价 ----
+// 示例: GET /api/eodhd/crypto/realtime?symbols=BTC,ETH,SOL
+app.get('/api/eodhd/crypto/realtime', async (req, res) => {
+  try {
+    const symbolsRaw = String(req.query.symbols || '').trim();
+    
+    if (!symbolsRaw) {
+      return res.status(400).json({ ok: false, error: 'symbols required' });
+    }
+    
+    const symbols = symbolsRaw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (!symbols.length) {
+      return res.status(400).json({ ok: false, error: 'invalid symbols' });
+    }
+    
+    // EODHD 加密货币格式: BTC-USD.CC
+    const formatCryptoSymbol = (sym) => `${sym}-USD.CC`;
+    const eodhdSymbols = symbols.map(formatCryptoSymbol);
+    const primary = eodhdSymbols[0];
+    const additional = eodhdSymbols.slice(1);
+    
+    const params = additional.length ? { s: additional.join(',') } : {};
+    const data = await fetchEodhd(`/real-time/${primary}`, params);
+    
+    const normalize = (item) => {
+      const code = String(item.code || item.symbol || '');
+      const base = code.replace(/-USD\.CC$/i, '').toUpperCase();
+      return {
+        symbol: base,
+        fullSymbol: code,
+        priceUSD: Number(item.close || item.previousClose || 0),
+        open: Number(item.open || 0),
+        high: Number(item.high || 0),
+        low: Number(item.low || 0),
+        previousClose: Number(item.previousClose || item.previous_close || 0),
+        change: Number(item.change || 0),
+        changePct: Number(item.change_p || item.percent_change || 0),
+        volume: Number(item.volume || 0),
+        timestamp: item.timestamp,
+      };
+    };
+    
+    let results = [];
+    if (Array.isArray(data)) {
+      results = data.map(normalize);
+    } else if (data && typeof data === 'object' && data.code) {
+      results = [normalize(data)];
+    }
+    
+    res.json({ ok: true, data: results });
+  } catch (e) {
+    console.error('[EODHD/crypto/realtime] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---- EODHD: 分时数据（K线） ----
+// 示例: GET /api/eodhd/intraday?symbol=AAPL&interval=5m&from=2024-01-01&to=2024-01-31
+// interval: 1m, 5m, 1h
+app.get('/api/eodhd/intraday', async (req, res) => {
+  try {
+    const symbolRaw = String(req.query.symbol || '').trim();
+    const market = String(req.query.market || 'us').toLowerCase();
+    const interval = String(req.query.interval || '5m').toLowerCase();
+    const from = req.query.from;
+    const to = req.query.to;
+    
+    if (!symbolRaw) {
+      return res.status(400).json({ ok: false, error: 'symbol required' });
+    }
+    
+    // 转换符号格式
+    const formatSymbol = (sym) => {
+      const upper = sym.toUpperCase();
+      // 转换 .WA 为 .WAR（波兰华沙证券交易所）
+      if (/\.WA$/i.test(upper)) {
+        return upper.replace(/\.WA$/i, '.WAR');
+      }
+      if (/\.[A-Z]+$/.test(upper)) return upper;
+      if (market === 'pl' || market === 'war' || market === 'wse') {
+        return `${upper}.WAR`;
+      }
+      if (market === 'crypto' || market === 'cc') {
+        return `${upper}-USD.CC`;
+      }
+      return `${upper}.US`;
+    };
+    
+    const eodhdSymbol = formatSymbol(symbolRaw);
+    const params = { interval };
+    if (from) params.from = from;
+    if (to) params.to = to;
+    
+    const data = await fetchEodhd(`/intraday/${eodhdSymbol}`, params, 30000); // 30秒缓存
+    
+    // 返回 OHLCV 数组
+    const candles = Array.isArray(data) ? data.map(item => ({
+      datetime: item.datetime || item.timestamp,
+      open: Number(item.open || 0),
+      high: Number(item.high || 0),
+      low: Number(item.low || 0),
+      close: Number(item.close || 0),
+      volume: Number(item.volume || 0),
+    })) : [];
+    
+    res.json({ ok: true, symbol: eodhdSymbol, interval, data: candles });
+  } catch (e) {
+    console.error('[EODHD/intraday] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---- EODHD: 加密货币分时数据 ----
+// 示例: GET /api/eodhd/crypto/intraday?symbol=BTC&interval=5m
+app.get('/api/eodhd/crypto/intraday', async (req, res) => {
+  try {
+    const symbolRaw = String(req.query.symbol || '').trim().toUpperCase();
+    const interval = String(req.query.interval || '5m').toLowerCase();
+    const from = req.query.from;
+    const to = req.query.to;
+    
+    if (!symbolRaw) {
+      return res.status(400).json({ ok: false, error: 'symbol required' });
+    }
+    
+    const eodhdSymbol = `${symbolRaw}-USD.CC`;
+    const params = { interval };
+    if (from) params.from = from;
+    if (to) params.to = to;
+    
+    const data = await fetchEodhd(`/intraday/${eodhdSymbol}`, params, 30000);
+    
+    const candles = Array.isArray(data) ? data.map(item => ({
+      datetime: item.datetime || item.timestamp,
+      open: Number(item.open || 0),
+      high: Number(item.high || 0),
+      low: Number(item.low || 0),
+      close: Number(item.close || 0),
+      volume: Number(item.volume || 0),
+    })) : [];
+    
+    res.json({ ok: true, symbol: symbolRaw, interval, data: candles });
+  } catch (e) {
+    console.error('[EODHD/crypto/intraday] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---- EODHD: 日终历史数据 ----
+// 示例: GET /api/eodhd/eod?symbol=AAPL&from=2024-01-01&to=2024-12-31
+app.get('/api/eodhd/eod', async (req, res) => {
+  try {
+    const symbolRaw = String(req.query.symbol || '').trim();
+    const market = String(req.query.market || 'us').toLowerCase();
+    const from = req.query.from;
+    const to = req.query.to;
+    const period = req.query.period || 'd'; // d=daily, w=weekly, m=monthly
+    
+    if (!symbolRaw) {
+      return res.status(400).json({ ok: false, error: 'symbol required' });
+    }
+    
+    const formatSymbol = (sym) => {
+      const upper = sym.toUpperCase();
+      // 转换 .WA 为 .WAR（波兰华沙证券交易所）
+      if (/\.WA$/i.test(upper)) {
+        return upper.replace(/\.WA$/i, '.WAR');
+      }
+      if (/\.[A-Z]+$/.test(upper)) return upper;
+      if (market === 'pl' || market === 'war' || market === 'wse') {
+        return `${upper}.WAR`;
+      }
+      if (market === 'crypto' || market === 'cc') {
+        return `${upper}-USD.CC`;
+      }
+      return `${upper}.US`;
+    };
+    
+    const eodhdSymbol = formatSymbol(symbolRaw);
+    const params = { period };
+    if (from) params.from = from;
+    if (to) params.to = to;
+    
+    const data = await fetchEodhd(`/eod/${eodhdSymbol}`, params, 60000); // 1分钟缓存
+    
+    const bars = Array.isArray(data) ? data.map(item => ({
+      date: item.date,
+      open: Number(item.open || 0),
+      high: Number(item.high || 0),
+      low: Number(item.low || 0),
+      close: Number(item.close || 0),
+      adjustedClose: Number(item.adjusted_close || item.close || 0),
+      volume: Number(item.volume || 0),
+    })) : [];
+    
+    res.json({ ok: true, symbol: eodhdSymbol, period, data: bars });
+  } catch (e) {
+    console.error('[EODHD/eod] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---- EODHD: 外汇汇率 ----
+// 示例: GET /api/eodhd/forex?pair=USDPLN
+app.get('/api/eodhd/forex', async (req, res) => {
+  try {
+    const pair = String(req.query.pair || 'USDPLN').toUpperCase();
+    
+    const eodhdSymbol = `${pair}.FOREX`;
+    const data = await fetchEodhd(`/real-time/${eodhdSymbol}`, {}, 60000); // 1分钟缓存
+    
+    if (!data || !data.close) {
+      return res.status(404).json({ ok: false, error: 'rate not found' });
+    }
+    
+    res.json({
+      ok: true,
+      pair,
+      rate: Number(data.close || 0),
+      previousClose: Number(data.previousClose || data.previous_close || 0),
+      change: Number(data.change || 0),
+      changePct: Number(data.change_p || 0),
+      timestamp: data.timestamp,
+    });
+  } catch (e) {
+    console.error('[EODHD/forex] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// ---- EODHD: 搜索符号 ----
+// 示例: GET /api/eodhd/search?query=apple
+app.get('/api/eodhd/search', async (req, res) => {
+  try {
+    const query = String(req.query.query || req.query.q || '').trim();
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit || 10)));
+    
+    if (!query) {
+      return res.status(400).json({ ok: false, error: 'query required' });
+    }
+    
+    const data = await fetchEodhd('/search', { query, limit }, 300000); // 5分钟缓存
+    
+    const results = Array.isArray(data) ? data.map(item => ({
+      code: item.Code,
+      name: item.Name,
+      exchange: item.Exchange,
+      country: item.Country,
+      currency: item.Currency,
+      type: item.Type,
+      isin: item.ISIN,
+    })) : [];
+    
+    res.json({ ok: true, query, data: results });
+  } catch (e) {
+    console.error('[EODHD/search] error:', e.message);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
 });
 
 // Final 404 handler (must be registered last)

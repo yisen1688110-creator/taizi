@@ -6,6 +6,22 @@ import InstitutionManage from "./admin/InstitutionManage.jsx";
 import { loginAdmin as loginAdminApi, loginAccount as loginAccountApi, logout as logoutApi } from "../services/auth.js";
 import "../styles/admin.css";
 
+// 时间格式化函数
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hour = String(d.getHours()).padStart(2, '0');
+    const minute = String(d.getMinutes()).padStart(2, '0');
+    const second = String(d.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  } catch { return dateStr; }
+}
+
 function loadUsers() {
   try { return JSON.parse(localStorage.getItem("users") || "[]"); } catch { return []; }
 }
@@ -747,7 +763,8 @@ export default function Admin() {
       if (!q.trim()) { setUserSearchResults([]); return; }
       try {
         setSearchingUsers(true);
-        const data = await api.get(`/admin/users/search?q=${encodeURIComponent(q.trim())}`);
+        // 使用 /admin/users 接口搜索用户
+        const data = await api.get(`/admin/users?q=${encodeURIComponent(q.trim())}`);
         setUserSearchResults(data?.users || []);
       } catch (e) {
         console.error('搜索用户失败', e);
@@ -767,19 +784,41 @@ export default function Admin() {
       console.log('[AddPosition] 开始添加持仓...');
       setAddError('');
       
-      // 支持直接输入用户ID或从搜索结果选择
+      // 支持直接输入用户ID、手机号或从搜索结果选择
       let finalUserId = addForm.userId;
       if (!finalUserId && userSearchQuery.trim()) {
-        // 如果没有选择用户但有搜索内容，尝试将其作为用户ID使用
-        const queryNum = Number(userSearchQuery.trim());
-        if (Number.isFinite(queryNum) && queryNum > 0) {
+        const query = userSearchQuery.trim();
+        const queryNum = Number(query);
+        
+        // 如果是9-11位数字，当作手机号处理
+        if (/^\d{9,11}$/.test(query)) {
+          try {
+            const data = await api.get(`/admin/users?q=${encodeURIComponent(query)}`);
+            const users = data?.users || [];
+            const matched = users.find(u => String(u.phone) === query);
+            if (matched) {
+              finalUserId = matched.id;
+              setAddForm(f => ({ ...f, userId: matched.id, userName: `${matched.name} (${matched.phone})` }));
+            } else {
+              setAddError('未找到该手机号对应的用户');
+              return;
+            }
+          } catch (e) {
+            setAddError('查询用户失败: ' + (e?.message || e));
+            return;
+          }
+        } else if (Number.isFinite(queryNum) && queryNum > 0 && query.length <= 6) {
+          // 短数字当作用户ID处理
           finalUserId = queryNum;
+        } else {
+          setAddError('请输入有效的用户ID或9-11位手机号');
+          return;
         }
       }
       
       console.log('[AddPosition] finalUserId=', finalUserId, 'addForm=', addForm, 'userSearchQuery=', userSearchQuery);
       
-      if (!finalUserId) { setAddError('请选择用户或输入用户ID'); return; }
+      if (!finalUserId) { setAddError('请选择用户或输入用户ID/手机号'); return; }
       if (!addForm.symbol.trim()) { setAddError('请输入股票/币种代码'); return; }
       if (!addForm.quantity || Number(addForm.quantity) <= 0) { setAddError('请输入有效数量'); return; }
       if (!addForm.price || Number(addForm.price) <= 0) { setAddError('请输入有效价格'); return; }
@@ -830,15 +869,15 @@ export default function Admin() {
         {/* 新增持仓弹窗 */}
         {showAddModal && (
           <div 
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '80px 20px 20px' }} 
             onClick={(e) => { if (e.target === e.currentTarget) setShowAddModal(false); }}
           >
-            <div className="card" style={{ width: 420, maxWidth: '90vw', maxHeight: '90vh', overflow: 'auto', position: 'relative' }} onClick={e => { e.stopPropagation(); }}>
+            <div className="card" style={{ width: 450, maxWidth: '95vw', maxHeight: '85vh', overflow: 'auto', position: 'relative', padding: '24px' }} onClick={e => { e.stopPropagation(); }}>
               <button 
                 onClick={() => setShowAddModal(false)} 
-                style={{ position: 'absolute', top: 12, right: 12, background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: '#94a3b8', padding: 4 }}
+                style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', padding: 4, lineHeight: 1 }}
               >✕</button>
-              <h2 style={{ margin: '0 0 16px', fontSize: 18 }}>➕ 新增用户持仓</h2>
+              <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 600, color: '#1e293b' }}>➕ 新增用户持仓</h2>
               
               {addError && <div className="error" style={{ marginBottom: 12 }}>{addError}</div>}
               
@@ -903,8 +942,23 @@ export default function Admin() {
                     className="input" 
                     placeholder={addForm.market === 'crypto' ? '如 BTC, ETH, SOL' : '如 AAPL, TSLA, PKO'}
                     value={addForm.symbol}
-                    onChange={e => setAddForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+                    onChange={e => {
+                      const sym = e.target.value.toUpperCase();
+                      // 自动检测加密货币
+                      const cryptoSymbols = ['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'ADA', 'DOT', 'MATIC', 'LINK', 'UNI', 'AVAX', 'ATOM', 'LTC', 'BCH', 'NEAR', 'APT', 'ARB', 'OP', 'FIL', 'SHIB', 'PEPE', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+                      const isCrypto = cryptoSymbols.includes(sym) || sym.endsWith('USDT') || sym.endsWith('/USDT');
+                      if (isCrypto && addForm.market !== 'crypto') {
+                        setAddForm(f => ({ ...f, symbol: sym, market: 'crypto' }));
+                      } else {
+                        setAddForm(f => ({ ...f, symbol: sym }));
+                      }
+                    }}
                   />
+                  {addForm.symbol && (
+                    <div className="desc" style={{ marginTop: 4, fontSize: 11, color: addForm.market === 'crypto' ? '#10b981' : '#3b82f6' }}>
+                      当前市场: {{ usa: '美股 (USD)', poland: '波兰股 (PLN)', crypto: '加密货币 (USDT)' }[addForm.market]}
+                    </div>
+                  )}
                 </div>
                 
                 {/* 数量 */}
@@ -982,7 +1036,7 @@ export default function Admin() {
         
         <div className="form admin-form-compact" style={{ marginTop: 10 }}>
           <label className="label">手机号</label>
-          <input className="input" placeholder="精确查询 10 位手机号" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} />
+          <input className="input" placeholder="精确查询 9-11 位手机号" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} />
           <label className="label">归属运营</label>
           <select className="input" value={operatorId} onChange={e => setOperatorId(e.target.value)}>
             <option value="">全部</option>
@@ -1004,6 +1058,17 @@ export default function Admin() {
           <div className="sub-actions" style={{ justifyContent: 'flex-start', gap: 8, marginTop: 8 }}>
             <button className="btn" onClick={() => { setPage(1); fetchPositions(); }}>查询</button>
             <button className="btn" onClick={() => { setPhone(''); setOperatorId(''); setStatusList(['holding', 'pending', 'completed']); setPage(1); }}>重置</button>
+            <button 
+              className="btn" 
+              style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }} 
+              onClick={() => { 
+                setAddForm({ userId: '', userName: '', symbol: '', market: 'usa', quantity: '', price: '', deductFunds: true });
+                setUserSearchQuery('');
+                setUserSearchResults([]);
+                setAddError('');
+                setShowAddModal(true);
+              }}
+            >➕ 新增持仓</button>
           </div>
         </div>
 
@@ -1055,7 +1120,7 @@ export default function Admin() {
                     {r.status === 'holding' ? '持仓中' : r.status === 'pending' ? '挂单中' : r.status === 'completed' ? '已完成' : '-'}
                     {Number(r.locked || 0) === 1 && <span className="chip warn" style={{ marginLeft: 6 }}>已锁仓</span>}
                   </td>
-                  <td style={{ padding: '8px 6px' }}>{r.lastTradeAt || '-'}</td>
+                  <td style={{ padding: '8px 6px' }}>{formatDateTime(r.lastTradeAt)}</td>
                   <td style={{ padding: '8px 6px', position: 'relative' }}>
                     <div className="dropdown" style={{ display: 'inline-block' }} onClick={(e) => e.stopPropagation()}>
                       <button className="btn" style={{ height: 32 }} onClick={(e) => { e.stopPropagation(); setOpsOpenId((prev) => prev === r.id ? null : r.id); }}>操作 ▾</button>
@@ -2306,8 +2371,8 @@ function InviteCommissions() {
                 <td style={{ padding: '8px 6px' }}>{Number(r.amount || 0).toFixed(2)}</td>
                 <td style={{ padding: '8px 6px' }}>{r.status === 'frozen' ? '冻结中' : '已解冻'}</td>
                 <td style={{ padding: '8px 6px' }}>{r.status === 'frozen' ? Math.ceil((r.remain_ms || 0) / 60000) + '分' : '—'}</td>
-                <td style={{ padding: '8px 6px' }}>{r.created_at}</td>
-                <td style={{ padding: '8px 6px' }}>{r.released_at || '—'}</td>
+                <td style={{ padding: '8px 6px' }}>{formatDateTime(r.created_at)}</td>
+                <td style={{ padding: '8px 6px' }}>{r.released_at ? formatDateTime(r.released_at) : '—'}</td>
               </tr>
             ))}
             {list.length === 0 && (
@@ -2367,7 +2432,7 @@ function BlockTradesAdmin({ session }) {
   const [checking, setChecking] = useState(false);
   const [orderOpsOpenId, setOrderOpsOpenId] = useState(null);
   const [orderPhone, setOrderPhone] = useState('');
-  const shortIso = (s) => (s ? String(s).replace(/:00\.000Z$/, '').replace(/\.\d+Z$/, 'Z') : '-');
+  const shortIso = (s) => formatDateTime(s);
 
   // 根据 URL 参数 orders=submitted|approved|rejected 预设订单标签
   useEffect(() => {
@@ -2398,7 +2463,7 @@ function BlockTradesAdmin({ session }) {
       const h = pad2(d.getHours());
       const mi = pad2(d.getMinutes());
       const s = pad2(d.getSeconds());
-      return `${y}-${m}-${da}T${h}:${mi}:${s}`;
+      return `${y}-${m}-${da} ${h}:${mi}:${s}`;
     } catch { return ''; }
   };
   const fromLocalInputToISO = (local) => {
@@ -2409,8 +2474,8 @@ function BlockTradesAdmin({ session }) {
     } catch { return ''; }
   };
   const splitLocal = (local) => {
-    if (!local || !local.includes('T')) return { date: '', hour: '00', minute: '00', second: '00' };
-    const [date, time] = local.split('T');
+    if (!local || (!local.includes('T') && !local.includes(' '))) return { date: '', hour: '00', minute: '00', second: '00' };
+    const [date, time] = local.includes('T') ? local.split('T') : local.split(' ');
     const [h = '00', mi = '00', s = '00'] = (time || '').split(':');
     return { date, hour: pad2(h), minute: pad2(mi), second: pad2(s) };
   };
@@ -2911,9 +2976,16 @@ function BlockTradesAdmin({ session }) {
       </div>
 
       {showAdd && session?.role !== 'operator' ? (
-        <div className="modal" style={{ alignItems: 'flex-start', paddingTop: 100 }}>
-          <div className="modal-card">
-            <h2 className="title" style={{ marginTop: 0 }}>添加大宗交易</h2>
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '80px 20px 20px' }} 
+          onClick={(e) => { if (e.target === e.currentTarget) closeAdd(); }}
+        >
+          <div className="card" style={{ width: 500, maxWidth: '95vw', maxHeight: '85vh', overflow: 'auto', position: 'relative', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={closeAdd} 
+              style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', padding: 4, lineHeight: 1 }}
+            >✕</button>
+            <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 600, color: '#1e293b' }}>➕ 添加大宗交易</h2>
             <div className="form">
               <label className="label">交易市场</label>
               <select className="input" value={form.market} onChange={e => setForm(f => ({ ...f, market: e.target.value }))}>
@@ -2941,9 +3013,14 @@ function BlockTradesAdmin({ session }) {
               <label className="label">认购密钥</label>
               <input className="input" placeholder="至少6位字母+数字" value={form.subscribeKey} onChange={e => setForm(f => ({ ...f, subscribeKey: e.target.value }))} />
 
-              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={closeAdd}>取消</button>
-                <button className="btn primary" disabled={submitting || checking} onClick={submitAdd}>{checking ? '校验中…' : (submitting ? '提交中…' : '提交')}</button>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button 
+                  className="btn" 
+                  style={{ flex: 1, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }}
+                  disabled={submitting || checking} 
+                  onClick={submitAdd}
+                >{checking ? '校验中…' : (submitting ? '提交中…' : '确认添加')}</button>
+                <button className="btn" style={{ flex: 1 }} onClick={closeAdd}>取消</button>
               </div>
             </div>
           </div>
@@ -2951,9 +3028,16 @@ function BlockTradesAdmin({ session }) {
       ) : null}
 
       {dtPicker.open && (
-        <div className="modal" style={{ zIndex: 1000, alignItems: 'flex-start', paddingTop: 100 }}>
-          <div className="modal-card">
-            <h2 className="title" style={{ marginTop: 0 }}>选择日期时间（秒级）</h2>
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '80px 20px 20px' }} 
+          onClick={(e) => { if (e.target === e.currentTarget) closeDt(); }}
+        >
+          <div className="card" style={{ width: 480, maxWidth: '95vw', maxHeight: '85vh', overflow: 'auto', position: 'relative', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={closeDt} 
+              style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', padding: 4, lineHeight: 1 }}
+            >✕</button>
+            <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 600, color: '#1e293b' }}>📅 选择日期时间</h2>
             <div className="form">
               <label className="label">{dtPicker.field === 'startAt' ? '开始时间' : dtPicker.field === 'endAt' ? '结束时间' : '锁定到期'}</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
@@ -2969,9 +3053,13 @@ function BlockTradesAdmin({ session }) {
                 </select>
               </div>
               <div className="desc">先选择日期，再选择时/分/秒</div>
-              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={closeDt}>取消</button>
-                <button className="btn primary" onClick={confirmDt}>确定</button>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button 
+                  className="btn" 
+                  style={{ flex: 1, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }}
+                  onClick={confirmDt}
+                >确定</button>
+                <button className="btn" style={{ flex: 1 }} onClick={closeDt}>取消</button>
               </div>
             </div>
           </div>
@@ -3061,7 +3149,7 @@ function RechargePage() {
                 <td style={{ padding: '8px 6px' }}>{it.userName || it.userId}</td>
                 <td style={{ padding: '8px 6px' }}>{it.phone || '-'}</td>
                 <td style={{ padding: '8px 6px' }}>{it.currency}</td>
-                <td style={{ padding: '8px 6px' }}>{it.created_at}</td>
+                <td style={{ padding: '8px 6px' }}>{formatDateTime(it.created_at)}</td>
                 <td style={{ padding: '8px 6px' }}>{it.adminName || it.adminId || '-'}</td>
               </tr>
             ))}
@@ -3156,7 +3244,7 @@ function BalanceLogsPage() {
                 <td style={{ padding: '8px 6px' }}>{it.currency}</td>
                 <td style={{ padding: '8px 6px' }}>{Number(it.amount).toFixed(2)}</td>
                 <td style={{ padding: '8px 6px' }}>{it.reason || '-'}</td>
-                <td style={{ padding: '8px 6px' }}>{it.created_at}</td>
+                <td style={{ padding: '8px 6px' }}>{formatDateTime(it.created_at)}</td>
               </tr>
             ))}
             {items.length === 0 && (
@@ -3196,9 +3284,9 @@ function IpoRwaAdmin({ session }) {
   const [form, setForm] = useState({ name: '', code: '', pairAddress: '', tokenAddress: '', chain: 'base', subscribePrice: '', issueAt: '', subscribeAt: '', subscribeEndAt: '', listAt: '', canSellOnListingDay: false });
   const [dtPicker, setDtPicker] = useState({ open: false, field: null, date: '', hour: '00', minute: '00', second: '00' });
   const pad2 = (n) => String(n).padStart(2, '0');
-  const toLocalInput = (iso) => { try { if (!iso) return ''; const d = new Date(iso); const y = d.getFullYear(), m = pad2(d.getMonth() + 1), da = pad2(d.getDate()), h = pad2(d.getHours()), mi = pad2(d.getMinutes()), s = pad2(d.getSeconds()); return `${y}-${m}-${da}T${h}:${mi}:${s}`; } catch { return ''; } };
-  const fromLocalInputToISO = (local) => { try { if (!local) return ''; const d = new Date(local); return d.toISOString(); } catch { return ''; } };
-  const splitLocal = (local) => { if (!local || !local.includes('T')) return { date: '', hour: '00', minute: '00', second: '00' }; const [date, time] = local.split('T'); const [h = '00', mi = '00', s = '00'] = (time || '').split(':'); return { date, hour: pad2(h), minute: pad2(mi), second: pad2(s) }; };
+  const toLocalInput = (iso) => { try { if (!iso) return ''; const d = new Date(iso); const y = d.getFullYear(), m = pad2(d.getMonth() + 1), da = pad2(d.getDate()), h = pad2(d.getHours()), mi = pad2(d.getMinutes()), s = pad2(d.getSeconds()); return `${y}-${m}-${da} ${h}:${mi}:${s}`; } catch { return ''; } };
+  const fromLocalInputToISO = (local) => { try { if (!local) return ''; const d = new Date(local.replace(' ', 'T')); return d.toISOString(); } catch { return ''; } };
+  const splitLocal = (local) => { if (!local || (!local.includes('T') && !local.includes(' '))) return { date: '', hour: '00', minute: '00', second: '00' }; const [date, time] = local.includes('T') ? local.split('T') : local.split(' '); const [h = '00', mi = '00', s = '00'] = (time || '').split(':'); return { date, hour: pad2(h), minute: pad2(mi), second: pad2(s) }; };
   const openDt = (field) => { const local = toLocalInput(form[field]); const parts = splitLocal(local); setDtPicker({ open: true, field, ...parts }); };
   const closeDt = () => setDtPicker({ open: false, field: null, date: '', hour: '00', minute: '00', second: '00' });
   const confirmDt = () => { if (!dtPicker.field || !dtPicker.date) return closeDt(); const iso = fromLocalInputToISO(`${dtPicker.date}T${pad2(dtPicker.hour)}:${pad2(dtPicker.minute)}:${pad2(dtPicker.second)}`); setForm(f => ({ ...f, [dtPicker.field]: iso })); closeDt(); };
@@ -3344,10 +3432,10 @@ function IpoRwaAdmin({ session }) {
                     <td style={{ padding: '8px 6px' }}>{it.code}</td>
                     <td style={{ padding: '8px 6px' }}>{it.subscribePrice ?? it.subscribe_price}</td>
                     <td style={{ padding: '8px 6px' }}>{(it.listPrice ?? it.list_price) ?? '-'}</td>
-                    <td style={{ padding: '8px 6px' }}>{((it.issueAt ?? it.issue_at) || '').replace(/:00\.000Z$/, '').replace(/\.\d+Z$/, 'Z')}</td>
-                    <td style={{ padding: '8px 6px' }}>{((it.subscribeAt ?? it.subscribe_at) || '').replace(/:00\.000Z$/, '').replace(/\.\d+Z$/, 'Z')}</td>
-                    <td style={{ padding: '8px 6px' }}>{(it.subscribeEndAt ?? it.subscribe_end_at) ? String(it.subscribeEndAt ?? it.subscribe_end_at).replace(/:00\.000Z$/, '').replace(/\.\d+Z$/, 'Z') : '-'}</td>
-                    <td style={{ padding: '8px 6px' }}>{(it.listAt ?? it.list_at) ? String(it.listAt ?? it.list_at).replace(/:00\.000Z$/, '').replace(/\.\d+Z$/, 'Z') : '-'}</td>
+                    <td style={{ padding: '8px 6px' }}>{formatDateTime(it.issueAt ?? it.issue_at)}</td>
+                    <td style={{ padding: '8px 6px' }}>{formatDateTime(it.subscribeAt ?? it.subscribe_at)}</td>
+                    <td style={{ padding: '8px 6px' }}>{formatDateTime(it.subscribeEndAt ?? it.subscribe_end_at)}</td>
+                    <td style={{ padding: '8px 6px' }}>{formatDateTime(it.listAt ?? it.list_at)}</td>
                     <td style={{ padding: '8px 6px' }}>{(it.canSellOnListingDay ?? it.can_sell_on_listing_day) ? '是' : '否'}</td>
                     <td style={{ padding: '8px 6px', position: 'relative' }}>
                       <button className="btn" onClick={() => setItemOpsId(itemOpsId === it.id ? null : it.id)}>操作</button>
@@ -3419,7 +3507,7 @@ function IpoRwaAdmin({ session }) {
                 <td style={{ padding: '8px 6px' }}>{o.userName || o.userId}</td>
                 <td style={{ padding: '8px 6px' }}>{o.code}</td>
                 <td style={{ padding: '8px 6px' }}>{o.qty}</td>
-                <td style={{ padding: '8px 6px' }}>{o.submitted_at}</td>
+                <td style={{ padding: '8px 6px' }}>{formatDateTime(o.submitted_at)}</td>
                 <td style={{ padding: '8px 6px' }}>{o.status}</td>
                 <td style={{ padding: '8px 6px' }}>
                   {o.status === 'submitted' ? (
@@ -3461,9 +3549,16 @@ function IpoRwaAdmin({ session }) {
       </div>
 
       {showAdd && session?.role !== 'operator' ? (
-        <div className="modal" style={{ alignItems: 'flex-start', justifyContent: 'center', paddingTop: 100 }}>
-          <div className="modal-card" style={{ maxWidth: '92vw', width: 680, maxHeight: '80vh', overflow: 'auto' }}>
-            <h2 className="title" style={{ marginTop: 0 }}>创建新项目</h2>
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '80px 20px 20px' }} 
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAdd(false); }}
+        >
+          <div className="card" style={{ width: 500, maxWidth: '95vw', maxHeight: '85vh', overflow: 'auto', position: 'relative', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={() => setShowAdd(false)} 
+              style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', padding: 4, lineHeight: 1 }}
+            >✕</button>
+            <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 600, color: '#1e293b' }}>➕ 创建新项目</h2>
             <div className="form">
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className={`btn ${kind === 'ipo' ? 'primary' : ''}`} onClick={() => setKind('ipo')}>IPO</button>
@@ -3506,9 +3601,13 @@ function IpoRwaAdmin({ session }) {
                 <input type="checkbox" checked={form.canSellOnListingDay} onChange={e => setForm(f => ({ ...f, canSellOnListingDay: e.target.checked }))} />
                 {!form.canSellOnListingDay && <span className="desc" title="若不可卖出，请在项目说明中明确允许卖出的时间或条件">鼠标悬停查看说明</span>}
               </div>
-              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={() => setShowAdd(false)}>取消</button>
-                <button className="btn primary" onClick={submitAdd}>创建</button>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button 
+                  className="btn" 
+                  style={{ flex: 1, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }}
+                  onClick={submitAdd}
+                >确认创建</button>
+                <button className="btn" style={{ flex: 1 }} onClick={() => setShowAdd(false)}>取消</button>
               </div>
             </div>
           </div>
@@ -3516,9 +3615,16 @@ function IpoRwaAdmin({ session }) {
       ) : null}
 
       {dtPicker.open && (
-        <div className="modal" style={{ zIndex: 1000, alignItems: 'center', justifyContent: 'center' }}>
-          <div className="modal-card" style={{ maxHeight: '70vh', overflow: 'auto' }}>
-            <h2 className="title" style={{ marginTop: 0 }}>选择日期时间（秒级）</h2>
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1001, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '80px 20px 20px' }} 
+          onClick={(e) => { if (e.target === e.currentTarget) closeDt(); }}
+        >
+          <div className="card" style={{ width: 480, maxWidth: '95vw', maxHeight: '85vh', overflow: 'auto', position: 'relative', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={closeDt} 
+              style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', padding: 4, lineHeight: 1 }}
+            >✕</button>
+            <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 600, color: '#1e293b' }}>📅 选择日期时间</h2>
             <div className="form">
               <label className="label">时间</label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
@@ -3527,9 +3633,13 @@ function IpoRwaAdmin({ session }) {
                 <select className="input" value={dtPicker.minute} onChange={(e) => setDtPicker(p => ({ ...p, minute: e.target.value }))}>{[...Array(60).keys()].map(m => (<option key={m} value={pad2(m)}>{pad2(m)} 分</option>))}</select>
                 <select className="input" value={dtPicker.second} onChange={(e) => setDtPicker(p => ({ ...p, second: e.target.value }))}>{[...Array(60).keys()].map(s => (<option key={s} value={pad2(s)}>{pad2(s)} 秒</option>))}</select>
               </div>
-              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={closeDt}>取消</button>
-                <button className="btn primary" onClick={confirmDt}>确定</button>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button 
+                  className="btn" 
+                  style={{ flex: 1, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }}
+                  onClick={confirmDt}
+                >确定</button>
+                <button className="btn" style={{ flex: 1 }} onClick={closeDt}>取消</button>
               </div>
             </div>
           </div>
@@ -3865,7 +3975,7 @@ function FundAdmin({ session }) {
               <td style={{ padding: '8px 6px' }}>{o.qty || 1}</td>
               <td style={{ padding: '8px 6px' }}>{(Number(o.price || 0) * Number(o.qty || 1)).toLocaleString()}</td>
               <td style={{ padding: '8px 6px' }}>{o.percent}%</td>
-              <td style={{ padding: '8px 6px' }}>{o.submitted_at}</td>
+              <td style={{ padding: '8px 6px' }}>{formatDateTime(o.submitted_at)}</td>
               <td style={{ padding: '8px 6px' }}>{o.status === 'approved' ? fmtRemaining(o.lock_until_ts, o.forced_unlocked) : '-'}</td>
               <td style={{ padding: '8px 6px' }}>{formatNextPayout(o.next_payout_ts)}</td>
               <td style={{ padding: '8px 6px', position: 'relative' }}>
@@ -3917,9 +4027,16 @@ function FundAdmin({ session }) {
       </div>
 
       {showAdd && session?.role !== 'operator' ? (
-        <div className="modal" style={{ alignItems: 'flex-start', paddingTop: 100 }}>
-          <div className="modal-card" style={{ maxWidth: 720 }}>
-            <h2 className="title" style={{ marginTop: 0 }}>{fundEditId ? '编辑基金' : '添加基金'}</h2>
+        <div 
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '80px 20px 20px' }} 
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowAdd(false); setFundEditId(null); } }}
+        >
+          <div className="card" style={{ width: 500, maxWidth: '95vw', maxHeight: '85vh', overflow: 'auto', position: 'relative', padding: '24px' }} onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={() => { setShowAdd(false); setFundEditId(null); }} 
+              style={{ position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none', fontSize: 22, cursor: 'pointer', color: '#94a3b8', padding: 4, lineHeight: 1 }}
+            >✕</button>
+            <h2 style={{ margin: '0 0 20px', fontSize: 20, fontWeight: 600, color: '#1e293b' }}>➕ {fundEditId ? '编辑基金' : '添加基金'}</h2>
             <div className="form">
               <label className="label">基金名称（波兰语）</label>
               <input className="input" placeholder={'如 Fondo Prueba'} value={form.nameEs} onChange={e => setForm(f => ({ ...f, nameEs: e.target.value }))} />
@@ -3955,9 +4072,13 @@ function FundAdmin({ session }) {
                 <option value="USD">USD</option>
                 <option value="USDT">USDT</option>
               </select>
-              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={() => { setShowAdd(false); setFundEditId(null); }}>取消</button>
-                <button className="btn primary" onClick={submitAdd}>提交</button>
+              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                <button 
+                  className="btn" 
+                  style={{ flex: 1, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff' }}
+                  onClick={submitAdd}
+                >确认添加</button>
+                <button className="btn" style={{ flex: 1 }} onClick={() => { setShowAdd(false); setFundEditId(null); }}>取消</button>
               </div>
             </div>
           </div>
@@ -3997,7 +4118,7 @@ function FundAdmin({ session }) {
                   <tr key={h.id} style={{ borderTop: '1px solid #e2e8f0' }}>
                     <td style={{ padding: '6px 8px' }}>{Number(h.price || 0).toLocaleString()}</td>
                     <td style={{ padding: '6px 8px' }}>{h.setByName || '-'}</td>
-                    <td style={{ padding: '6px 8px' }}>{h.createdAt ? h.createdAt.replace('T', ' ').slice(0, 16) : '-'}</td>
+                    <td style={{ padding: '6px 8px' }}>{formatDateTime(h.createdAt)}</td>
                   </tr>
                 ))}
                 {priceHistory.length === 0 && (
@@ -4151,7 +4272,7 @@ function KycReviewModal({ open, onClose, user }) {
               {items.map(it => (
                 <tr key={it.id} style={{ borderTop: '1px solid #263b5e' }}>
                   <td style={{ padding: '8px 6px' }}>{it.userName || it.phone || it.userId}</td>
-                  <td style={{ padding: '8px 6px' }}>{it.submitted_at}</td>
+                  <td style={{ padding: '8px 6px' }}>{formatDateTime(it.submitted_at)}</td>
                   <td style={{ padding: '8px 6px' }}>{it.status}</td>
                   <td style={{ padding: '8px 6px' }}>
                     <div className="desc">{Object.entries(it.fields || {}).map(([k, v]) => `${k}: ${v}`).join(' | ') || '-'}</div>
@@ -4280,7 +4401,7 @@ function KycReviewPage() {
             {items.map(it => (
               <tr key={it.id} style={{ borderTop: '1px solid #263b5e' }}>
                 <td style={{ padding: '8px 6px' }}>{it.userName || it.phone || it.userId}</td>
-                <td style={{ padding: '8px 6px' }}>{it.submitted_at}</td>
+                <td style={{ padding: '8px 6px' }}>{formatDateTime(it.submitted_at)}</td>
                 <td style={{ padding: '8px 6px' }}>{statusMap[it.status] || it.status}</td>
                 <td style={{ padding: '8px 6px' }}>
                   <div className="desc">姓名：{it.fields?.name || '-'} | 证件类型：{it.fields?.idType || '-'} | 证件号码：{it.fields?.idNumber || '-'}</div>

@@ -112,7 +112,7 @@ export default function Login() {
   const getInputStyle = (field) => ({
     ...S.input,
     ...(focusedField === field ? S.inputFocus : {}),
-    ...(error && field === "phone" && !/^\d{10}$/.test(phone) ? S.inputError : {}),
+    ...(error && field === "phone" && !/^\d{9,11}$/.test(phone) ? S.inputError : {}),
   });
 
   return (
@@ -143,7 +143,7 @@ export default function Login() {
                 value={phone}
                 onChange={(e) => {
                   const v = e.target.value.replace(/\D/g, "");
-                  setPhone(v.slice(0, 10));
+                  setPhone(v.slice(0, 11));
                 }}
               onFocus={() => setFocusedField("phone")}
               onBlur={() => setFocusedField(null)}

@@ -111,6 +111,16 @@ export default function Home() {
   const [cryptoCurrency, setCryptoCurrency] = useState(() => {
     try { return localStorage.getItem("cryptoCurrency") || "USD"; } catch { return "USD"; }
   });
+  
+  // 闪兑功能状态
+  const [swapModalOpen, setSwapModalOpen] = useState(false);
+  const [swapFrom, setSwapFrom] = useState("PLN");
+  const [swapTo, setSwapTo] = useState("USD");
+  const [swapAmount, setSwapAmount] = useState("");
+  const [swapLoading, setSwapLoading] = useState(false);
+  const [swapError, setSwapError] = useState("");
+  const [swapSuccess, setSwapSuccess] = useState("");
+  const [swapRates, setSwapRates] = useState({ PLN_USD: 0.25, USD_PLN: 4.0, PLN_USDT: 0.25, USDT_PLN: 4.0, USD_USDT: 1.0, USDT_USD: 1.0 });
   // 实时汇率缓存（用于 WebSocket 推送的价格换算）
   const [usdToPlnRate, setUsdToPlnRate] = useState(18.0);
   const binanceWsRef = useRef(null);
@@ -218,8 +228,83 @@ export default function Home() {
     }
   }, [me, session]);
 
-  // 当登录用户变化或页面首次进入时拉取余额
-  useEffect(() => { fetchBalances();
+  // 获取闪兑汇率
+  const fetchSwapRates = useCallback(async () => {
+    try {
+      const data = await api.get('/swap/rates');
+      if (data?.rates) {
+        setSwapRates(data.rates);
+      }
+    } catch {
+      // 使用默认汇率
+    }
+  }, []);
+
+  // 执行闪兑
+  const executeSwap = useCallback(async () => {
+    const amount = Number(swapAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setSwapError(t('invalidAmount') || 'Invalid amount');
+      return;
+    }
+    
+    // 检查余额是否充足
+    const fromBalance = swapFrom === 'PLN' ? balancePLN : (swapFrom === 'USD' ? balanceUSD : balanceUSDT);
+    if (amount > fromBalance) {
+      setSwapError(t('insufficientBalance') || 'Insufficient balance');
+      return;
+    }
+    
+    setSwapLoading(true);
+    setSwapError("");
+    setSwapSuccess("");
+    
+    try {
+      const res = await api.post('/swap/execute', {
+        from: swapFrom,
+        to: swapTo,
+        amount: amount
+      });
+      
+      if (res?.success) {
+        const received = Number(res.received || 0).toFixed(2);
+        setSwapSuccess(`${t('swapSuccess') || 'Swap successful!'} ${t('received') || 'Received'}: ${received} ${swapTo}`);
+        setSwapAmount("");
+        await fetchBalances();
+        setTimeout(() => {
+          setSwapModalOpen(false);
+          setSwapSuccess("");
+        }, 2000);
+      } else {
+        setSwapError(res?.error || t('swapFailed') || 'Swap failed');
+      }
+    } catch (e) {
+      setSwapError(String(e?.message || e || t('swapFailed') || 'Swap failed'));
+    } finally {
+      setSwapLoading(false);
+    }
+  }, [swapFrom, swapTo, swapAmount, balancePLN, balanceUSD, balanceUSDT, fetchBalances, t]);
+
+  // 计算预估接收金额
+  const estimatedReceive = useMemo(() => {
+    const amount = Number(swapAmount);
+    if (!Number.isFinite(amount) || amount <= 0) return 0;
+    const rateKey = `${swapFrom}_${swapTo}`;
+    const rate = swapRates[rateKey] || 1;
+    return (amount * rate).toFixed(2);
+  }, [swapAmount, swapFrom, swapTo, swapRates]);
+
+  // 切换闪兑方向
+  const swapDirection = useCallback(() => {
+    const temp = swapFrom;
+    setSwapFrom(swapTo);
+    setSwapTo(temp);
+    setSwapAmount("");
+    setSwapError("");
+  }, [swapFrom, swapTo]);
+
+  // 当登录用户变化或页面首次进入时拉取余额和汇率
+  useEffect(() => { fetchBalances(); fetchSwapRates();
     const onHoldChanged = () => { fetchBalances(); };
     try { window.addEventListener('withdraw_hold_changed', onHoldChanged); } catch {}
     try { window.addEventListener('credit_debt_changed', onHoldChanged); } catch {}
@@ -268,12 +353,12 @@ export default function Home() {
         else {
           // 最后兜底：示例数据，避免首次加载为空
           setStocks([
-            { symbol: "PKO.WA", name: "PKO Bank Polski", price: 45.2, changePct: 0.8, volume: 12000000 },
-            { symbol: "PKN.WA", name: "PKN Orlen", price: 65.1, changePct: -0.3, volume: 9000000 },
-            { symbol: "PZU.WA", name: "PZU S.A.", price: 42.4, changePct: 1.1, volume: 7000000 },
-            { symbol: "KGH.WA", name: "KGHM Polska Miedź", price: 125.2, changePct: 0.5, volume: 6000000 },
-            { symbol: "CDR.WA", name: "CD Projekt", price: 95.7, changePct: 2.3, volume: 8000000 },
-            { symbol: "ALR.WA", name: "Allegro", price: 32.9, changePct: -0.6, volume: 5000000 },
+            { symbol: "PKO.WA", name: "PKO Bank Polski", price: 88.3, changePct: -2.06, volume: 1630692 },
+            { symbol: "PKN.WA", name: "PKN Orlen", price: 103.18, changePct: -1.71, volume: 1946357 },
+            { symbol: "PZU.WA", name: "PZU S.A.", price: 68.84, changePct: -1.74, volume: 1125690 },
+            { symbol: "KGH.WA", name: "KGHM Polska Miedź", price: 328.3, changePct: 4.72, volume: 1270872 },
+            { symbol: "CDR.WA", name: "CD Projekt", price: 269.6, changePct: -0.15, volume: 175918 },
+            { symbol: "ALR.WA", name: "Alior Bank", price: 113.6, changePct: -0.70, volume: 116793 },
           ]);
         }
       } catch {}
@@ -368,12 +453,12 @@ export default function Home() {
   useEffect(() => {
     if (!stocks.length) {
       setStocks([
-        { symbol: "AMXL.WA", name: "América Móvil", price: 17.2, changePct: 0.8, volume: 12000000 },
-        { symbol: "WALMEX.WA", name: "Walmart de México", price: 65.1, changePct: -0.3, volume: 9000000 },
-        { symbol: "FEMSAUBD.WA", name: "FEMSA", price: 130.4, changePct: 1.1, volume: 7000000 },
-        { symbol: "BIMBOA.WA", name: "Grupo Bimbo", price: 75.2, changePct: 0.5, volume: 6000000 },
-        { symbol: "GMEXICOB.WA", name: "Grupo México", price: 95.7, changePct: 2.3, volume: 8000000 },
-        { symbol: "GFNORTEO.WA", name: "Banorte", price: 160.9, changePct: -0.6, volume: 5000000 },
+        { symbol: "PKO.WA", name: "PKO Bank Polski", price: 88.3, changePct: -2.06, volume: 1630692 },
+        { symbol: "PKN.WA", name: "PKN Orlen", price: 103.18, changePct: -1.71, volume: 1946357 },
+        { symbol: "PZU.WA", name: "PZU S.A.", price: 68.84, changePct: -1.74, volume: 1125690 },
+        { symbol: "KGH.WA", name: "KGHM Polska Miedź", price: 328.3, changePct: 4.72, volume: 1270872 },
+        { symbol: "CDR.WA", name: "CD Projekt", price: 269.6, changePct: -0.15, volume: 175918 },
+        { symbol: "ALR.WA", name: "Alior Bank", price: 113.6, changePct: -0.70, volume: 116793 },
       ]);
     }
     if (!usStocks.length) {
@@ -1015,7 +1100,7 @@ export default function Home() {
     <div className="screen borderless">
       {/* 广告位位置调整：不置顶，移至钱包卡片之后 */}
 
-      <div className="card borderless-card">
+        <div className="card borderless-card">
         <div className="wallet-wrap" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
           <div className="wallet-section" style={{ flex: 1, minWidth: 260 }}>
             <h1 className="title" style={{ marginTop: 0 }}>{t('walletBalanceTitle')}</h1>
@@ -1026,23 +1111,37 @@ export default function Home() {
               </div>
               <div className="user-name" style={{ fontSize: 14, color: '#e6f1ff' }}>{displayName}</div>
             </div>
-            <div className="wallet-grid" style={{ gridTemplateColumns:'1fr' }}>
-              <div>
-                <div className="label">PLN</div>
-                <div className="big-amount">{formatPLN(balancePLN, lang)}</div>
+            {/* 多币种余额显示 */}
+            <div className="wallet-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 12 }}>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px' }}>
+                <div className="label" style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>🇵🇱 PLN</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#e6f1ff' }}>{formatPLN(balancePLN, lang)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forPLStocks') || 'PL Stocks'}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px' }}>
+                <div className="label" style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>🇺🇸 USD</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#e6f1ff' }}>{formatMoney(balanceUSD, 'USD', lang)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forUSStocks') || 'US Stocks'}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px' }}>
+                <div className="label" style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>₮ USDT</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#e6f1ff' }}>{formatUSDT(balanceUSDT, lang)}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forCrypto') || 'Crypto'}</div>
               </div>
             </div>
-            {/* 移除资产类型说明 */}
           </div>
           {/* 右侧不再显示用户名，避免重复 */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }} />
         </div>
 
-        <div className="sub-actions" style={{ marginTop: 16 }}>
+        <div className="sub-actions" style={{ marginTop: 16, gap: 10 }}>
           <button className="btn primary" onClick={() => navigate('/me/support')}>
             {t("recharge")}
           </button>
-          {/* 移除 Swap 按钮 */}
+          <button className="btn" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none' }} onClick={() => setSwapModalOpen(true)}>
+            <IconLightning style={{ width: 16, height: 16, marginRight: 6 }} />
+            {t("flashSwap") || "Flash Swap"}
+          </button>
         </div>
       </div>
 
@@ -1197,12 +1296,6 @@ export default function Home() {
             <span className="desc">{t("sort")}{":"}</span>
             <button className={`pill ${popularSort === "turnover" ? "active" : ""}`} onClick={() => setPopularSort("turnover")}>{t("sortByTurnover")}</button>
             <button className={`pill ${popularSort === "momentum" ? "active" : ""}`} onClick={() => setPopularSort("momentum")}>{t("sortByMomentum")}</button>
-          {market === "crypto" && (
-            <div style={{ display: "flex", gap: 8, marginLeft: 10 }}>
-              <button className={`pill ${cryptoCurrency === "USD" ? "active" : ""}`} onClick={() => setCryptoCurrency("USD")} aria-pressed={cryptoCurrency === "USD"}>USD</button>
-              <button className={`pill ${cryptoCurrency === "PLN" ? "active" : ""}`} onClick={() => setCryptoCurrency("PLN")} aria-pressed={cryptoCurrency === "PLN"}>PLN</button>
-            </div>
-          )}
           </div>
         </div>
         {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
@@ -1315,6 +1408,121 @@ export default function Home() {
         </table>
         </div>
       </div>
+      {/* 闪兑模态框 */}
+      {swapModalOpen && (
+        <div className="modal" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="modal-card" style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#e6f1ff' }}>
+                <IconLightning style={{ width: 20, height: 20, marginRight: 8, verticalAlign: 'middle' }} />
+                {t('flashSwap') || 'Flash Swap'}
+              </h2>
+              <button onClick={() => { setSwapModalOpen(false); setSwapError(""); setSwapSuccess(""); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            
+            {/* From 货币选择 */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>{t('from') || 'From'}</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select 
+                  value={swapFrom} 
+                  onChange={(e) => { setSwapFrom(e.target.value); setSwapError(""); }}
+                  style={{ flex: '0 0 100px', padding: '12px', borderRadius: 8, background: '#1e293b', border: '1px solid rgba(255,255,255,0.2)', color: '#e6f1ff', fontSize: 14 }}
+                >
+                  <option value="PLN" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇵🇱 PLN</option>
+                  <option value="USD" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇺🇸 USD</option>
+                  <option value="USDT" style={{ background: '#1e293b', color: '#e6f1ff' }}>₮ USDT</option>
+                </select>
+                <input 
+                  type="number" 
+                  value={swapAmount}
+                  onChange={(e) => { setSwapAmount(e.target.value); setSwapError(""); }}
+                  placeholder="0.00"
+                  style={{ flex: 1, padding: '12px', borderRadius: 8, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', color: '#e6f1ff', fontSize: 16 }}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                {t('available') || 'Available'}: {swapFrom === 'PLN' ? formatPLN(balancePLN, lang) : (swapFrom === 'USD' ? formatMoney(balanceUSD, 'USD', lang) : formatUSDT(balanceUSDT, lang))}
+              </div>
+            </div>
+            
+            {/* 切换方向按钮 */}
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0' }}>
+              <button 
+                onClick={swapDirection}
+                style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: '#fff' }}
+              >
+                ⇅
+              </button>
+            </div>
+            
+            {/* To 货币选择 */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>{t('to') || 'To'}</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select 
+                  value={swapTo} 
+                  onChange={(e) => { setSwapTo(e.target.value); setSwapError(""); }}
+                  style={{ flex: '0 0 100px', padding: '12px', borderRadius: 8, background: '#1e293b', border: '1px solid rgba(255,255,255,0.2)', color: '#e6f1ff', fontSize: 14 }}
+                >
+                  <option value="PLN" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇵🇱 PLN</option>
+                  <option value="USD" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇺🇸 USD</option>
+                  <option value="USDT" style={{ background: '#1e293b', color: '#e6f1ff' }}>₮ USDT</option>
+                </select>
+                <div style={{ flex: 1, padding: '12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)', color: '#5cff9b', fontSize: 16, fontWeight: 600 }}>
+                  ≈ {estimatedReceive}
+                </div>
+              </div>
+            </div>
+            
+            {/* 汇率显示 */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>{t('exchangeRate') || 'Exchange Rate'}</div>
+              <div style={{ fontSize: 14, color: '#e6f1ff' }}>
+                1 {swapFrom} = {swapRates[`${swapFrom}_${swapTo}`]?.toFixed(4) || '1.0000'} {swapTo}
+              </div>
+            </div>
+            
+            {/* 错误/成功提示 */}
+            {swapError && (
+              <div style={{ background: 'rgba(255,92,122,0.15)', border: '1px solid rgba(255,92,122,0.3)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#ff5c7a', fontSize: 13 }}>
+                {swapError}
+              </div>
+            )}
+            {swapSuccess && (
+              <div style={{ background: 'rgba(92,255,155,0.15)', border: '1px solid rgba(92,255,155,0.3)', borderRadius: 8, padding: 12, marginBottom: 16, color: '#5cff9b', fontSize: 13 }}>
+                {swapSuccess}
+              </div>
+            )}
+            
+            {/* 确认按钮 */}
+            <button 
+              onClick={executeSwap}
+              disabled={swapLoading || !swapAmount || swapFrom === swapTo}
+              style={{ 
+                width: '100%', 
+                padding: '14px', 
+                borderRadius: 10, 
+                background: (swapLoading || !swapAmount || swapFrom === swapTo) ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg, #6366f1, #8b5cf6)', 
+                border: 'none', 
+                color: '#fff', 
+                fontSize: 16, 
+                fontWeight: 600, 
+                cursor: (swapLoading || !swapAmount || swapFrom === swapTo) ? 'not-allowed' : 'pointer',
+                opacity: (swapLoading || !swapAmount || swapFrom === swapTo) ? 0.5 : 1
+              }}
+            >
+              {swapLoading ? (t('processing') || 'Processing...') : (t('confirmSwap') || 'Confirm Swap')}
+            </button>
+            
+            {/* 说明 */}
+            <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>
+              {t('swapNote') || 'Swap instantly between currencies for trading different markets'}
+            </div>
+          </div>
+        </div>
+      )}
+
       <BottomNav />
     </div>
   );

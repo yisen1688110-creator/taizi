@@ -35,6 +35,8 @@ export default function Institution() {
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("current"); // current | done
   const [orders, setOrders] = useState([]); // 用户认购的大宗订单（后端）
+  const [selectedCurrency, setSelectedCurrency] = useState('PLN'); // 当前选择的币种
+  const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false); // 币种下拉菜单状态
   const [quotes, setQuotes] = useState({}); // 实时行情 { key: { price, changePct } }
   const [toast, setToast] = useState({ show: false, type: 'info', text: '' });
   const [isMobile, setIsMobile] = useState(() => {
@@ -442,9 +444,71 @@ export default function Institution() {
               <div className="top-name" style={{ fontSize: 11, maxWidth: 90, wordBreak: 'normal', hyphens: 'none' }}>{labels.title}</div>
             </div>
             <div className="top-right" style={{ position: 'relative' }}>
-              <div className="top-title">{lang === 'zh' ? '资产' : (lang === 'pl' ? 'Fundusze' : 'Funds')}</div>
+              <div style={{ position: 'relative', marginBottom: 8 }}>
+                <button 
+                  onClick={() => setCurrencyDropdownOpen(!currencyDropdownOpen)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: 0
+                  }}
+                >
+                  {lang === 'zh' ? '资产' : (lang === 'pl' ? 'Fundusze' : 'Funds')}
+                  <span style={{ color: '#3b82f6', fontWeight: 600 }}>{selectedCurrency}</span>
+                  <span style={{ fontSize: 10, opacity: 0.7 }}>▼</span>
+                </button>
+
+                {currencyDropdownOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 4,
+                    background: 'var(--card-bg, #1e293b)',
+                    border: '1px solid var(--card-border, #334155)',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    zIndex: 100,
+                    minWidth: 100,
+                    overflow: 'hidden'
+                  }}>
+                    {['PLN', 'USD', 'USDT'].map(cur => (
+                      <div
+                        key={cur}
+                        onClick={() => { setSelectedCurrency(cur); setCurrencyDropdownOpen(false); }}
+                        style={{
+                          padding: '10px 16px',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          fontWeight: selectedCurrency === cur ? 600 : 400,
+                          color: selectedCurrency === cur ? '#3b82f6' : 'var(--text)',
+                          background: selectedCurrency === cur ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                          transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)'}
+                        onMouseLeave={e => e.currentTarget.style.background = selectedCurrency === cur ? 'rgba(59, 130, 246, 0.1)' : 'transparent'}
+                      >
+                        {cur}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="funds-list">
-                <div className="fund-row"><span className="label">PLN</span><span className="value">{formatPLN(funds.pln, lang)}</span></div>
+                <div className="fund-row">
+                  <span className="label">{selectedCurrency}</span>
+                  <span className="value">
+                    {selectedCurrency === 'PLN' && formatPLN(funds.pln, lang)}
+                    {selectedCurrency === 'USD' && formatMoney(funds.usd, 'USD', lang)}
+                    {selectedCurrency === 'USDT' && formatUSDT(funds.usdt, lang)}
+                  </span>
+                </div>
                 <div className="fund-row"><span className="label">{lang === 'zh' ? '信用积分' : (lang === 'pl' ? 'Punktacja kredytowa' : 'Credit Score')}</span><span className="value">{creditScore}</span></div>
               </div>
               {tradeDisabled && <div className="desc" style={{ marginTop: 6, color: '#ff6b6b' }}>{lang === 'zh' ? '交易已禁用' : (lang === 'pl' ? 'Handel wyłączony' : 'Trading disabled')}</div>}

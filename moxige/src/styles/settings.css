@@ -177,3 +177,45 @@
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
 }
+
+/* 移除设置页面底部可能的白线 */
+.screen.borderless .card.borderless-card {
+  border: none !important;
+  box-shadow: none !important;
+}
+.screen.borderless .card.borderless-card::after,
+.screen.borderless .card.borderless-card::before {
+  display: none !important;
+}
+.screen.borderless .sub-actions {
+  border: none !important;
+  border-top: none !important;
+  border-bottom: none !important;
+}
+
+/* 客服悬浮按钮样式 */
+.support-fab {
+  position: fixed;
+  bottom: 100px;
+  right: 20px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border: none;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: all 0.2s ease;
+}
+.support-fab:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+}
+.support-icon::before {
+  content: "💬";
+  font-size: 22px;
+}

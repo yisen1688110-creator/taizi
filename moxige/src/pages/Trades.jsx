@@ -246,7 +246,7 @@ export default function Trades() {
                     (() => {
                       if (d.amount == null) return '—';
                       const m = trades.find(x => x.symbol === d.symbol)?.market || 'us';
-                      const cur = m === 'pl' ? 'PLN' : (m === 'us' ? 'USD' : 'USD');
+                      const cur = m === 'pl' ? 'PLN' : (m === 'crypto' ? 'USDT' : 'USD');
                       return formatMoney(d.amount, cur);
                     })()
                   }</span>
@@ -254,7 +254,7 @@ export default function Trades() {
                     (() => {
                       if (d.pnl == null) return '—';
                       const m = trades.find(x => x.symbol === d.symbol)?.market || 'us';
-                      const cur = m === 'pl' ? 'PLN' : (m === 'us' ? 'USD' : 'USD');
+                      const cur = m === 'pl' ? 'PLN' : (m === 'crypto' ? 'USDT' : 'USD');
                       return formatMoney(d.pnl, cur);
                     })()
                   }</span>

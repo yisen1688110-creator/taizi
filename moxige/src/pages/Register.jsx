@@ -92,7 +92,7 @@ export default function Register() {
             value={phone}
             onChange={(e) => {
               const v = e.target.value.replace(/\D/g, "");
-              setPhone(v.slice(0, 10));
+              setPhone(v.slice(0, 11));
             }}
             onFocus={() => setFocusedField("phone")}
             onBlur={() => setFocusedField(null)}

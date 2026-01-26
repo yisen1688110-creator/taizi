@@ -114,7 +114,9 @@
   font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  transition: all 0.15s ease;
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 .tv-price-value.tv-up {
@@ -125,6 +127,39 @@
 .tv-price-value.tv-down {
   color: #ef5350;
   text-shadow: 0 0 8px rgba(239, 83, 80, 0.5);
+}
+
+/* 价格跳动闪烁效果 */
+.tv-price-value.flash-up {
+  animation: price-flash-up 0.3s ease-out;
+}
+
+.tv-price-value.flash-down {
+  animation: price-flash-down 0.3s ease-out;
+}
+
+@keyframes price-flash-up {
+  0% {
+    background: rgba(38, 166, 154, 0.6);
+    transform: scale(1.05);
+    text-shadow: 0 0 15px rgba(38, 166, 154, 1);
+  }
+  100% {
+    background: transparent;
+    transform: scale(1);
+  }
+}
+
+@keyframes price-flash-down {
+  0% {
+    background: rgba(239, 83, 80, 0.6);
+    transform: scale(1.05);
+    text-shadow: 0 0 15px rgba(239, 83, 80, 1);
+  }
+  100% {
+    background: transparent;
+    transform: scale(1);
+  }
 }
 
 .tv-price-change {

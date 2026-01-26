@@ -215,10 +215,11 @@
   align-items: center;
   gap: var(--gap-xs);
   position: relative;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 .search-label {
-  min-width: clamp(110px, 24vw, 180px);
+  flex-shrink: 0;
+  white-space: nowrap;
   color: var(--text-secondary);
 }
 
@@ -229,8 +230,8 @@
 }
 .search-input {
   flex: 1;
-  min-width: 220px;
-  width: 100%;
+  min-width: 100px;
+  max-width: 100%;
   background: rgba(255, 255, 255, 0.05) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   color: var(--text) !important;
@@ -268,7 +269,7 @@
 
 @media (max-width: 480px) {
   .search-label { min-width: 120px; }
-  .search-input { min-width: 180px; }
+  .search-input { min-width: 80px; }
 }
 
 /* 默认 pill - 深色金融风 */

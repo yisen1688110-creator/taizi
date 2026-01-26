@@ -165,18 +165,18 @@ export default function FundsPage() {
                     </div>
                     
                     {/* 信息行 */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12, background: 'var(--primary-light, #dbeafe)', padding: 10, borderRadius: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12, background: 'rgba(59, 130, 246, 0.15)', padding: 10, borderRadius: 8 }}>
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lang==='es'?'Distribución':'Distribution'}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{lang==='es'?'Distribución':'Distribution'}</div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#22c55e' }}>{Number(f.dividendPercent || 0).toFixed(1)}%</div>
                       </div>
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lang==='es'?'Frecuencia':'Frequency'}</div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{dividendText}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{lang==='es'?'Frecuencia':'Frequency'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>{dividendText}</div>
                       </div>
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lang==='es'?'Bloqueo':'Lock'}</div>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{f.redeemDays || f.redeem_days || 7}d</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>{lang==='es'?'Bloqueo':'Lock'}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#e5e7eb' }}>{f.redeemDays || f.redeem_days || 7}d</div>
                       </div>
                     </div>
                     

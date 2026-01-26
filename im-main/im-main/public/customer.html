@@ -833,7 +833,7 @@
   <div class="container customer">
     <div class="header header-mobile">
       <button id="backBtn" class="back-btn">←</button>
-      <div class="service-label">💬</div>
+      <img src="/logo.jpg" alt="Logo" style="width: 36px; height: 36px; border-radius: 50%; object-fit: cover;" onerror="this.src='/logo.png'; this.onerror=null;" />
     </div>
     <div id="chat" class="chat">
       <div id="messages" class="messages"></div>
@@ -1131,20 +1131,21 @@
 
     const isEsLang = langParam === 'es'
     const isEnLang = langParam === 'en'
-    const labelReply = isEsLang ? 'Responder' : (isEnLang ? 'Reply' : '回复')
-    const labelCopy = isEsLang ? 'Copiar' : (isEnLang ? 'Copy' : '复制')
-    const labelRecall = isEsLang ? 'Retirar' : (isEnLang ? 'Recall' : '撤回')
-    const labelUpload = isEsLang ? 'Subir foto' : (isEnLang ? 'Upload photo' : '上传照片')
+    const isPlLang = langParam === 'pl'
+    const labelReply = isPlLang ? 'Odpowiedz' : (isEsLang ? 'Responder' : (isEnLang ? 'Reply' : '回复'))
+    const labelCopy = isPlLang ? 'Kopiuj' : (isEsLang ? 'Copiar' : (isEnLang ? 'Copy' : '复制'))
+    const labelRecall = isPlLang ? 'Wycofaj' : (isEsLang ? 'Retirar' : (isEnLang ? 'Recall' : '撤回'))
+    const labelUpload = isPlLang ? 'Prześlij zdjęcie' : (isEsLang ? 'Subir foto' : (isEnLang ? 'Upload photo' : '上传照片'))
     const uploadTextEl = document.getElementById('uploadText')
     if (uploadTextEl) uploadTextEl.textContent = labelUpload
     // set preview action texts by lang
     try {
-      previewOverlay._cancel.textContent = isEsLang ? 'Cancelar' : (isEnLang ? 'Cancel' : '取消')
-      previewOverlay._send.textContent = isEsLang ? 'Enviar foto' : (isEnLang ? 'Send photo' : '发送图片')
+      previewOverlay._cancel.textContent = isPlLang ? 'Anuluj' : (isEsLang ? 'Cancelar' : (isEnLang ? 'Cancel' : '取消'))
+      previewOverlay._send.textContent = isPlLang ? 'Wyślij zdjęcie' : (isEsLang ? 'Enviar foto' : (isEnLang ? 'Send photo' : '发送图片'))
     } catch { }
 
-    const labelImage = isEsLang ? 'Imagen' : (isEnLang ? 'Image' : '图片')
-    const labelQuote = isEsLang ? 'Citar' : (isEnLang ? 'Quote' : '引用消息')
+    const labelImage = isPlLang ? 'Obraz' : (isEsLang ? 'Imagen' : (isEnLang ? 'Image' : '图片'))
+    const labelQuote = isPlLang ? 'Cytuj' : (isEsLang ? 'Citar' : (isEnLang ? 'Quote' : '引用消息'))
 
     function renderMessage(m) {
       try {
@@ -1327,10 +1328,11 @@
     // 语言与文案（仅支持 es/en）
     const isEs = langParam === 'es'
     const isEn = langParam === 'en'
+    const isPl = langParam === 'pl'
     if (serviceLabel) {
-      serviceLabel.textContent = isEs ? 'Soporte en línea' : 'Online Support'
+      serviceLabel.textContent = isPl ? 'Wsparcie online' : (isEs ? 'Soporte en línea' : (isEn ? 'Online Support' : '在线客服'))
     }
-    messageInput.placeholder = placeholderParam ? decodeURIComponent(placeholderParam) : (isEs ? 'Escribir mensaje' : 'Enter message')
+    messageInput.placeholder = placeholderParam ? decodeURIComponent(placeholderParam) : (isPl ? 'Wpisz wiadomość' : (isEs ? 'Escribir mensaje' : (isEn ? 'Enter message' : '输入消息')))
     // 发送按钮显示图标，不使用文字
     backBtn.onclick = () => {
       try { window.close(); } catch { }
