@@ -16,9 +16,8 @@ export default function FundsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [orders, setOrders] = useState([]);
   const [toast, setToast] = useState({ show: false, type: 'info', text: '' });
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalFund, setModalFund] = useState(null);
-  const [qty, setQty] = useState(1);
+  const [showHoldings, setShowHoldings] = useState(false);
+  const [fundQty, setFundQty] = useState({}); // 每个基金的购买数量
   const dividendLabel = (d) => {
     const v = String(d || '').toLowerCase();
     if (lang === 'pl') {
@@ -66,7 +65,12 @@ export default function FundsPage() {
         : (Array.isArray(data?.orders)
           ? data.orders
           : (Array.isArray(data) ? data : []));
-      setOrders(arr);
+      // 过滤掉已完成的订单（redeemed/done/completed/sold）
+      const active = arr.filter(o => {
+        const status = String(o.status || '').toLowerCase();
+        return !['redeemed', 'done', 'completed', 'sold'].includes(status);
+      });
+      setOrders(active);
     } catch {}
   };
 
@@ -83,13 +87,14 @@ export default function FundsPage() {
         notificationsApi.add(uid, { title: (lang==='es'?'Solicitud de suscripción':'Subscription requested'), body: `${fund.code} x${qtyNum} @ ${totalAmount}` });
       } catch {}
       setToast({ show: true, type: 'ok', text: lang==='es'?'Solicitud enviada':'Request submitted' });
-      setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1200);
-      setModalOpen(false); setModalFund(null); setQty(1);
+      setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 2000);
+      // 重置该基金的数量
+      setFundQty(prev => ({ ...prev, [fund.code]: 1 }));
       // 刷新订单列表
       fetchOrders();
     } catch (e) {
       setToast({ show: true, type: 'error', text: String(e?.message || e) });
-      setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1200);
+      setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 2000);
     } finally { setSubmitting(false); }
   };
 
@@ -99,7 +104,8 @@ export default function FundsPage() {
       await api.post('/me/fund/redeem', { orderId });
       setToast({ show: true, type: 'ok', text: lang==='es'?'Redención completada':'Redeemed successfully' });
       setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
-      setOrders(prev => prev.map(it => it.id === orderId ? { ...it, status: 'redeemed', lock_until_ts: Date.now(), lock_until: new Date().toISOString() } : it));
+      // 赎回后从列表中移除该订单
+      setOrders(prev => prev.filter(it => it.id !== orderId));
       try {
         const uid = (() => { try { const s = JSON.parse(localStorage.getItem('sessionUser')||'null'); return s?.id || s?.phone || 'guest'; } catch { return 'guest'; } })();
         notificationsApi.add(uid, { title: (lang==='es'?'Redención':'Redeem'), body: `${order.code} ${currencySymbol(order.currency)} ${Number(order.price||0).toFixed(2)}` });
@@ -111,11 +117,148 @@ export default function FundsPage() {
     }
   };
 
+  // 获取状态显示信息
+  const getStatusInfo = (status, locked) => {
+    if (status === 'rejected') return { text: lang === 'zh' ? '已拒绝' : 'Rejected', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' };
+    if (status === 'submitted' || status === 'pending') return { text: lang === 'zh' ? '待审核' : 'Pending', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' };
+    if (status === 'redeemed' || status === 'done' || status === 'completed' || status === 'sold') return { text: lang === 'zh' ? '已完成' : 'Completed', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)' };
+    if (status === 'approved' && locked) return { text: lang === 'zh' ? '锁定中' : 'Locked', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' };
+    if (status === 'approved') return { text: lang === 'zh' ? '可赎回' : 'Available', color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
+    return { text: status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' };
+  };
+
   return (
     <div className="screen top-align inst-screen" style={{ padding: 0 }}>
       {toast.show && (<div className={`top-toast ${toast.type}`}>{toast.text}</div>)}
-      {/* 返回按钮 */}
-      <div className="inst-back-bar">
+      
+      {/* 我的持仓弹窗 */}
+      {showHoldings && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999,
+          background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
+        }} onClick={() => setShowHoldings(false)}>
+          <div style={{
+            background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+            borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: '80vh',
+            overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)'
+          }} onClick={e => e.stopPropagation()}>
+            {/* 弹窗标题 */}
+            <div style={{
+              padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#f1f5f9' }}>
+                📊 {lang === 'zh' ? '我的基金持仓' : (lang === 'pl' ? 'Moje fundusze' : 'My Fund Holdings')}
+              </h3>
+              <button
+                onClick={() => setShowHoldings(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8,
+                  padding: '6px 12px', cursor: 'pointer', color: '#94a3b8', fontSize: 13
+                }}
+              >{lang === 'zh' ? '关闭' : 'Close'}</button>
+            </div>
+            
+            {/* 持仓列表 */}
+            <div style={{ padding: 16, overflowY: 'auto', maxHeight: 'calc(80vh - 70px)' }}>
+              {orders.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                  {lang === 'zh' ? '暂无持仓记录' : 'No holdings'}
+                </div>
+              )}
+              {orders.length > 0 && (
+                <div style={{ display: 'grid', gap: 12 }}>
+                  {orders.map(o => {
+                    const lockUntil = o.lockUntil || o.lock_until || o.lock_until_ts;
+                    const ts = typeof lockUntil === 'number' ? lockUntil : Date.parse(lockUntil || '');
+                    const forcedUnlocked = o.forced_unlocked || o.forcedUnlocked;
+                    const locked = !forcedUnlocked && Number.isFinite(ts) && Date.now() < ts;
+                    const status = String(o.status || 'submitted');
+                    const statusInfo = getStatusInfo(status, locked);
+                    const buyPrice = Number(o.price || 0);
+                    const qtyVal = Number(o.qty || 1);
+                    const fundInfo = list.find(f => f.code === o.code);
+                    const marketPrice = Number(fundInfo?.marketPrice || fundInfo?.subscribePrice || buyPrice);
+                    const profitAmount = (marketPrice - buyPrice) * qtyVal;
+                    const profitPct = buyPrice > 0 ? ((marketPrice - buyPrice) / buyPrice * 100) : 0;
+                    const totalBuy = buyPrice * qtyVal;
+                    
+                    return (
+                      <div key={o.id} style={{
+                        background: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 14,
+                        border: '1px solid rgba(255,255,255,0.06)'
+                      }}>
+                        {/* 头部：代码 + 状态 */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>{o.code}</span>
+                            <span style={{
+                              fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                              background: '#2a3b56', color: '#e5e7eb'
+                            }}>×{qtyVal}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {locked && (
+                              <span style={{
+                                fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                                background: 'rgba(251,191,36,0.15)', color: '#fbbf24'
+                              }}>🔒</span>
+                            )}
+                            <span style={{
+                              fontSize: 12, padding: '3px 10px', borderRadius: 10,
+                              background: statusInfo.bg, color: statusInfo.color
+                            }}>{statusInfo.text}</span>
+                          </div>
+                        </div>
+                        
+                        {/* 详细信息 */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '投资金额' : 'Investment'}: <span style={{ color: '#e5e7eb' }}>
+                              {formatPlainMoney(totalBuy, String(o.currency || 'PLN'))}
+                            </span>
+                          </div>
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '单价' : 'Price'}: <span style={{ color: '#e5e7eb' }}>
+                              {formatPlainMoney(buyPrice, String(o.currency || 'PLN'))}
+                            </span>
+                          </div>
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '收益' : 'Profit'}: <span style={{ color: profitAmount >= 0 ? '#10b981' : '#ef4444' }}>
+                              {profitAmount >= 0 ? '+' : ''}{formatPlainMoney(profitAmount, String(o.currency || 'PLN'))}
+                              ({profitPct >= 0 ? '+' : ''}{profitPct.toFixed(2)}%)
+                            </span>
+                          </div>
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '分红' : 'Dividend'}: <span style={{ color: '#22c55e' }}>
+                              {Number(o.percent || fundInfo?.dividendPercent || 0).toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* 操作按钮 */}
+                        {status === 'approved' && !locked && (
+                          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                            <button 
+                              className="btn primary" 
+                              style={{ width: '100%', padding: '8px 0', fontSize: 13, borderRadius: 8 }}
+                              onClick={() => { redeem(o); setShowHoldings(false); }}
+                            >
+                              {lang === 'zh' ? '赎回' : 'Redeem'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 返回按钮 + 我的持仓 */}
+      <div className="inst-back-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
         <button
           onClick={()=>navigate(-1)}
           style={{
@@ -126,6 +269,18 @@ export default function FundsPage() {
         >
           <span style={{ fontSize: 16 }}>←</span>
           <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+        </button>
+        <button
+          onClick={() => { fetchOrders(); setShowHoldings(true); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none',
+            borderRadius: 20, padding: '8px 16px', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500,
+            boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
+          }}
+        >
+          <span style={{ fontSize: 14 }}>📊</span>
+          <span>{lang === 'zh' ? '我的持仓' : (lang === 'pl' ? 'Moje pozycje' : 'My Holdings')}</span>
         </button>
       </div>
       <div className="inst-container">
@@ -180,14 +335,38 @@ export default function FundsPage() {
                       </div>
                     </div>
                     
+                    {/* 数量和订阅 */}
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{lang==='zh'?'数量':'Qty'}</div>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={fundQty[f.code] || 1}
+                          onChange={e => setFundQty(prev => ({ ...prev, [f.code]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                          style={{ 
+                            width: '100%', padding: '8px 10px', borderRadius: 8, 
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            color: '#fff', fontSize: 14, textAlign: 'center'
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{lang==='zh'?'总价':'Total'}</div>
+                        <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(59,130,246,0.2)', textAlign: 'center', fontSize: 14, fontWeight: 600, color: '#3b82f6' }}>
+                          {formatPlainMoney(Number(f.subscribePrice || f.price || 0) * (fundQty[f.code] || 1), String(f.currency||'PLN'))}
+                        </div>
+                      </div>
+                    </div>
+                    
                     {/* 订阅按钮 */}
                     <button 
                       className="btn primary" 
                       disabled={submitting} 
-                      onClick={() => { setModalFund(f); setModalOpen(true); }}
-                      style={{ width: '100%', padding: '10px 0', fontSize: 14 }}
+                      onClick={() => submitSubscribe(f, fundQty[f.code] || 1)}
+                      style={{ width: '100%', padding: '10px 0', fontSize: 14, marginTop: 10 }}
                     >
-                      {lang==='es'?'Suscribir':'Subscribe'}
+                      {submitting ? '...' : (lang==='es'?'Suscribir':'Subscribe')}
                     </button>
                   </div>
                 );
@@ -198,61 +377,6 @@ export default function FundsPage() {
             </div>
           )}
         </div>
-      {modalOpen && modalFund && (
-        <div className="modal">
-          <div className="modal-card">
-            <h2 className="title" style={{ marginTop: 0 }}>{lang==='es' ? (modalFund.nameEs || modalFund.name || modalFund.code) : (modalFund.nameEn || modalFund.name || modalFund.code)}</h2>
-            <div className="desc" style={{ display:'flex', justifyContent:'space-between', gap:10, marginTop:4 }}>
-              <span className="muted">{lang==='es'?'Código':'Code'}: {modalFund.code}</span>
-              <span className="muted">{lang==='es'?'Moneda':'Currency'}: {currencySymbol(modalFund.currency)}</span>
-            </div>
-            <div className="desc" style={{ whiteSpace:'pre-wrap', marginTop: 8 }}>{lang==='es' ? (modalFund.descEs || '') : (modalFund.descEn || '')}</div>
-            <div className="form" style={{ marginTop: 12 }}>
-              <div style={{ display: 'grid', gap: 8, background: 'var(--accent-light)', padding: 12, borderRadius: 'var(--radius)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="muted">{lang==='es'?'Precio unitario':'Unit Price'}</span>
-                  <span style={{ fontWeight: 600 }}>{formatPlainMoney(Number(modalFund.subscribePrice || modalFund.price || 0), String(modalFund.currency||'PLN'))}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="muted">{lang==='es'?'Distribución':'Distribution'}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--success)' }}>{Number(modalFund.dividendPercent || 0).toFixed(2)}%</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="muted">{lang==='es'?'Frecuencia':'Frequency'}</span>
-                  <span style={{ fontWeight: 600 }}>{dividendLabel(modalFund.dividend)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span className="muted">{lang==='es'?'Período de bloqueo':'Lock Period'}</span>
-                  <span style={{ fontWeight: 600 }}>{modalFund.redeemDays || modalFund.redeem_days || 7} {lang==='es'?'días':'days'}</span>
-                </div>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <label className="label">{lang==='es'?'Cantidad de acciones':'Number of shares'}</label>
-                <input 
-                  className="input" 
-                  type="number" 
-                  min="1" 
-                  value={qty} 
-                  onChange={e => setQty(Math.max(1, parseInt(e.target.value) || 1))}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div style={{ marginTop: 10, padding: 10, background: 'var(--card-bg)', borderRadius: 'var(--radius)', border: '1px solid var(--card-border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className="muted">{lang==='es'?'Total a pagar':'Total to pay'}</span>
-                  <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)' }}>
-                    {formatPlainMoney(Number(modalFund.subscribePrice || modalFund.price || 0) * qty, String(modalFund.currency||'PLN'))}
-                  </span>
-                </div>
-              </div>
-              <div className="sub-actions" style={{ justifyContent:'flex-end', gap:10, marginTop:14 }}>
-                <button className="btn" onClick={()=>{ setModalOpen(false); setModalFund(null); setQty(1); }}>{lang==='es'?'Cancelar':'Cancel'}</button>
-                <button className="btn primary" disabled={submitting || qty < 1} onClick={()=> submitSubscribe(modalFund, qty)}>{lang==='es'?'Confirmar suscripción':'Confirm Subscribe'}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
         <div style={{ marginTop: 16, width: '100%' }}>
           <h2 className="title" style={{ marginTop: 0 }}>{lang==='es'?'Órdenes de fondos':'Fund Orders'}</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 10 }}>

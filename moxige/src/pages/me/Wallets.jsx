@@ -152,18 +152,61 @@ export default function Wallets() {
         </div>
 
         {/* 列表 */}
-        <div className="desc muted" style={{ marginTop: 12 }}>{t('walletsListTitle') || 'Direcciones guardadas'}</div>
+        <div className="desc muted" style={{ marginTop: 20, marginBottom: 10, fontSize: 13 }}>{t('walletsListTitle') || 'Direcciones guardadas'}</div>
         <div style={{ display:'grid', gap:12 }}>
-          {items.length === 0 ? (<div className="desc">—</div>) : items.map(it => (
-            <div key={it.id} className="card borderless-card" style={{ display:'grid', gridTemplateColumns:'1fr auto', alignItems:'center' }}>
-              <div>
-                <div className="label">{it.network}</div>
-                <div className="desc" style={{ wordBreak:'break-all' }}>{it.address}</div>
+          {items.length === 0 ? (<div className="desc" style={{ color: '#64748b' }}>—</div>) : items.map(it => (
+            <div key={it.id} style={{ 
+              background: 'rgba(255,255,255,0.04)', 
+              borderRadius: 12, 
+              padding: '14px 16px',
+              border: '1px solid rgba(255,255,255,0.08)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ 
+                  background: it.network === 'ERC20' ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'linear-gradient(135deg, #10b981, #059669)',
+                  color: '#fff',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600
+                }}>{it.network}</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button 
+                    onClick={()=>openEdit(it.id, it.network, it.address)}
+                    style={{ 
+                      background: 'rgba(59, 130, 246, 0.15)', 
+                      color: '#3b82f6', 
+                      border: 'none',
+                      padding: '6px 14px',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      cursor: 'pointer'
+                    }}
+                  >{t('edit')}</button>
+                  <button 
+                    onClick={()=>openDelete(it.id)}
+                    style={{ 
+                      background: 'rgba(239, 68, 68, 0.15)', 
+                      color: '#ef4444', 
+                      border: 'none',
+                      padding: '6px 14px',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      cursor: 'pointer'
+                    }}
+                  >{t('delete')}</button>
+                </div>
               </div>
-              <div className="sub-actions" style={{ justifyContent:'flex-end', gap:10 }}>
-                <button className="btn" onClick={()=>openEdit(it.id, it.network, it.address)}>{t('edit')}</button>
-                <button className="btn" onClick={()=>openDelete(it.id)}>{t('delete')}</button>
-              </div>
+              <div style={{ 
+                background: 'rgba(0,0,0,0.2)', 
+                borderRadius: 8, 
+                padding: '10px 12px',
+                fontFamily: 'monospace',
+                fontSize: 12,
+                color: '#94a3b8',
+                wordBreak: 'break-all',
+                lineHeight: 1.5
+              }}>{it.address}</div>
             </div>
           ))}
         </div>

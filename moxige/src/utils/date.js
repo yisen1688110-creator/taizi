@@ -17,9 +17,9 @@ export function formatMinute(input) {
   if (!Number.isFinite(ts) || ts <= 0) return '—';
   try {
     const d = new Date(ts);
-    // Force Poland City time
+    // Force Europe/Warsaw (Poland) time
     const options = {
-      timeZone: 'America/Poland_City',
+      timeZone: 'Europe/Warsaw',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -31,8 +31,19 @@ export function formatMinute(input) {
     const p = {};
     parts.forEach(({ type, value }) => { p[type] = value; });
     return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`;
-  } catch {
-    return '—';
+  } catch (e) {
+    // Fallback to simple format
+    try {
+      const d = new Date(ts);
+      const Y = d.getFullYear();
+      const M = String(d.getMonth() + 1).padStart(2, '0');
+      const D = String(d.getDate()).padStart(2, '0');
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      return `${Y}/${M}/${D} ${h}:${m}`;
+    } catch {
+      return '—';
+    }
   }
 }
 

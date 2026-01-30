@@ -1315,9 +1315,82 @@
         plusMenu.classList.add('hidden')
       }
     }
+    // 叮咚提示音
+    let _notifyCtx = null
+    let _audioUnlocked = false
+    
+    function unlockAudio() {
+      try {
+        if (!_notifyCtx) _notifyCtx = new (window.AudioContext || window.webkitAudioContext)()
+        if (_notifyCtx.state === 'suspended') {
+          _notifyCtx.resume().then(() => {
+            _audioUnlocked = true
+            console.log('[Sound] Audio unlocked!')
+          })
+        } else {
+          _audioUnlocked = true
+        }
+      } catch (e) { console.error('[Sound] Unlock error:', e) }
+    }
+    
+    function playDingDong() {
+      console.log('[Sound] playDingDong called, unlocked:', _audioUnlocked)
+      try {
+        if (!_notifyCtx) _notifyCtx = new (window.AudioContext || window.webkitAudioContext)()
+        
+        // 尝试解锁
+        if (_notifyCtx.state === 'suspended') {
+          _notifyCtx.resume()
+        }
+        
+        const now = _notifyCtx.currentTime
+        console.log('[Sound] AudioContext state:', _notifyCtx.state, 'time:', now)
+        
+        // 叮 - 高音
+        const osc1 = _notifyCtx.createOscillator()
+        const gain1 = _notifyCtx.createGain()
+        osc1.connect(gain1)
+        gain1.connect(_notifyCtx.destination)
+        osc1.frequency.value = 830
+        osc1.type = 'sine'
+        gain1.gain.setValueAtTime(0.6, now)
+        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.4)
+        osc1.start(now)
+        osc1.stop(now + 0.4)
+        
+        // 咚 - 低音
+        const osc2 = _notifyCtx.createOscillator()
+        const gain2 = _notifyCtx.createGain()
+        osc2.connect(gain2)
+        gain2.connect(_notifyCtx.destination)
+        osc2.frequency.value = 620
+        osc2.type = 'sine'
+        gain2.gain.setValueAtTime(0.6, now + 0.2)
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6)
+        osc2.start(now + 0.2)
+        osc2.stop(now + 0.6)
+        
+        console.log('[Sound] Ding dong played successfully')
+      } catch (e) { console.error('[Sound] Play error:', e) }
+    }
+    
+    // 解锁音频 - 多种方式
+    document.addEventListener('click', unlockAudio)
+    document.addEventListener('touchstart', unlockAudio)
+    document.addEventListener('keydown', unlockAudio, { once: true })
+    
     socket.on('message', m => {
       renderMessage(m)
       if (m.sender === 'agent' && isActive && atBottom()) socket.emit('seen', { phone: currentPhone })
+      // 客服消息提示音和通知
+      if (m.sender === 'agent') {
+        playDingDong()
+        // Electron 桌面通知
+        if (window.electronAPI) {
+          const tx = m.type === 'image' ? '[图片]' : (m.content || '')
+          window.electronAPI.showNotification('GQ Trade 客服', tx)
+        }
+      }
     })
     socket.on('recalled', r => {
       const el = messagesEl.querySelector('[data-id="' + r.id + '"]')

@@ -962,6 +962,38 @@ export default function Swap() {
 
                 {/* 路由已拦截未登录访问，此处不再显示登录提示 */}
 
+                {/* 预估金额和手续费显示 */}
+                {(() => {
+                  const qty = Number(quantity) || 0;
+                  const price = priceType === 'market' ? Number(livePrice ?? stockPrice) : Number(limitPrice);
+                  const amount = qty * price;
+                  const fee = Number((amount * 0.001).toFixed(6)); // 千分之一手续费
+                  const total = orderType === 'buy' ? amount + fee : amount - fee;
+                  const market = detectMarket(tradingViewSymbol);
+                  const currency = market === 'crypto' ? 'USDT' : (market === 'us' ? 'USD' : 'PLN');
+                  const formatAmount = (val) => market === 'crypto' ? formatUSDT(val, lang) : (market === 'us' ? formatMoney(val, 'USD', lang) : formatPLN(val, lang));
+                  
+                  if (qty > 0 && Number.isFinite(price) && price > 0) {
+                    return (
+                      <div style={{ padding: '8px 0', fontSize: 13, color: '#94a3b8', borderTop: '1px solid rgba(255,255,255,0.1)', marginTop: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span>{lang === 'zh' ? '交易金额' : 'Amount'}:</span>
+                          <span>{formatAmount(amount)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#f59e0b' }}>
+                          <span>{lang === 'zh' ? '手续费' : 'Fee'} (0.1%):</span>
+                          <span>{formatAmount(fee)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, color: orderType === 'buy' ? '#ef4444' : '#22c55e' }}>
+                          <span>{orderType === 'buy' ? (lang === 'zh' ? '总支出' : 'Total Cost') : (lang === 'zh' ? '实际到账' : 'Net Receive')}:</span>
+                          <span>{formatAmount(total)}</span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 <button 
                   className={`submit-btn ${orderType}`}
                   onClick={handleSubmitOrder}
@@ -973,9 +1005,30 @@ export default function Swap() {
             </div>
           </div>
 
-          {/* 右侧：持仓列表（仅当有持仓时显示） */}
+          {/* 右侧：持仓列表（仅显示当前市场类型的持仓） */}
           {(() => {
-            const hasPos = positions.some(p => Number(p.longQty||0) > 0 || Number(p.shortQty||0) > 0);
+            // 判断持仓符号的市场类型
+            const getPositionMarket = (symbol) => {
+              if (!symbol) return 'unknown';
+              const s = String(symbol).toUpperCase();
+              // 加密货币：以 USDT/USD/BUSD 结尾
+              if (/(USDT|USD|BUSD)$/i.test(s)) return 'crypto';
+              // 波兰股：以 .WA 结尾
+              if (/\.WA$/i.test(s)) return 'pl';
+              // 其他视为美股
+              return 'us';
+            };
+            
+            // 获取当前选择的市场类型
+            const currentMarket = detectMarket(tradingViewSymbol);
+            
+            // 筛选当前市场类型的持仓
+            const filteredPositions = positions.filter(p => {
+              const posMarket = getPositionMarket(p.symbol);
+              return posMarket === currentMarket;
+            });
+            
+            const hasPos = filteredPositions.some(p => Number(p.longQty||0) > 0 || Number(p.shortQty||0) > 0);
             if (!hasPos) return null;
             return (
           <div className="trading-card positions-card">
@@ -988,7 +1041,7 @@ export default function Swap() {
                   <span>{t('pnlPct')}</span>
                   <span>{t('close')}</span>
                 </div>
-                {positions.flatMap((p) => {
+                {filteredPositions.flatMap((p) => {
                   const info = readPriceInfo(p.symbol);
                   const current = Number(info?.price ?? (parseDisplaySymbol(tradingViewSymbol) === p.symbol ? (livePrice ?? stockPrice) : NaN));
                   const rows = [];

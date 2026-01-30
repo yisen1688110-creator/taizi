@@ -18,11 +18,16 @@ function saveLastAuth(payload) {
   } catch {}
 }
 
-export async function registerPhone({ phone, password, name, inviteCode }) {
-  const res = await api.post('/auth/register_phone', { phone, password, name, inviteCode });
+export async function registerPhone({ phone, password, name, inviteCode, email, emailCode }) {
+  const res = await api.post('/auth/register_phone', { phone, password, name, inviteCode, email, emailCode });
   if (res?.user) saveSession(res.user);
   if (phone) saveLastAuth({ phone });
   return res;
+}
+
+// 发送邮箱验证码
+export async function sendEmailCode(email) {
+  return await api.post('/auth/send_email_code', { email });
 }
 
 export async function loginPhone({ phone, password }) {

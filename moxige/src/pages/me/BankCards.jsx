@@ -83,12 +83,13 @@ export default function BankCards() {
 
 
   const onSubmit = async () => {
-    const num = String(cardNumber || '').replace(/\s+/g,'');
+    const num = String(cardNumber || '').replace(/\s+/g,'').toUpperCase();
     const holder = String(holderName || '').trim();
     const bank = String(bankName || '').trim();
-    // 如果用户在编辑且未填写卡号，则保持原卡号；只有在提供卡号时才校验长度
+    // 波兰银行账号验证：26位数字（本地格式）或 PL + 26位数字 = 28位（IBAN格式）
     if (num.length > 0) {
-      const lenOk = (num.length === 15) || (num.length === 16) || (num.length === 18);
+      const numOnly = num.replace(/^PL/i, '');
+      const lenOk = numOnly.length === 26 && /^\d+$/.test(numOnly);
       if (!lenOk) { showToast(t('errorCardNumber'), 'error'); return; }
     }
     if (!holder || holder.length < 2) { showToast(t('errorHolderName'), 'error'); return; }

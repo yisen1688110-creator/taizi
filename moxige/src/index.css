@@ -636,16 +636,42 @@ input[type="tel"]::placeholder, input[type="password"]::placeholder, input[type=
 .sidebar-footer { margin-top: auto; color: #667; font-size: 13px; }
 .content { min-height: 60vh; }
 
-/* Admin 登录页专属布局：左侧登录框，右侧 Logo 自适应 */
-.content.admin-login { display: grid; grid-template-columns: minmax(360px, 480px) 1fr; gap: 28px; align-items: center; width: min(92vw, 1200px); margin: 0 auto; }
-.admin-login .login-box { justify-self: start; }
-.admin-login .login-box.card { max-width: none; width: auto; padding: 26px; }
-.admin-login .login-hero { display: flex; align-items: center; justify-content: center; min-height: 260px; overflow: hidden; border-radius: 14px; }
-.admin-login .login-hero-img { width: 100%; max-width: 680px; height: auto; object-fit: contain; border-radius: 14px; filter: drop-shadow(0 10px 24px rgba(0,229,255,0.12)); }
+/* Admin 登录页专属布局：居中显示 */
+.content.admin-login { 
+  display: flex; 
+  flex-direction: column; 
+  align-items: center; 
+  justify-content: center; 
+  min-height: 100vh; 
+  gap: 24px; 
+  padding: 20px;
+}
+.admin-login .login-box { 
+  width: 100%;
+  max-width: 400px;
+}
+.admin-login .login-box.card { 
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98)) !important;
+  border: 1px solid rgba(99, 102, 241, 0.3) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 40px rgba(99, 102, 241, 0.1);
+  border-radius: 16px;
+  padding: 32px;
+  backdrop-filter: blur(10px);
+}
+.admin-login .login-hero { 
+  display: none; /* 隐藏右侧logo，保持简洁 */
+}
+.admin-login .login-hero-img { 
+  width: 100%; 
+  max-width: 120px; 
+  height: auto; 
+  object-fit: contain; 
+  border-radius: 14px; 
+}
 
 @media (max-width: 920px) {
-  .content.admin-login { grid-template-columns: 1fr; gap: 18px; width: 92vw; }
-  .admin-login .login-hero { margin-top: 12px; }
+  .content.admin-login { padding: 16px; }
+  .admin-login .login-box { max-width: 100%; }
 }
 .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
 .stat { background: rgba(21,32,53,0.7); border: 1px solid #263b5e; border-radius: 10px; padding: 12px; }
@@ -653,13 +679,13 @@ input[type="tel"]::placeholder, input[type="password"]::placeholder, input[type=
 .stat-label { font-size: 13px; color: #a8b3cf; }
 
 /* modal styles */
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: flex-start; justify-content: center; z-index: 1000; overflow: auto; padding: 20px 10px; padding-top: 60px; }
-.modal-card { width: 100%; max-width: min(680px, calc(100vw - 20px)); max-height: calc(100vh - 100px); overflow: auto; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-xl); position: relative; top: auto; left: auto; transform: none; margin: 0 auto; box-sizing: border-box; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.95); display: flex; align-items: center; justify-content: center; z-index: 99999; overflow: auto; padding: 20px 10px; }
+.modal-card { width: 100%; max-width: min(680px, calc(100vw - 20px)); max-height: calc(100vh - 100px); overflow: auto; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); border: 2px solid rgba(59,130,246,0.3); border-radius: 16px; padding: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.1); position: relative; top: auto; left: auto; transform: none; margin: 0 auto; box-sizing: border-box; }
 
 /* 移动端弹窗优化 */
 @media (max-width: 768px) {
-  .modal { padding: 10px; padding-top: 40px; }
-  .modal-card { max-width: calc(100vw - 20px); max-height: calc(100vh - 80px); padding: 14px; border-radius: var(--radius-sm); }
+  .modal { padding: 10px; }
+  .modal-card { max-width: calc(100vw - 20px); max-height: calc(100vh - 40px); padding: 14px; border-radius: var(--radius-sm); }
 }
 .modal-card.centered { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); }
 .news-modal-card { max-height: 92vh; display: grid; grid-template-rows: auto auto 1fr; }
@@ -1258,21 +1284,24 @@ html, body { -webkit-text-size-adjust: 100%; }
 .admin-layout select.input,
 .admin-login .input,
 .admin-login input.input {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #1e293b !important;
-  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.8) !important;
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+  color: #e2e8f0 !important;
+  border-radius: 10px;
+  padding: 14px 16px !important;
+  font-size: 14px;
+  transition: all 0.2s ease;
 }
 .app.admin-app .input::placeholder,
 .admin-layout .input::placeholder,
 .admin-login .input::placeholder {
-  color: #94a3b8 !important;
+  color: #64748b !important;
 }
 .app.admin-app .input:focus,
 .admin-layout .input:focus,
 .admin-login .input:focus {
-  border-color: #2563eb !important;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1) !important;
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
   outline: none;
 }
 .app.admin-app .modal,
@@ -1298,15 +1327,37 @@ html, body { -webkit-text-size-adjust: 100%; }
   color: #64748b !important;
 }
 .app.admin-app .form .label,
-.admin-layout .form .label,
-.admin-login .form .label {
+.admin-layout .form .label {
   color: #475569 !important;
 }
-/* Admin登录页面卡片样式 */
-.admin-login .login-box.card {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
+.admin-login .form .label {
+  color: #94a3b8 !important;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
 }
+/* Admin登录页面卡片样式 */
 .admin-login .login-box .title {
-  color: #1e293b !important;
+  color: #e2e8f0 !important;
+  font-size: 22px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 24px;
+  background: linear-gradient(135deg, #e2e8f0, #94a3b8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.admin-login .btn.primary {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  border: none !important;
+  padding: 12px 32px !important;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+.admin-login .btn.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
 }

@@ -19,6 +19,7 @@ import MeWithdraw from "./pages/me/Withdraw.jsx";
 import MeWithdrawRecords from "./pages/me/WithdrawRecords.jsx";
 import MeInstitution from "./pages/me/Institution.jsx";
 import InstitutionBlocks from "./pages/institution/Blocks.jsx";
+import InstitutionDividend from "./pages/institution/Dividend.jsx";
 import InstitutionFunds from "./pages/institution/Funds.jsx";
 import IpoRwaPage from "./pages/institution/IpoRwa.jsx";
 import Bridge from "./pages/Bridge.jsx";
@@ -229,6 +230,8 @@ export default function App() {
 
                 {/* 机构 - 大宗交易列表页 */}
                 <Route path="/institution/blocks" element={<RequireAuth><InstitutionBlocks /></RequireAuth>} />
+                {/* 机构 - 红利股页面 */}
+                <Route path="/institution/dividend" element={<RequireAuth><InstitutionDividend /></RequireAuth>} />
                 {/* 机构 - 基金列表页 */}
                 <Route path="/institution/funds" element={<RequireAuth><InstitutionFunds /></RequireAuth>} />
                 {/* 机构 - IPO/RWA 列表页 */}

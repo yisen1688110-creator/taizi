@@ -454,6 +454,8 @@
   box-sizing: border-box;
   background: rgba(17, 24, 39, 0.4);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  z-index: 1;
 }
 
 /* 移动端机构页面 */

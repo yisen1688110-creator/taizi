@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import BottomNav from "../../components/BottomNav.jsx";
 import { useI18n } from "../../i18n.jsx";
 import { api } from "../../services/api.js";
@@ -13,6 +13,7 @@ import "../../styles/profile.css";
 export default function Institution() {
   const { t, lang } = useI18n();
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   // 会话（用于解析后端用户ID）
   const [session, setSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem("sessionUser") || "null"); } catch { return null; }
@@ -34,7 +35,7 @@ export default function Institution() {
   const [org, setOrg] = useState({ avatar: "/logo.jpg", name: t("instOrgNameDefault"), desc: t("instOrgDescDefault") });
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("current"); // current | done
-  const [orders, setOrders] = useState([]); // 用户认购的大宗订单（后端）
+  const [orders, setOrders] = useState([]); // 用户认购的日内订单（后端）
   const [selectedCurrency, setSelectedCurrency] = useState('PLN'); // 当前选择的币种
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false); // 币种下拉菜单状态
   const [quotes, setQuotes] = useState({}); // 实时行情 { key: { price, changePct } }
@@ -171,6 +172,16 @@ export default function Institution() {
     return () => { cancelled = true; };
   }, []);
 
+  // 检测 URL 参数，自动打开信用金模态框
+  useEffect(() => {
+    if (searchParams.get('credit') === '1') {
+      setCreditModal(true);
+      // 清除 URL 参数
+      searchParams.delete('credit');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   // 加载机构简介（后台运营可编辑），后端接口建议：GET /institution/profile
   useEffect(() => {
     let stopped = false;
@@ -211,7 +222,7 @@ export default function Institution() {
     return () => { try { window.removeEventListener('storage', onStorage); } catch { } };
   }, []);
 
-  // 加载用户的大宗订单卡片与状态
+  // 加载用户的日内订单卡片与状态
   useEffect(() => {
     let stopped = false;
     async function fetchOrders() {
@@ -608,29 +619,24 @@ export default function Institution() {
               </button>
             </div>
             <div className="form" style={{ marginTop: 10 }}>
-              <label className="label">{lang === 'zh' ? '姓名' : (lang === 'pl' ? 'Imię' : 'Name')}</label>
+              <label className="label">{lang === 'zh' ? '居住地址' : (lang === 'pl' ? 'Adres zamieszkania' : 'Residential Address')}</label>
               <input className="input" value={creditForm.name} onChange={e => setCreditForm(p => ({ ...p, name: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '电话号码' : (lang === 'pl' ? 'Telefon' : 'Phone')}</label>
+              <label className="label">{lang === 'zh' ? '户籍登记地址' : (lang === 'pl' ? 'Adres zameldowania' : 'Registered Address')}</label>
               <input className="input" value={creditForm.phone} onChange={e => setCreditForm(p => ({ ...p, phone: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '街道 + 门牌号' : (lang === 'pl' ? 'Ulica + numer' : 'Street + No.')}</label>
+              <label className="label">{lang === 'zh' ? '街道' : (lang === 'pl' ? 'Ulica' : 'Street')}</label>
               <input className="input" value={creditForm.address} onChange={e => setCreditForm(p => ({ ...p, address: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '邮编' : (lang === 'pl' ? 'Kod pocztowy' : 'ZIP')}</label>
+              <label className="label">{lang === 'zh' ? '门牌号' : (lang === 'pl' ? 'Numer domu' : 'House No.')}</label>
               <input className="input" value={creditForm.zip} onChange={e => setCreditForm(p => ({ ...p, zip: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '城市/市镇' : (lang === 'pl' ? 'Miasto' : 'City/Town')}</label>
+              <label className="label">{lang === 'zh' ? '房号' : (lang === 'pl' ? 'Numer mieszkania' : 'Apartment No.')}</label>
               <input className="input" value={creditForm.city} onChange={e => setCreditForm(p => ({ ...p, city: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '州' : (lang === 'pl' ? 'Województwo' : 'State')}</label>
+              <label className="label">{lang === 'zh' ? '邮编' : (lang === 'pl' ? 'Kod pocztowy' : 'ZIP Code')}</label>
               <input className="input" value={creditForm.state} onChange={e => setCreditForm(p => ({ ...p, state: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '借款金额（比索）' : (lang === 'pl' ? 'Kwota (PLN)' : 'Amount (PLN)')}</label>
+              <label className="label">{lang === 'zh' ? '城市' : (lang === 'pl' ? 'Miasto' : 'City')}</label>
+              <input className="input" value={creditForm.extra1 || ''} onChange={e => setCreditForm(p => ({ ...p, extra1: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '借款金额（欧元）' : (lang === 'pl' ? 'Kwota (EUR)' : 'Amount (EUR)')}</label>
               <input className="input" type="number" value={creditForm.amount} onChange={e => setCreditForm(p => ({ ...p, amount: e.target.value }))} />
-              <label className="label">{lang === 'zh' ? '资金使用周期' : (lang === 'pl' ? 'Okres użytkowania' : 'Usage period')}</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8 }}>
-                <input className="input" type="number" min={1} step={1} placeholder={lang === 'zh' ? '数值' : (lang === 'pl' ? 'Wartość' : 'Value')} value={creditForm.periodValue} onChange={e => setCreditForm(p => ({ ...p, periodValue: e.target.value }))} onBlur={e => { const v = Math.max(1, Number(e.target.value || 1)); setCreditForm(p => ({ ...p, periodValue: String(v) })); }} />
-                <select className="input" value={creditForm.periodUnit} onChange={e => setCreditForm(p => ({ ...p, periodUnit: e.target.value }))}>
-                  <option value="year">{lang === 'zh' ? '年' : (lang === 'pl' ? 'Rok' : 'Year')}</option>
-                  <option value="month">{lang === 'zh' ? '月' : (lang === 'pl' ? 'Miesiąc' : 'Month')}</option>
-                  <option value="day">{lang === 'zh' ? '日' : (lang === 'pl' ? 'Dzień' : 'Day')}</option>
-                </select>
-              </div>
+              <label className="label">{lang === 'zh' ? '借款周期（天）' : (lang === 'pl' ? 'Okres (dni)' : 'Period (days)')}</label>
+              <input className="input" type="number" min={1} step={1} placeholder={lang === 'zh' ? '天数' : (lang === 'pl' ? 'Dni' : 'Days')} value={creditForm.periodValue} onChange={e => setCreditForm(p => ({ ...p, periodValue: e.target.value, periodUnit: 'day' }))} onBlur={e => { const v = Math.max(1, Number(e.target.value || 1)); setCreditForm(p => ({ ...p, periodValue: String(v), periodUnit: 'day' })); }} />
               <div className="desc" style={{ marginTop: 8 }}>{lang === 'zh' ? '可以提供你的资产证明，有助于提升你的实际审批金额' : (lang === 'pl' ? 'Podaj dowód aktywów, aby poprawić zatwierdzenie' : 'Provide asset proof to improve approval')}</div>
               <input ref={fileInputRef} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} type="file" accept="image/*" multiple onChange={async (e) => {
                 try {

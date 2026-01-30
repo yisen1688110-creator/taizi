@@ -9,6 +9,7 @@ import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import Redis from 'ioredis';
 import https from 'https';
+import nodemailer from 'nodemailer';
 
 const app = express();
 const PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
@@ -19,6 +20,9 @@ const ENABLE_LOGIN_RATE_LIMIT = String(process.env.ENABLE_LOGIN_RATE_LIMIT || (P
 
 const PORT = Number(process.env.PORT || 5210);
 const DB_PATH = process.env.DB_PATH || '/app/data/app.db';
+
+// 手续费率：千分之一 (0.1%)
+const TRADE_FEE_RATE = Number(process.env.TRADE_FEE_RATE || 0.001);
 const FALLBACK_DB_PATH = '/var/lib/docker/volumes/mxg-data/_data/app.db';
 const LOCAL_DB_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'data', 'app.db');
 const resolvedDbPath = (() => {
@@ -336,6 +340,16 @@ function runMigrations() {
     if (!row) db.prepare('INSERT INTO market_settings (id, mx_enabled, us_enabled, mx_holidays, us_holidays, updated_at) VALUES (1, 1, 1, ?, ?, ?)').run('', '', new Date().toISOString());
   } catch { }
 
+  // 邮箱验证码表
+  db.exec(`CREATE TABLE IF NOT EXISTS email_verification_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    code TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+  );`);
+
   db.exec(`CREATE TABLE IF NOT EXISTS block_trade_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     block_trade_id INTEGER,
@@ -360,8 +374,60 @@ function runMigrations() {
     addCol('profit', 'REAL');
     addCol('profit_pct', 'REAL');
     addCol('sold_at', 'TEXT');
+    addCol('cost_pln', 'REAL');
+    addCol('currency', 'TEXT');
+    addCol('fee', 'REAL');
   } catch { }
   try { db.exec("UPDATE block_trade_orders SET locked=1 WHERE status='approved' AND (locked IS NULL OR locked!=1)"); } catch { }
+
+  // 红利股配置表
+  db.exec(`CREATE TABLE IF NOT EXISTS dividend_stocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT,
+    symbol TEXT,
+    name TEXT,
+    price REAL,
+    min_qty REAL DEFAULT 1,
+    max_qty REAL,
+    start_at TEXT,
+    end_at TEXT,
+    subscribe_key TEXT,
+    status TEXT DEFAULT 'active',
+    created_at TEXT,
+    updated_at TEXT
+  );`);
+
+  // 红利股订单表
+  db.exec(`CREATE TABLE IF NOT EXISTS dividend_stock_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dividend_stock_id INTEGER,
+    user_id INTEGER,
+    symbol TEXT,
+    market TEXT,
+    price REAL,
+    qty REAL,
+    amount REAL,
+    status TEXT DEFAULT 'pending',
+    locked INTEGER DEFAULT 1,
+    submitted_at TEXT,
+    approved_at TEXT,
+    sell_price REAL,
+    sell_amount REAL,
+    profit REAL,
+    profit_pct REAL,
+    sold_at TEXT,
+    notes TEXT,
+    currency TEXT
+  );`);
+
+  // 红利股订单表迁移
+  try {
+    const colsDiv = db.prepare('PRAGMA table_info(dividend_stock_orders)').all().map(r => String(r.name));
+    const addDivCol = (name, def) => { if (!colsDiv.includes(name)) { try { db.exec(`ALTER TABLE dividend_stock_orders ADD COLUMN ${name} ${def};`); } catch { } } };
+    addDivCol('fee', 'REAL');
+    addDivCol('sell_fee', 'REAL');
+  } catch { }
+
   try {
     const colsP = db.prepare('PRAGMA table_info(positions)').all().map(r => String(r.name));
     const addPosCol = (name, def) => { if (!colsP.includes(name)) { try { db.exec(`ALTER TABLE positions ADD COLUMN ${name} ${def};`); } catch { } } };
@@ -1415,9 +1481,153 @@ app.get('/api/dev/seed', (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, error: String(e?.message || e) }); }
 });
 
+// ===================== 邮箱验证码功能 =====================
+
+// 邮件发送配置 - ZeptoMail SMTP
+const emailConfig = {
+  host: process.env.SMTP_HOST || 'smtp.zeptomail.com',
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER || 'emailapikey',
+    pass: process.env.SMTP_PASS || 'wSsVR60irB6iX/h6lDOtIOtumlxcBg+lFB8p0FKh4yOuG/nKpcdpnkSdAwbxSKIWFDZrQWYXo7sgzkoC1TsJiI4knw4FCCiF9mqRe1U4J3x17qnvhDzMX2pdlxuOK44JwApvkmFhE80g+g==',
+  },
+};
+
+// 创建邮件传输器
+let emailTransporter = null;
+function getEmailTransporter() {
+  if (!emailTransporter && emailConfig.auth.user && emailConfig.auth.pass) {
+    emailTransporter = nodemailer.createTransport(emailConfig);
+  }
+  return emailTransporter;
+}
+
+// 生成6位数验证码
+function generateVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+// 发送邮箱验证码API
+app.post('/api/auth/send_email_code', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ ok: false, error: 'invalid_email' });
+    }
+    
+    // 检查邮箱是否已被注册（作为真实邮箱）
+    const existsEmail = db.prepare("SELECT id FROM users WHERE email = ? AND email NOT LIKE '%@phone.local'").get(email.toLowerCase());
+    if (existsEmail) {
+      return res.status(409).json({ ok: false, error: 'email_exists' });
+    }
+    
+    // 检查是否发送过于频繁（1分钟内只能发一次）
+    const recentCode = db.prepare('SELECT id FROM email_verification_codes WHERE email = ? AND created_at > ? AND used = 0').get(
+      email.toLowerCase(),
+      new Date(Date.now() - 60 * 1000).toISOString()
+    );
+    if (recentCode) {
+      return res.status(429).json({ ok: false, error: 'too_frequent', message: '请稍后再试' });
+    }
+    
+    // 生成验证码
+    const code = generateVerificationCode();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10分钟有效
+    
+    // 保存验证码
+    db.prepare('INSERT INTO email_verification_codes (email, code, expires_at, created_at) VALUES (?, ?, ?, ?)')
+      .run(email.toLowerCase(), code, expiresAt.toISOString(), now.toISOString());
+    
+    // 发送邮件
+    const transporter = getEmailTransporter();
+    if (transporter) {
+      try {
+        await transporter.sendMail({
+          from: `"GQ Trade" <support@hkgqgs.com>`,
+          to: email,
+          subject: 'Kod weryfikacyjny - GQ Trade',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #ffffff;">
+              <div style="text-align: center; padding: 20px 0; border-bottom: 2px solid #1e3a5f;">
+                <h1 style="margin: 0; color: #1e3a5f; font-size: 24px;">GQ Trade</h1>
+                <p style="margin: 5px 0 0 0; color: #666; font-size: 12px;">Globalna Platforma Inwestycyjna</p>
+              </div>
+              
+              <div style="padding: 30px 0;">
+                <h2 style="margin: 0 0 15px 0; color: #333; font-size: 18px;">Kod weryfikacyjny</h2>
+                <p style="margin: 0 0 20px 0; color: #666; font-size: 14px;">
+                  Witaj! Oto Twój kod weryfikacyjny:
+                </p>
+                
+                <div style="background: #f5f5f5; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;">
+                  <span style="font-size: 32px; font-weight: bold; color: #1e3a5f; letter-spacing: 8px;">${code}</span>
+                </div>
+                
+                <p style="margin: 20px 0 0 0; color: #999; font-size: 13px;">
+                  Kod jest ważny przez 10 minut. Nie udostępniaj nikomu.<br>
+                  <span style="color: #bbb; font-size: 11px;">Code valid for 10 minutes. Do not share with anyone.</span>
+                </p>
+              </div>
+              
+              <div style="border-top: 1px solid #eee; padding-top: 15px; text-align: center;">
+                <p style="margin: 0; color: #999; font-size: 11px;">
+                  © 2026 GQ Trade. Wszelkie prawa zastrzeżone.
+                </p>
+              </div>
+            </div>
+          `,
+        });
+        console.log(`[Email] Verification code sent to ${email}`);
+      } catch (mailErr) {
+        console.error('[Email] Failed to send:', mailErr.message);
+        // 即使邮件发送失败，也返回成功（开发环境可以从数据库查看验证码）
+      }
+    } else {
+      console.log(`[Email] No transporter configured. Code for ${email}: ${code}`);
+    }
+    
+    res.json({ ok: true, message: 'code_sent' });
+  } catch (e) {
+    console.error('[Email] Error:', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// 验证邮箱验证码
+function verifyEmailCode(email, code) {
+  if (!email || !code) return { valid: false, error: 'missing_params' };
+  
+  const record = db.prepare(
+    'SELECT id, code, expires_at, used FROM email_verification_codes WHERE email = ? AND used = 0 ORDER BY id DESC LIMIT 1'
+  ).get(email.toLowerCase());
+  
+  if (!record) return { valid: false, error: 'code_not_found' };
+  if (record.code !== String(code)) return { valid: false, error: 'invalid_code' };
+  if (new Date(record.expires_at) < new Date()) return { valid: false, error: 'code_expired' };
+  
+  // 标记验证码为已使用
+  db.prepare('UPDATE email_verification_codes SET used = 1 WHERE id = ?').run(record.id);
+  
+  return { valid: true };
+}
+
+// ===================== 结束邮箱验证码功能 =====================
+
 app.post('/api/auth/register_phone', (req, res) => {
-  const { phone, password, name, inviteCode } = req.body || {};
+  const { phone, password, name, inviteCode, email, emailCode } = req.body || {};
   if (!phone || !password) return res.status(400).json({ ok: false, error: 'phone and password required' });
+  
+  // 验证邮箱验证码（如果提供了邮箱）
+  if (email) {
+    if (!emailCode) return res.status(400).json({ ok: false, error: 'email_code_required' });
+    const verification = verifyEmailCode(email, emailCode);
+    if (!verification.valid) {
+      return res.status(400).json({ ok: false, error: verification.error });
+    }
+  }
+  
   const digits = String(phone).replace(/\D+/g, '');
   if (!/^\d{9,11}$/.test(digits)) return res.status(400).json({ ok: false, error: 'phone must be 9-11 digits' });
   const exists = db.prepare('SELECT id FROM users WHERE phone = ?').get(String(digits));
@@ -1448,8 +1658,10 @@ app.post('/api/auth/register_phone', (req, res) => {
   }
   
   const now = new Date().toISOString();
+  // 如果提供了邮箱，使用真实邮箱；否则使用phone@phone.local
+  const userEmail = email ? email.toLowerCase() : `${digits}@phone.local`;
   const stmt = db.prepare('INSERT INTO users (email, password_hash, name, created_at, updated_at, phone, role, assigned_operator_id, assigned_admin_id, invited_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  const info = stmt.run(`${digits}@phone.local`, hashPassword(password), name || 'User', now, now, String(digits), 'customer', assignedOperatorId, assignedAdminId, invitedByUserId);
+  const info = stmt.run(userEmail, hashPassword(password), name || 'User', now, now, String(digits), 'customer', assignedOperatorId, assignedAdminId, invitedByUserId);
   const uid = info.lastInsertRowid;
   const user = db.prepare('SELECT id, phone, name, role, assigned_operator_id, assigned_admin_id FROM users WHERE id = ?').get(uid);
   res.json({ ok: true, user, assigned: assignedOperatorId != null });
@@ -1596,13 +1808,13 @@ app.get('/api/admin/users', requireRoles(['super', 'admin', 'operator']), (req, 
           if (ids.length > 0) {
             const balRows = db.prepare(`SELECT user_id, currency, amount FROM balances WHERE user_id IN (${ids.map(() => '?').join(',')})`).all(...ids);
             for (const r of balRows) {
-              const m = balMap.get(r.user_id) || { PLN: 0, USD: 0, USDT: 0 };
+              const m = balMap.get(r.user_id) || { PLN: 0, USD: 0, USDT: 0, EUR: 0 };
               m[String(r.currency || '').toUpperCase()] = Number(r.amount || 0);
               balMap.set(r.user_id, m);
             }
           }
         }
-        const users = rows.map(u => ({ ...u, last_login_ip: u.last_login_ip ? decField(u.last_login_ip) : null, balances: includeBalances ? (balMap.get(u.id) || { PLN: 0, USD: 0, USDT: 0 }) : undefined }));
+        const users = rows.map(u => ({ ...u, last_login_ip: u.last_login_ip ? decField(u.last_login_ip) : null, balances: includeBalances ? (balMap.get(u.id) || { PLN: 0, USD: 0, USDT: 0, EUR: 0 }) : undefined }));
         return res.json({ ok: true, users, total: cntExact });
       } else {
         const like = `%${q}%`;
@@ -1615,13 +1827,13 @@ app.get('/api/admin/users', requireRoles(['super', 'admin', 'operator']), (req, 
           if (ids.length > 0) {
             const balRows = db.prepare(`SELECT user_id, currency, amount FROM balances WHERE user_id IN (${ids.map(() => '?').join(',')})`).all(...ids);
             for (const r of balRows) {
-              const m = balMap.get(r.user_id) || { PLN: 0, USD: 0, USDT: 0 };
+              const m = balMap.get(r.user_id) || { PLN: 0, USD: 0, USDT: 0, EUR: 0 };
               m[String(r.currency || '').toUpperCase()] = Number(r.amount || 0);
               balMap.set(r.user_id, m);
             }
           }
         }
-        const users = rows.map(u => ({ ...u, last_login_ip: u.last_login_ip ? decField(u.last_login_ip) : null, balances: includeBalances ? (balMap.get(u.id) || { PLN: 0, USD: 0, USDT: 0 }) : undefined }));
+        const users = rows.map(u => ({ ...u, last_login_ip: u.last_login_ip ? decField(u.last_login_ip) : null, balances: includeBalances ? (balMap.get(u.id) || { PLN: 0, USD: 0, USDT: 0, EUR: 0 }) : undefined }));
         return res.json({ ok: true, users, total: c });
       }
     } else {
@@ -1634,13 +1846,13 @@ app.get('/api/admin/users', requireRoles(['super', 'admin', 'operator']), (req, 
         if (ids.length > 0) {
           const balRows = db.prepare(`SELECT user_id, currency, amount FROM balances WHERE user_id IN (${ids.map(() => '?').join(',')})`).all(...ids);
           for (const r of balRows) {
-            const m = balMap.get(r.user_id) || { PLN: 0, USD: 0, USDT: 0 };
+            const m = balMap.get(r.user_id) || { PLN: 0, USD: 0, USDT: 0, EUR: 0 };
             m[String(r.currency || '').toUpperCase()] = Number(r.amount || 0);
             balMap.set(r.user_id, m);
           }
         }
       }
-      const users = rows.map(u => ({ ...u, last_login_ip: u.last_login_ip ? decField(u.last_login_ip) : null, credit_score: Number.isFinite(Number(u.credit_score)) ? Number(u.credit_score) : null, balances: includeBalances ? (balMap.get(u.id) || { PLN: 0, USD: 0, USDT: 0 }) : undefined }));
+      const users = rows.map(u => ({ ...u, last_login_ip: u.last_login_ip ? decField(u.last_login_ip) : null, credit_score: Number.isFinite(Number(u.credit_score)) ? Number(u.credit_score) : null, balances: includeBalances ? (balMap.get(u.id) || { PLN: 0, USD: 0, USDT: 0, EUR: 0 }) : undefined }));
       return res.json({ ok: true, users, total: c });
     }
   } catch (e) {
@@ -1694,7 +1906,7 @@ app.post('/api/admin/users/:uid/funds', requireRoles(['super', 'admin', 'operato
     for (const r of ops) {
       const c = String(r?.currency || '').trim().toUpperCase();
       const a = Number(r?.amount || 0);
-      if (!['PLN', 'USD', 'USDT'].includes(c)) return res.status(400).json({ ok: false, error: 'bad currency' });
+      if (!['PLN', 'USD', 'USDT', 'EUR'].includes(c)) return res.status(400).json({ ok: false, error: 'bad currency' });
       if (!Number.isFinite(a)) return res.status(400).json({ ok: false, error: 'bad amount' });
       upsertBalance(uid, c, a);
       try {
@@ -1844,22 +2056,80 @@ app.get('/api/me/balances', requireAuth, (req, res) => {
 });
 
 // ---- Flash Swap (闪兑) API ----
-// 获取汇率
-app.get('/api/swap/rates', requireAuth, (req, res) => {
+// 汇率缓存（5分钟刷新一次）
+let forexRateCache = { ts: 0, USDPLN: 4.0, USDEUR: 0.92 };
+const FOREX_CACHE_TTL = 5 * 60 * 1000; // 5分钟
+
+// 从 EODHD 获取实时外汇汇率
+async function getForexRatesFromEodhd() {
+  const now = Date.now();
+  // 使用缓存
+  if (forexRateCache.ts && (now - forexRateCache.ts) < FOREX_CACHE_TTL) {
+    return { USDPLN: forexRateCache.USDPLN, USDEUR: forexRateCache.USDEUR };
+  }
+  
+  let usdPln = forexRateCache.USDPLN || 4.0;
+  let usdEur = forexRateCache.USDEUR || 0.92;
+  
   try {
-    // 默认汇率（后续可替换为动态汇率接口）
-    // PLN/USD 汇率约 1 USD = 4 PLN
-    // USDT 与 USD 1:1
+    // 获取 USD/PLN
+    const urlPln = `https://eodhd.com/api/real-time/USDPLN.FOREX?api_token=${EODHD_API_KEY}&fmt=json`;
+    const respPln = await fetch(urlPln);
+    if (respPln.ok) {
+      const data = await respPln.json();
+      const rate = Number(data.close || data.previousClose || data.price || 0);
+      if (rate > 0) usdPln = rate;
+    }
+    
+    // 获取 USD/EUR (实际上是 EUR/USD 的倒数)
+    const urlEur = `https://eodhd.com/api/real-time/EURUSD.FOREX?api_token=${EODHD_API_KEY}&fmt=json`;
+    const respEur = await fetch(urlEur);
+    if (respEur.ok) {
+      const data = await respEur.json();
+      const eurUsd = Number(data.close || data.previousClose || data.price || 0);
+      if (eurUsd > 0) usdEur = 1 / eurUsd; // USD/EUR = 1 / EUR/USD
+    }
+    
+    forexRateCache = { ts: now, USDPLN: usdPln, USDEUR: usdEur };
+    console.log(`[EODHD] 汇率更新: USD/PLN=${usdPln}, USD/EUR=${usdEur}`);
+  } catch (e) {
+    console.error('[EODHD] 获取汇率失败:', e.message);
+  }
+  
+  return { USDPLN: usdPln, USDEUR: usdEur };
+}
+
+// 获取汇率
+app.get('/api/swap/rates', requireAuth, async (req, res) => {
+  try {
+    // 从 EODHD 获取实时汇率
+    const { USDPLN: usdPlnRate, USDEUR: usdEurRate } = await getForexRatesFromEodhd();
+    const plnUsdRate = 1 / usdPlnRate;
+    const eurUsdRate = 1 / usdEurRate;
+    const plnEurRate = plnUsdRate * usdEurRate; // PLN -> USD -> EUR
+    const eurPlnRate = eurUsdRate * usdPlnRate; // EUR -> USD -> PLN
+    
+    // 基于实时汇率计算所有汇率对
+    // USDT 与 USD 保持 1:1
     const rates = {
-      PLN_USD: 0.25,    // 1 PLN = 0.25 USD
-      USD_PLN: 4.0,     // 1 USD = 4 PLN
-      PLN_USDT: 0.25,   // 1 PLN = 0.25 USDT
-      USDT_PLN: 4.0,    // 1 USDT = 4 PLN
-      USD_USDT: 1.0,    // 1 USD = 1 USDT
-      USDT_USD: 1.0,    // 1 USDT = 1 USD
+      // PLN 相关
+      PLN_USD: plnUsdRate,           // 1 PLN = ? USD
+      USD_PLN: usdPlnRate,           // 1 USD = ? PLN
+      PLN_USDT: plnUsdRate,          // 1 PLN = ? USDT (USDT≈USD)
+      USDT_PLN: usdPlnRate,          // 1 USDT = ? PLN
+      PLN_EUR: plnEurRate,           // 1 PLN = ? EUR
+      EUR_PLN: eurPlnRate,           // 1 EUR = ? PLN
+      // USD 相关
+      USD_USDT: 1.0,                 // 1 USD = 1 USDT
+      USDT_USD: 1.0,                 // 1 USDT = 1 USD
+      USD_EUR: usdEurRate,           // 1 USD = ? EUR
+      EUR_USD: eurUsdRate,           // 1 EUR = ? USD
+      // EUR 相关
+      EUR_USDT: eurUsdRate,          // 1 EUR = ? USDT (USDT≈USD)
+      USDT_EUR: usdEurRate,          // 1 USDT = ? EUR
     };
     
-    // 尝试从数据库读取自定义汇率
+    // 尝试从数据库读取自定义汇率（管理员可覆盖）
     try {
       const customRates = db.prepare('SELECT from_currency, to_currency, rate FROM swap_rates WHERE active = 1').all();
       for (const r of customRates) {
@@ -1868,14 +2138,14 @@ app.get('/api/swap/rates', requireAuth, (req, res) => {
       }
     } catch { /* 表不存在则使用默认值 */ }
     
-    res.json({ ok: true, rates });
+    res.json({ ok: true, rates, source: 'eodhd', usdPlnRate, usdEurRate });
   } catch (e) {
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
 
 // 执行闪兑
-app.post('/api/swap/execute', requireAuth, (req, res) => {
+app.post('/api/swap/execute', requireAuth, async (req, res) => {
   try {
     const uid = Number(req.user.id);
     const { from, to, amount } = req.body || {};
@@ -1885,7 +2155,7 @@ app.post('/api/swap/execute', requireAuth, (req, res) => {
     const swapAmount = Number(amount);
     
     // 验证参数
-    const validCurrencies = ['PLN', 'USD', 'USDT'];
+    const validCurrencies = ['PLN', 'USD', 'USDT', 'EUR'];
     if (!validCurrencies.includes(fromCurrency)) {
       return res.status(400).json({ ok: false, error: 'Invalid from currency' });
     }
@@ -1899,17 +2169,25 @@ app.post('/api/swap/execute', requireAuth, (req, res) => {
       return res.status(400).json({ ok: false, error: 'Invalid amount' });
     }
     
-    // 获取汇率
-    let rate = 1;
+    // 获取实时汇率
+    const { USDPLN: usdPlnRate, USDEUR: usdEurRate } = await getForexRatesFromEodhd();
+    const plnUsdRate = 1 / usdPlnRate;
+    const eurUsdRate = 1 / usdEurRate;
+    const plnEurRate = plnUsdRate * usdEurRate;
+    const eurPlnRate = eurUsdRate * usdPlnRate;
+    
     const rateKey = `${fromCurrency}_${toCurrency}`;
     const defaultRates = {
-      PLN_USD: 0.25, USD_PLN: 4.0,
-      PLN_USDT: 0.25, USDT_PLN: 4.0,
+      PLN_USD: plnUsdRate, USD_PLN: usdPlnRate,
+      PLN_USDT: plnUsdRate, USDT_PLN: usdPlnRate,
+      PLN_EUR: plnEurRate, EUR_PLN: eurPlnRate,
       USD_USDT: 1.0, USDT_USD: 1.0,
+      USD_EUR: usdEurRate, EUR_USD: eurUsdRate,
+      EUR_USDT: eurUsdRate, USDT_EUR: usdEurRate,
     };
-    rate = defaultRates[rateKey] || 1;
+    let rate = defaultRates[rateKey] || 1;
     
-    // 尝试从数据库读取自定义汇率
+    // 尝试从数据库读取自定义汇率（管理员可覆盖）
     try {
       const row = db.prepare('SELECT rate FROM swap_rates WHERE from_currency = ? AND to_currency = ? AND active = 1').get(fromCurrency, toCurrency);
       if (row && Number(row.rate) > 0) {
@@ -2163,7 +2441,7 @@ app.post('/api/admin/balances/recharge', requireRoles(['super', 'admin']), (req,
     const { phone, userId, currency, amount } = req.body || {};
     const cur = String(currency || '').trim().toUpperCase();
     const amt = Number(amount);
-    if (!['PLN', 'USD', 'USDT'].includes(cur)) return res.status(400).json({ error: 'bad currency' });
+    if (!['PLN', 'USD', 'USDT', 'EUR'].includes(cur)) return res.status(400).json({ error: 'bad currency' });
     if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'bad amount' });
     let uid = Number(userId || 0);
     if (!uid && phone) {
@@ -2311,10 +2589,12 @@ app.post('/api/trade/execute', requireAuth, async (req, res) => {
     // 根据市场类型使用对应货币：美股用USD，加密用USDT，波兰用PLN
     const currency = currencyForMarket(market);
     const cost = Number(qty) * Number(price); // 不再转换汇率，直接使用原价
+    const fee = Number((cost * TRADE_FEE_RATE).toFixed(6)); // 手续费：千分之一
+    const totalCost = cost + fee; // 买入时总成本 = 交易金额 + 手续费
     if (side === 'buy') {
       try {
         const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
-        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(cost), have: Number(bal), currency });
+        if (Number(bal) < Number(totalCost)) return res.status(400).json({ ok: false, error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(totalCost), have: Number(bal), currency, fee });
       } catch { }
     }
     if (side === 'sell') {
@@ -2323,8 +2603,13 @@ app.post('/api/trade/execute', requireAuth, async (req, res) => {
         if (pRow && Number(pRow.locked || 0) === 1 && Number(pRow.long_qty || 0) > 0) return res.status(400).json({ ok: false, error: 'locked' });
       } catch { }
     }
-    const delta = side === 'buy' ? -cost : cost;
+    // 买入：扣除交易金额+手续费；卖出：收到交易金额-手续费
+    const delta = side === 'buy' ? -totalCost : (cost - fee);
     upsertBalance(req.user.id, currency, delta, side === 'buy' ? 'trade_buy_market' : 'trade_sell_market');
+    // 记录手续费扣除
+    if (fee > 0) {
+      upsertBalance(req.user.id, currency, 0, `trade_fee_${side}`); // 手续费已包含在 delta 中，这里只记录日志
+    }
     const prev = db.prepare('SELECT long_qty, short_qty FROM positions WHERE user_id = ? AND symbol = ? AND market = ?').get(Number(req.user.id), symbol, market) || { long_qty: 0, short_qty: 0 };
     const isClose = (side === 'sell' && Number(prev.long_qty || 0) > 0) || (side === 'buy' && Number(prev.short_qty || 0) > 0);
     upsertPosition(req.user.id, symbol, market, side, Number(qty), Number(price));
@@ -2394,13 +2679,16 @@ app.post('/api/trade/orders/:id/fill', requireAuth, async (req, res) => {
     // 根据市场类型使用对应货币
     const currency = currencyForMarket(market);
     const cost = Number(qty) * Number(p);
+    const fee = Number((cost * TRADE_FEE_RATE).toFixed(6)); // 手续费：千分之一
+    const totalCost = cost + fee;
     if (order.side === 'buy') {
       try {
         const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
-        if (Number(bal) < Number(cost)) return res.status(400).json({ ok: false, error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(cost), have: Number(bal), currency });
+        if (Number(bal) < Number(totalCost)) return res.status(400).json({ ok: false, error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(totalCost), have: Number(bal), currency, fee });
       } catch { }
     }
-    const delta2 = order.side === 'buy' ? -cost : cost;
+    // 买入：扣除交易金额+手续费；卖出：收到交易金额-手续费
+    const delta2 = order.side === 'buy' ? -totalCost : (cost - fee);
     upsertBalance(req.user.id, currency, delta2, order.side === 'buy' ? 'trade_buy_limit' : 'trade_sell_limit');
     const prev2 = db.prepare('SELECT long_qty, short_qty FROM positions WHERE user_id = ? AND symbol = ? AND market = ?').get(Number(req.user.id), order.symbol, market) || { long_qty: 0, short_qty: 0 };
     const isClose2 = (order.side === 'sell' && Number(prev2.long_qty || 0) > 0) || (order.side === 'buy' && Number(prev2.short_qty || 0) > 0);
@@ -2654,7 +2942,7 @@ app.get('/api/me/trade/block/orders', requireAuth, (req, res) => {
   }
 });
 
-// ---- Me: Block subscribe ----
+// ---- Me: Block subscribe (直接购买，无需审核) ----
 app.post('/api/trade/block/subscribe', requireAuth, async (req, res) => {
   try {
     const { blockId, qty, currentPrice, key } = req.body || {};
@@ -2671,21 +2959,30 @@ app.post('/api/trade/block/subscribe', requireAuth, async (req, res) => {
     if (!inWindow) return res.status(400).json({ error: 'window closed', code: 3001 });
     if (q < Number(bt.min_qty || 0)) return res.status(400).json({ error: 'qty too small', code: 3002 });
     if (String(bt.subscribe_key || '') !== String(key || '')) return res.status(400).json({ error: 'bad key', code: 3003 });
-    // 资金校验（统一 PLN）并扣款
-    let cost = 0;
+    // 资金校验 - 根据市场类型使用对应货币：美股USD，加密USDT，波兰股PLN
+    const market = String(bt.market || 'us').toLowerCase();
+    const currency = currencyForMarket(market);
+    const cost = Number(q) * Number(bt.price); // 使用日内交易价格，不是市场价
+    const fee = Number((cost * TRADE_FEE_RATE).toFixed(6)); // 手续费：千分之一
+    const totalCost = cost + fee;
     try {
-      const rate = String(bt.market || 'us') === 'pl' ? 1 : await getUsdPlnRateServer();
-      const plnCost = Number(q) * Number(p) * Number(rate);
-      cost = plnCost;
-      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), 'PLN')?.amount || 0;
-      if (Number(bal) < Number(plnCost)) return res.status(400).json({ error: 'insufficient_funds_pln', need: Number(plnCost), have: Number(bal) });
-      upsertBalance(Number(req.user.id), 'PLN', -plnCost, 'block_subscribe');
+      const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
+      if (Number(bal) < Number(totalCost)) return res.status(400).json({ error: `insufficient_funds_${currency.toLowerCase()}`, need: Number(totalCost), have: Number(bal), currency, fee });
+      upsertBalance(Number(req.user.id), currency, -totalCost, 'block_subscribe');
     } catch (e) {
       if (String(e).includes('insufficient_funds')) throw e; // RETHROW insufficient funds error
     }
-    const info = db.prepare('INSERT INTO block_trade_orders (block_trade_id, user_id, price, qty, amount, status, submitted_at, cost_pln) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(bt.id, Number(req.user.id), p, q, p * q, 'submitted', new Date().toISOString(), cost);
-    res.json({ id: info.lastInsertRowid, status: 'submitted' });
+    const nowIso = new Date().toISOString();
+    const lu = bt?.lock_until || null;
+    // 直接插入为 approved 状态，无需后台审核
+    const info = db.prepare('INSERT INTO block_trade_orders (block_trade_id, user_id, price, qty, amount, status, submitted_at, approved_at, lock_until, locked, cost_pln, currency, fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(bt.id, Number(req.user.id), bt.price, q, bt.price * q, 'approved', nowIso, nowIso, lu, 1, totalCost, currency, fee);
+    // 发送购买成功通知
+    try {
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(Number(req.user.id), '日内交易购买成功', `你已成功购买 ${String(bt.symbol || '')}，已支付 ${currency} ${Number(totalCost).toFixed(2)}（含手续费 ${fee.toFixed(2)}）`, nowIso);
+    } catch { }
+    res.json({ id: info.lastInsertRowid, status: 'approved', fee });
   } catch (e) {
     res.status(500).json({ error: String(e?.message || e) });
   }
@@ -2696,16 +2993,17 @@ app.post('/api/admin/trade/block/orders/:id/reject', requireRoles(['super', 'adm
     const id = Number(req.params.id);
     const { notes = '' } = req.body || {};
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-    const exists = db.prepare('SELECT id, user_id, status, cost_pln FROM block_trade_orders WHERE id = ?').get(id);
+    const exists = db.prepare('SELECT id, user_id, status, cost_pln, currency FROM block_trade_orders WHERE id = ?').get(id);
     if (!exists || exists.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
     if (String(req.user?.role || '') === 'operator') {
       const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
       if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
     }
-    // Refund if cost_pln > 0
+    // Refund if cost_pln > 0 (使用对应货币退款)
     const alreadyPaid = Number(exists.cost_pln || 0);
+    const refundCurrency = exists.currency || 'PLN';
     if (alreadyPaid > 0) {
-      upsertBalance(Number(exists.user_id), 'PLN', alreadyPaid, 'block_reject_refund');
+      upsertBalance(Number(exists.user_id), refundCurrency, alreadyPaid, 'block_reject_refund');
     }
     db.prepare('UPDATE block_trade_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
     res.json({ ok: true });
@@ -2713,6 +3011,328 @@ app.post('/api/admin/trade/block/orders/:id/reject', requireRoles(['super', 'adm
     res.status(500).json({ error: String(e?.message || e) });
   }
 });
+
+// ===================== 红利股 (Dividend Stocks) API =====================
+
+// ---- Admin: List dividend stocks ----
+app.get('/api/admin/trade/dividend/list', requireRoles(adminReadRoles()), (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    let rows;
+    if (q) {
+      rows = db.prepare('SELECT id, market, symbol, name, price, min_qty, max_qty, start_at, end_at, subscribe_key, status, created_at FROM dividend_stocks WHERE symbol LIKE ? OR name LIKE ? ORDER BY id DESC').all(`%${q}%`, `%${q}%`);
+    } else {
+      rows = db.prepare('SELECT id, market, symbol, name, price, min_qty, max_qty, start_at, end_at, subscribe_key, status, created_at FROM dividend_stocks ORDER BY id DESC').all();
+    }
+    res.json({ items: rows });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Public: Dividend stocks list (active only) ----
+app.get('/api/trade/dividend/list', (req, res) => {
+  try {
+    const rows = db.prepare('SELECT id, market, symbol, name, price, min_qty, max_qty, start_at, end_at, subscribe_key, status FROM dividend_stocks WHERE status = ? ORDER BY id DESC').all('active');
+    // 返回 has_key 标志而不是实际密钥
+    const items = rows.map(r => ({
+      ...r,
+      subscribe_key: r.subscribe_key ? true : false, // 只返回是否需要密钥
+    }));
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Create dividend stock ----
+app.post('/api/admin/trade/dividend/create', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const { market, symbol, name, price, minQty, maxQty, startAt, endAt, subscribeKey } = req.body || {};
+    const mkt = String(market || '').trim().toLowerCase();
+    const sym = String(symbol || '').trim().toUpperCase();
+    const nm = String(name || '').trim();
+    const p = Number(price);
+    const mq = Number(minQty || 1);
+    const xq = Number(maxQty || 0);
+    if (!sym || !mkt) return res.status(400).json({ error: 'invalid payload' });
+    if (!Number.isFinite(p) || p <= 0) return res.status(400).json({ error: 'bad price' });
+    if (startAt && endAt && (new Date(startAt) >= new Date(endAt))) return res.status(400).json({ error: 'time window invalid' });
+    const now = new Date().toISOString();
+    const info = db.prepare('INSERT INTO dividend_stocks (market, symbol, name, price, min_qty, max_qty, start_at, end_at, subscribe_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(mkt, sym, nm, p, mq, xq || null, String(startAt || ''), String(endAt || ''), String(subscribeKey || ''), 'active', now, now);
+    const row = db.prepare('SELECT id FROM dividend_stocks WHERE id = ?').get(info.lastInsertRowid);
+    res.json({ id: row.id });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Update dividend stock ----
+app.post('/api/admin/trade/dividend/:id/update', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const { market, symbol, name, price, minQty, maxQty, startAt, endAt, subscribeKey } = req.body || {};
+    const mkt = String(market || '').trim().toLowerCase();
+    const sym = String(symbol || '').trim().toUpperCase();
+    const nm = String(name || '').trim();
+    const p = Number(price);
+    const mq = Number(minQty || 1);
+    const xq = Number(maxQty || 0);
+    if (!sym || !mkt) return res.status(400).json({ error: 'invalid payload' });
+    if (!Number.isFinite(p) || p <= 0) return res.status(400).json({ error: 'bad price' });
+    if (startAt && endAt && (new Date(startAt) >= new Date(endAt))) return res.status(400).json({ error: 'time window invalid' });
+    const now = new Date().toISOString();
+    db.prepare('UPDATE dividend_stocks SET market=?, symbol=?, name=?, price=?, min_qty=?, max_qty=?, start_at=?, end_at=?, subscribe_key=?, updated_at=? WHERE id=?')
+      .run(mkt, sym, nm, p, mq, xq || null, String(startAt || ''), String(endAt || ''), String(subscribeKey || ''), now, id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Delete dividend stock ----
+app.delete('/api/admin/trade/dividend/:id', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    db.prepare('DELETE FROM dividend_stocks WHERE id = ?').run(id);
+    res.status(204).send();
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Activate/Deactivate dividend stock ----
+app.post('/api/admin/trade/dividend/:id/activate', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    db.prepare('UPDATE dividend_stocks SET status=?, updated_at=? WHERE id=?').run('active', new Date().toISOString(), id);
+    res.json({ ok: true, status: 'active' });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+app.post('/api/admin/trade/dividend/:id/deactivate', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    db.prepare('UPDATE dividend_stocks SET status=?, updated_at=? WHERE id=?').run('inactive', new Date().toISOString(), id);
+    res.json({ ok: true, status: 'inactive' });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Dividend stock orders list ----
+app.get('/api/admin/trade/dividend/orders', requireRoles(adminReadRoles()), (req, res) => {
+  try {
+    const status = String(req.query.status || '').trim();
+    const phone = String(req.query.phone || '').trim();
+    let operatorId = req.query.operatorId ? Number(req.query.operatorId) : null;
+    const where = [];
+    const params = [];
+    if (status) { where.push('o.status = ?'); params.push(status); }
+    if (phone) { where.push('u.phone = ?'); params.push(phone); }
+    if (String(req.user?.role || '') === 'operator') { operatorId = Number(req.user.id || 0); }
+    if (operatorId !== null) { where.push('u.assigned_operator_id = ?'); params.push(operatorId); }
+    const whereSql = where.length ? ('WHERE ' + where.join(' AND ')) : '';
+    const sql = `
+      SELECT o.id, o.dividend_stock_id, o.user_id, o.symbol, o.market, o.price, o.qty, o.amount, o.status,
+             o.locked, o.submitted_at, o.approved_at, o.sell_price, o.sold_at, o.notes, o.currency, u.phone
+      FROM dividend_stock_orders o
+      JOIN users u ON o.user_id = u.id
+      ${whereSql}
+      ORDER BY o.submitted_at DESC`;
+    const rows = db.prepare(sql).all(...params);
+    res.json({ items: rows });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Approve dividend stock order ----
+app.post('/api/admin/trade/dividend/orders/:id/approve', requireRoles(['super', 'admin', 'operator']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const exists = db.prepare('SELECT id, user_id, symbol, status FROM dividend_stock_orders WHERE id = ?').get(id);
+    if (!exists || exists.status !== 'pending') return res.status(404).json({ error: 'not pending' });
+    // Operator 权限检查
+    if (String(req.user?.role || '') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
+    const now = new Date().toISOString();
+    db.prepare('UPDATE dividend_stock_orders SET status=?, approved_at=?, locked=1 WHERE id=?').run('approved', now, id);
+    try {
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(Number(exists.user_id), '红利股已购买', `你已成功购买红利股 ${exists.symbol}，锁定中`, now);
+    } catch { }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Reject dividend stock order ----
+app.post('/api/admin/trade/dividend/orders/:id/reject', requireRoles(['super', 'admin', 'operator']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { notes = '' } = req.body || {};
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const exists = db.prepare('SELECT id, user_id, status, amount, currency FROM dividend_stock_orders WHERE id = ?').get(id);
+    if (!exists || exists.status !== 'pending') return res.status(404).json({ error: 'not pending' });
+    // Operator 权限检查
+    if (String(req.user?.role || '') === 'operator') {
+      const opId = db.prepare('SELECT assigned_operator_id AS opId FROM users WHERE id = ?').get(Number(exists.user_id))?.opId || null;
+      if (Number(opId || 0) !== Number(req.user.id || 0)) return res.status(403).json({ error: 'Forbidden' });
+    }
+    // Refund
+    const refundAmount = Number(exists.amount || 0);
+    const refundCurrency = exists.currency || 'PLN';
+    if (refundAmount > 0) {
+      upsertBalance(Number(exists.user_id), refundCurrency, refundAmount, 'dividend_reject_refund');
+    }
+    db.prepare('UPDATE dividend_stock_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Unlock dividend stock order (allow selling) ----
+app.post('/api/admin/trade/dividend/orders/:id/unlock', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const exists = db.prepare('SELECT id, user_id, symbol, status FROM dividend_stock_orders WHERE id = ?').get(id);
+    if (!exists) return res.status(404).json({ error: 'not found' });
+    db.prepare('UPDATE dividend_stock_orders SET locked=0 WHERE id=?').run(id);
+    try {
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(Number(exists.user_id), '红利股已解锁', `你的红利股 ${exists.symbol} 已解锁，可以卖出`, new Date().toISOString());
+    } catch { }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Admin: Lock dividend stock order ----
+app.post('/api/admin/trade/dividend/orders/:id/lock', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    db.prepare('UPDATE dividend_stock_orders SET locked=1 WHERE id=?').run(id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Me: Dividend stock orders ----
+app.get('/api/me/trade/dividend/orders', requireAuth, (req, res) => {
+  try {
+    const uid = Number(req.user.id);
+    const rows = db.prepare('SELECT id, dividend_stock_id, symbol, market, price, qty, amount, status, locked, submitted_at, approved_at, sell_price, sell_amount, profit, profit_pct, sold_at, currency FROM dividend_stock_orders WHERE user_id = ? ORDER BY submitted_at DESC').all(uid);
+    res.json({ items: rows });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Me: Subscribe dividend stock ----
+app.post('/api/trade/dividend/subscribe', requireAuth, async (req, res) => {
+  try {
+    const { stockId, qty, key } = req.body || {};
+    const id = Number(stockId);
+    const q = Number(qty);
+    if (!Number.isFinite(id) || !Number.isFinite(q) || q <= 0) return res.status(400).json({ error: 'invalid payload' });
+    const ds = db.prepare('SELECT id, market, symbol, name, price, min_qty, max_qty, start_at, end_at, subscribe_key, status FROM dividend_stocks WHERE id = ?').get(id);
+    if (!ds || String(ds.status) !== 'active') return res.status(404).json({ error: 'not found' });
+    // Check time window
+    const now = Date.now();
+    const st = getPolandTimestamp(ds.start_at);
+    const en = getPolandTimestamp(ds.end_at);
+    const inWindow = (!st || st <= now) && (!en || now <= en);
+    if (!inWindow) return res.status(400).json({ error: 'window closed', code: 3001 });
+    // Check qty
+    if (q < Number(ds.min_qty || 1)) return res.status(400).json({ error: 'qty too small', code: 3002 });
+    if (ds.max_qty && q > Number(ds.max_qty)) return res.status(400).json({ error: 'qty too large', code: 3004 });
+    // Check key
+    if (ds.subscribe_key && String(ds.subscribe_key) !== String(key || '')) return res.status(400).json({ error: 'bad key', code: 3003 });
+    // Check funds
+    const market = String(ds.market || 'us').toLowerCase();
+    const currency = currencyForMarket(market);
+    const cost = Number(q) * Number(ds.price);
+    const fee = Number((cost * TRADE_FEE_RATE).toFixed(6)); // 手续费：千分之一
+    const totalCost = cost + fee;
+    const bal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(Number(req.user.id), currency)?.amount || 0;
+    if (Number(bal) < Number(totalCost)) return res.status(400).json({ error: `insufficient_funds_${currency.toLowerCase()}`, need: totalCost, have: bal, currency, fee });
+    // Deduct funds (including fee)
+    upsertBalance(Number(req.user.id), currency, -totalCost, 'dividend_subscribe');
+    // Create order
+    const info = db.prepare('INSERT INTO dividend_stock_orders (dividend_stock_id, user_id, symbol, market, price, qty, amount, status, locked, submitted_at, currency, fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(ds.id, Number(req.user.id), ds.symbol, ds.market, ds.price, q, totalCost, 'pending', 1, new Date().toISOString(), currency, fee);
+    res.json({ id: info.lastInsertRowid, status: 'pending', fee });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ---- Me: Sell dividend stock (only if unlocked) ----
+app.post('/api/me/trade/dividend/orders/:id/sell', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { sellPrice } = req.body || {};
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const o = db.prepare('SELECT id, user_id, symbol, market, price, qty, status, locked, currency FROM dividend_stock_orders WHERE id = ?').get(id);
+    if (!o || Number(o.user_id) !== Number(req.user.id)) return res.status(404).json({ error: 'not found' });
+    if (o.status !== 'approved') return res.status(400).json({ error: 'not approved' });
+    if (Number(o.locked) === 1) return res.status(400).json({ error: 'locked', message: '红利股尚未解锁，无法卖出' });
+    const sp = Number(sellPrice);
+    if (!Number.isFinite(sp) || sp <= 0) return res.status(400).json({ error: 'bad sell price' });
+    const qty = Number(o.qty || 0);
+    const buyPrice = Number(o.price || 0);
+    const sellAmount = sp * qty;
+    const fee = Number((sellAmount * TRADE_FEE_RATE).toFixed(6)); // 卖出手续费：千分之一
+    const netSellAmount = sellAmount - fee; // 扣除手续费后的实际收入
+    const profit = netSellAmount - (buyPrice * qty); // 利润也要扣除手续费
+    const profitPct = buyPrice > 0 ? ((sp - buyPrice) / buyPrice * 100) : 0;
+    const currency = o.currency || 'PLN';
+    const nowIso = new Date().toISOString();
+    // Credit funds (after fee deduction)
+    upsertBalance(Number(req.user.id), currency, netSellAmount, 'dividend_sell');
+    // Update order
+    db.prepare('UPDATE dividend_stock_orders SET status=?, sell_price=?, sell_amount=?, profit=?, profit_pct=?, sold_at=?, sell_fee=? WHERE id=?')
+      .run('sold', sp, netSellAmount, profit, profitPct, nowIso, fee, id);
+    // 佣金计算（如果有推荐人且有利润）
+    const inviterId = db.prepare('SELECT invited_by_user_id FROM users WHERE id = ?').get(Number(req.user.id))?.invited_by_user_id || null;
+    if (inviterId && Number(profit) > 0) {
+      try {
+        const s = getCommissionSettings();
+        const pct = Number(s.dividendPct || s.blockPct || 0); // 使用 dividendPct 或回退到 blockPct
+        const freezeDays = Number(s.dividendFreezeDays || s.blockFreezeDays || 0);
+        if (pct > 0) {
+          const commission = Number(((profit * pct) / 100).toFixed(2));
+          const frozenUntil = new Date(Date.now() + Math.max(0, freezeDays) * 24 * 3600 * 1000).toISOString();
+          db.prepare('INSERT INTO commission_records (inviter_id, invitee_id, source, order_id, currency, amount, status, frozen_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(Number(inviterId), Number(req.user.id), 'dividend', id, currency, commission, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, nowIso);
+          if (freezeDays <= 0) upsertCommissionBalance(Number(inviterId), currency, commission);
+        }
+      } catch { }
+    }
+    res.json({ ok: true, profit, profitPct });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
+});
+
+// ===================== End of Dividend Stocks API =====================
 
 // ---- Version info ----
 app.get('/version', (req, res) => {
@@ -3033,6 +3653,120 @@ try {
   });
 } catch { }
 
+// ---- EUR 充值任务奖励系统 ----
+// 创建表
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS recharge_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    tier INTEGER NOT NULL,
+    claimed_at TEXT NOT NULL,
+    reward_amount REAL NOT NULL,
+    UNIQUE(user_id, tier)
+  )`);
+} catch {}
+
+// 任务档位配置
+const RECHARGE_TIERS = [
+  { tier: 1, threshold: 10000, reward: 100 },   // 1万EUR → 100 PLN
+  { tier: 2, threshold: 20000, reward: 200 },   // 2万EUR → 200 PLN
+  { tier: 3, threshold: 50000, reward: 600 },   // 5万EUR → 600 PLN
+  { tier: 4, threshold: 80000, reward: 888 },   // 8万EUR → 888 PLN
+  { tier: 5, threshold: 100000, reward: 1888 }, // 10万EUR → 1888 PLN
+];
+
+// 获取用户EUR充值总额
+function getUserEurRechargeTotal(userId) {
+  try {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as total 
+      FROM balance_logs 
+      WHERE user_id = ? AND currency = 'EUR' AND amount > 0 AND reason = 'admin_recharge'
+    `).get(userId);
+    return Number(row?.total || 0);
+  } catch { return 0; }
+}
+
+// 获取用户已领取的奖励档位
+function getUserClaimedTiers(userId) {
+  try {
+    const rows = db.prepare('SELECT tier FROM recharge_tasks WHERE user_id = ?').all(userId);
+    return rows.map(r => r.tier);
+  } catch { return []; }
+}
+
+// 获取充值任务进度
+app.get('/api/me/recharge-tasks', requireAuth, (req, res) => {
+  try {
+    const uid = Number(req.user.id);
+    const totalEur = getUserEurRechargeTotal(uid);
+    const claimedTiers = getUserClaimedTiers(uid);
+    
+    const tasks = RECHARGE_TIERS.map(t => ({
+      tier: t.tier,
+      threshold: t.threshold,
+      reward: t.reward,
+      progress: Math.min(totalEur / t.threshold * 100, 100),
+      completed: totalEur >= t.threshold,
+      claimed: claimedTiers.includes(t.tier),
+    }));
+    
+    res.json({ ok: true, totalEur, tasks });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// 领取奖励
+app.post('/api/me/recharge-tasks/claim', requireAuth, (req, res) => {
+  try {
+    const uid = Number(req.user.id);
+    const { tier } = req.body || {};
+    const tierNum = Number(tier);
+    
+    // 验证档位
+    const tierConfig = RECHARGE_TIERS.find(t => t.tier === tierNum);
+    if (!tierConfig) {
+      return res.status(400).json({ ok: false, error: '无效的奖励档位' });
+    }
+    
+    // 检查是否已领取
+    const claimedTiers = getUserClaimedTiers(uid);
+    if (claimedTiers.includes(tierNum)) {
+      return res.status(400).json({ ok: false, error: '该奖励已领取' });
+    }
+    
+    // 检查是否达到门槛
+    const totalEur = getUserEurRechargeTotal(uid);
+    if (totalEur < tierConfig.threshold) {
+      return res.status(400).json({ ok: false, error: `未达到充值门槛 ${tierConfig.threshold} EUR` });
+    }
+    
+    // 发放奖励
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO recharge_tasks (user_id, tier, claimed_at, reward_amount) VALUES (?, ?, ?, ?)')
+      .run(uid, tierNum, now, tierConfig.reward);
+    
+    // 增加PLN余额
+    upsertBalance(uid, 'PLN', tierConfig.reward);
+    
+    // 记录日志
+    try {
+      db.prepare('INSERT INTO balance_logs (user_id, currency, amount, reason, admin_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(uid, 'PLN', tierConfig.reward, `recharge_task_tier_${tierNum}`, 0, now);
+    } catch {}
+    
+    // 发送通知
+    try {
+      db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)')
+        .run(uid, '充值奖励领取成功', `恭喜！您已领取充值 ${tierConfig.threshold} EUR 的奖励 ${tierConfig.reward} PLN`, now);
+    } catch {}
+    
+    res.json({ ok: true, reward: tierConfig.reward, message: `成功领取 ${tierConfig.reward} PLN 奖励！` });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`[mxg-backend] running on port ${PORT}`);
@@ -3598,19 +4332,18 @@ app.post('/api/admin/trade/fund/orders/:id/reject', requireRoles(['super', 'admi
     }
 
     // Refund balance if rejected
-    // Note: We assume the price was deducted in PLN at subscription time.
-    // We need to fetch the price from the order to refund it.
-    // The order object already has 'price' selected in line 3141? No, line 3141 only selects id, user_id, status.
-    // We need to re-fetch or update the select.
-    const fullOrder = db.prepare('SELECT id, user_id, price, status FROM fund_orders WHERE id = ?').get(id);
+    const fullOrder = db.prepare('SELECT id, user_id, fund_id, price, qty, status FROM fund_orders WHERE id = ?').get(id);
     if (!fullOrder || fullOrder.status !== 'submitted') return res.status(404).json({ error: 'not submitted' });
 
-    // Re-check operator permission if needed (though we did it above with 'order', let's just use fullOrder for consistency or keep previous logic)
-    // The previous logic used 'order' from line 3141. Let's just use fullOrder for the refund amount.
-
-    const refundAmount = Number(fullOrder.price || 0);
+    // 获取基金币种
+    const fund = db.prepare('SELECT currency FROM funds WHERE id = ?').get(fullOrder.fund_id);
+    const currency = fund?.currency || 'PLN';
+    
+    // 退款金额 = 单价 × 数量
+    const qty = Number(fullOrder.qty || 1);
+    const refundAmount = Number(fullOrder.price || 0) * qty;
     if (refundAmount > 0) {
-      upsertBalance(fullOrder.user_id, 'PLN', refundAmount, 'fund_reject_refund');
+      upsertBalance(fullOrder.user_id, currency, refundAmount, 'fund_reject_refund');
     }
 
     db.prepare('UPDATE fund_orders SET status=?, notes=? WHERE id=?').run('rejected', String(notes || ''), id);
@@ -3679,11 +4412,12 @@ app.delete('/api/admin/trade/fund/orders/:id', requireRoles(['super', 'admin']),
 setInterval(() => {
   try {
     const now = new Date().toISOString();
-    const due = db.prepare('SELECT fo.id, fo.user_id, fo.fund_id, fo.price, fo.percent, fo.next_payout_at FROM fund_orders fo WHERE fo.status = ? AND fo.next_payout_at <= ?').all('approved', now);
+    const due = db.prepare('SELECT fo.id, fo.user_id, fo.fund_id, fo.price, fo.percent, fo.qty, fo.next_payout_at FROM fund_orders fo WHERE fo.status = ? AND fo.next_payout_at <= ?').all('approved', now);
     for (const o of due) {
       const fund = db.prepare('SELECT id, dividend, currency FROM funds WHERE id = ?').get(o.fund_id);
       if (!fund) continue;
-      const amount = Number(o.price) * Number(o.percent) / 100;
+      const qty = Number(o.qty || 1);
+      const amount = Number(o.price) * qty * Number(o.percent) / 100;
       upsertBalance(o.user_id, String(fund.currency || 'PLN'), amount);
       try {
         const codeRow = db.prepare('SELECT code FROM funds WHERE id = ?').get(o.fund_id);
@@ -3905,7 +4639,7 @@ app.post('/api/me/exchange', requireAuth, (req, res) => {
     const f = String(from || '').trim().toUpperCase();
     const t = String(to || '').trim().toUpperCase();
     const a = Number(amount);
-    if (!['PLN', 'USD', 'USDT'].includes(f) || !['PLN', 'USD', 'USDT'].includes(t) || f === t) return res.status(400).json({ error: 'bad pair' });
+    if (!['PLN', 'USD', 'USDT', 'EUR'].includes(f) || !['PLN', 'USD', 'USDT', 'EUR'].includes(t) || f === t) return res.status(400).json({ error: 'bad pair' });
     if (!Number.isFinite(a) || a <= 0) return res.status(400).json({ error: 'bad amount' });
     const rate = 1; // 占位：当前不做汇率转换，后续可接行情
     const uid = Number(req.user.id);
@@ -4204,8 +4938,12 @@ app.get('/api/admin/trade/ipo/orders', requireRoles(adminReadRoles()), (req, res
 
 function updateTradingDisallowFlag(userId) {
   try {
+    // 检查所有主要币种的余额
     const usd = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(userId, 'USD')?.amount || 0;
-    const flag = Number(usd) < 0 ? 1 : 0;
+    const pln = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(userId, 'PLN')?.amount || 0;
+    const usdt = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(userId, 'USDT')?.amount || 0;
+    // 任一币种为负则禁止交易
+    const flag = (Number(usd) < 0 || Number(pln) < 0 || Number(usdt) < 0) ? 1 : 0;
     db.prepare('UPDATE users SET disallow_trading=?, updated_at=? WHERE id=?').run(flag, new Date().toISOString(), userId);
   } catch { }
 }
@@ -4226,9 +4964,16 @@ app.post('/api/admin/trade/ipo/orders/:id/approve', requireRoles(['super', 'admi
     const useQty = Number(qty);
     const it = db.prepare('SELECT currency FROM ipo_items WHERE id = ?').get(order.item_id);
     const curr = String(it?.currency || 'USD').toUpperCase();
-    const rate = curr === 'PLN' ? 1 : await getUsdPlnRateServer();
-    const plnCost = useQty * Number(order.price) * Number(rate);
-    upsertBalance(order.user_id, 'PLN', -plnCost, 'ipo_approve');
+    // 使用 IPO 配置的货币进行扣款
+    const cost = useQty * Number(order.price);
+    const fee = Number((cost * TRADE_FEE_RATE).toFixed(6)); // 手续费：千分之一
+    const totalCost = cost + fee;
+    // 检查用户对应货币余额是否足够（包含手续费）
+    const userBal = db.prepare('SELECT amount FROM balances WHERE user_id = ? AND currency = ?').get(order.user_id, curr)?.amount || 0;
+    if (Number(userBal) < Number(totalCost)) {
+      return res.status(400).json({ error: 'insufficient_funds', message: `用户 ${curr} 余额不足，需要 ${totalCost.toFixed(2)}（含手续费 ${fee.toFixed(2)}），当前 ${Number(userBal).toFixed(2)}` });
+    }
+    upsertBalance(order.user_id, curr, -totalCost, 'ipo_approve');
     updateTradingDisallowFlag(order.user_id);
     db.prepare('UPDATE ipo_orders SET qty=?, approved_at=?, status=? WHERE id=?').run(useQty, now, 'approved', id);
     try {
@@ -4302,25 +5047,29 @@ app.post('/api/me/ipo/orders/:id/sell', requireAuth, (req, res) => {
     const o = db.prepare('SELECT id, user_id, item_id, code, qty, price, status, approved_at FROM ipo_orders WHERE id = ?').get(id);
     if (!o || String(o.status) !== 'approved' || Number(o.user_id) !== Number(req.user.id)) return res.status(404).json({ error: 'not sellable' });
     const item = db.prepare('SELECT id, list_price, list_at, can_sell_on_listing_day, currency FROM ipo_items WHERE id = ?').get(o.item_id);
-    const now = Date.now();
+    const nowTs = Date.now();
+    const nowIso = new Date().toISOString();
     const la = getPolandTimestamp(item?.list_at);
-    if (la && now < la && !item?.can_sell_on_listing_day) return res.status(400).json({ error: 'not_listed' });
+    if (la && nowTs < la && !item?.can_sell_on_listing_day) return res.status(400).json({ error: 'not_listed' });
     const qty = Number(o.qty || 0);
     const buy = Number(o.price || 0);
     const revenue = p * qty;
+    const fee = Number((revenue * TRADE_FEE_RATE).toFixed(6)); // 卖出手续费：千分之一
+    const netRevenue = revenue - fee; // 扣除手续费后的实际收入
     const curr = String(item?.currency || 'USD');
-    upsertBalance(Number(req.user.id), curr, revenue);
-    db.prepare('UPDATE ipo_orders SET status=?, notes=? WHERE id=?').run('done', `sold@${p}`, id);
+    // 先更新订单状态，再增加余额，防止重复卖出
+    db.prepare('UPDATE ipo_orders SET status=?, notes=?, sold_at=? WHERE id=?').run('done', `sold@${p},fee=${fee}`, nowIso, id);
+    upsertBalance(Number(req.user.id), curr, netRevenue);
     const inviterId = db.prepare('SELECT invited_by_user_id FROM users WHERE id = ?').get(Number(req.user.id))?.invited_by_user_id || null;
-    const profit = revenue - (buy * qty);
+    const profit = netRevenue - (buy * qty); // 利润也要扣除手续费
     if (inviterId && Number(profit) > 0) {
       const s = getCommissionSettings();
       const pct = Number(s.ipoPct || 0);
       const freezeDays = Number(s.ipoFreezeDays || 0);
       const amount = Number(((profit * pct) / 100).toFixed(2));
-      const frozenUntil = new Date(now.getTime() + Math.max(0, freezeDays) * 24 * 3600 * 1000).toISOString();
+      const frozenUntil = new Date(nowTs + Math.max(0, freezeDays) * 24 * 3600 * 1000).toISOString();
       db.prepare('INSERT INTO commission_records (inviter_id, invitee_id, source, order_id, currency, amount, status, frozen_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(Number(inviterId), Number(req.user.id), 'ipo', id, curr, amount, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, now.toISOString());
+        .run(Number(inviterId), Number(req.user.id), 'ipo', id, curr, amount, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, nowIso);
       if (freezeDays <= 0) upsertCommissionBalance(Number(inviterId), curr, amount);
     }
     res.json({ ok: true });
@@ -4378,7 +5127,7 @@ app.post('/api/admin/balances/recharge', requireRoles(['super', 'admin']), (req,
     const { phone = '', userId = null, currency, amount } = req.body || {};
     const cur = String(currency || '').trim().toUpperCase();
     const amt = Number(amount);
-    if (!['PLN', 'USD', 'USDT'].includes(cur)) return res.status(400).json({ error: 'bad currency' });
+    if (!['PLN', 'USD', 'USDT', 'EUR'].includes(cur)) return res.status(400).json({ error: 'bad currency' });
     if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'bad amount' });
     let uid = Number(userId || 0);
     if (!Number.isFinite(uid) || uid <= 0) {
@@ -4652,6 +5401,42 @@ app.post('/api/admin/staffs/update', requireRoles(['super', 'admin']), (req, res
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
 });
+
+// ---- Admin: 修改运营邀请码 ----
+app.post('/api/admin/staffs/:id/invite_code', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { invite_code } = req.body || {};
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const u = db.prepare('SELECT id, role, invite_code FROM users WHERE id = ?').get(id);
+    if (!u) return res.status(404).json({ error: 'not found' });
+    if (u.role !== 'operator') return res.status(400).json({ error: 'only operator can have invite code' });
+    
+    const code = String(invite_code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: 'invite_code required' });
+    if (!/^[A-Z0-9]{4,10}$/.test(code)) return res.status(400).json({ error: 'invite_code must be 4-10 alphanumeric characters' });
+    
+    // 检查邀请码是否已被使用
+    const exists = db.prepare('SELECT id FROM users WHERE invite_code = ? AND id != ?').get(code, id);
+    if (exists) return res.status(409).json({ error: 'invite_code already exists' });
+    
+    const now = new Date().toISOString();
+    db.prepare('UPDATE users SET invite_code=?, updated_at=? WHERE id=?').run(code, now, id);
+    res.json({ ok: true, invite_code: code });
+  } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+});
+
+// ---- Admin: 获取运营邀请码 ----
+app.get('/api/admin/staffs/:id/invite_code', requireRoles(['super', 'admin']), (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    const u = db.prepare('SELECT id, role, invite_code FROM users WHERE id = ?').get(id);
+    if (!u) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true, invite_code: u.invite_code || '' });
+  } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
+});
+
 // ---- Me: Wallet addresses ----
 app.get('/api/me/wallets', requireAuth, (req, res) => {
   try {
@@ -5063,29 +5848,31 @@ app.post('/api/me/institution/block/orders/:id/sell', requireAuth, async (req, r
     }
     const qty = Number(o.qty || 0);
     const buy = Number(o.price || 0);
-    const revenueUSD = p * qty;
+    const revenue = p * qty;
+    const fee = Number((revenue * TRADE_FEE_RATE).toFixed(6)); // 卖出手续费：千分之一
+    const netRevenue = revenue - fee; // 扣除手续费后的实际收入
     const market = db.prepare('SELECT market FROM block_trades WHERE id = ?').get(o.block_trade_id)?.market || 'us';
-    const rate = String(market) === 'pl' ? 1 : await getUsdPlnRateServer();
-    const plnRevenue = revenueUSD * rate;
-    upsertBalance(Number(req.user.id), 'PLN', plnRevenue, 'block_sell');
-    try { const symRow = db.prepare('SELECT symbol FROM block_trades WHERE id = ?').get(o.block_trade_id); const sym = String(symRow?.symbol || ''); db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), '大宗交易已卖出', `你已卖出 ${sym}，总计 PLN ${Number(plnRevenue).toFixed(2)}`, new Date().toISOString()); } catch { }
-    const profitUSD = revenueUSD - (buy * qty);
+    // 根据市场类型确定币种：美股USD，波兰股PLN，加密货币USDT
+    const currency = String(market) === 'pl' ? 'PLN' : (String(market) === 'crypto' ? 'USDT' : 'USD');
+    upsertBalance(Number(req.user.id), currency, netRevenue, 'block_sell');
+    try { const symRow = db.prepare('SELECT symbol FROM block_trades WHERE id = ?').get(o.block_trade_id); const sym = String(symRow?.symbol || ''); db.prepare('INSERT INTO notifications (user_id, title, message, created_at, read, pinned) VALUES (?, ?, ?, ?, 0, 0)').run(Number(req.user.id), '日内交易已卖出', `你已卖出 ${sym}，总计 ${currency} ${Number(netRevenue).toFixed(2)}（手续费 ${fee.toFixed(2)}）`, new Date().toISOString()); } catch { }
+    const profit = netRevenue - (buy * qty); // 利润也要扣除手续费
     const profitPct = buy > 0 ? ((p - buy) / buy) * 100 : 0;
     const soldAt = new Date().toISOString();
     db.prepare('UPDATE block_trade_orders SET status=?, notes=?, sell_price=?, sell_amount=?, profit=?, profit_pct=?, sold_at=? WHERE id=?')
-      .run('done', `sold@${p}`, p, revenueUSD, profitUSD, profitPct, soldAt, id);
+      .run('done', `sold@${p}`, p, revenue, profit, profitPct, soldAt, id);
     const ref = db.prepare('SELECT invited_by_user_id FROM users WHERE id = ?').get(Number(req.user.id));
     const inviterId = ref?.invited_by_user_id || null;
-    if (inviterId && Number(profitUSD) > 0) {
+    if (inviterId && Number(profit) > 0) {
       const s = getCommissionSettings();
       const pct = Number(s.blockPct || 0);
       const freezeDays = Number(s.blockFreezeDays || 0);
-      const amountPLN = Number((((profitUSD * pct) / 100) * rate).toFixed(2));
+      const commission = Number(((profit * pct) / 100).toFixed(2));
       const now = new Date();
       const frozenUntil = new Date(now.getTime() + Math.max(0, freezeDays) * 24 * 3600 * 1000).toISOString();
       db.prepare('INSERT INTO commission_records (inviter_id, invitee_id, source, order_id, currency, amount, status, frozen_until, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(Number(inviterId), Number(req.user.id), 'block', id, 'PLN', amountPLN, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, now.toISOString());
-      if (freezeDays <= 0) upsertCommissionBalance(Number(inviterId), 'PLN', amountPLN);
+        .run(Number(inviterId), Number(req.user.id), 'block', id, currency, commission, freezeDays > 0 ? 'frozen' : 'released', freezeDays > 0 ? frozenUntil : null, now.toISOString());
+      if (freezeDays <= 0) upsertCommissionBalance(Number(inviterId), currency, commission);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: String(e?.message || e) }); }
@@ -5117,7 +5904,7 @@ app.post('/api/me/invite/withdraw', requireAuth, (req, res) => {
     const { currency, amount } = req.body || {};
     const curr = String(currency || '').toUpperCase();
     const amt = Number(amount);
-    if (!['PLN', 'USD', 'USDT'].includes(curr)) return res.status(400).json({ ok: false, error: 'bad currency' });
+    if (!['PLN', 'USD', 'USDT', 'EUR'].includes(curr)) return res.status(400).json({ ok: false, error: 'bad currency' });
     if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ ok: false, error: 'bad amount' });
     const row = db.prepare('SELECT amount FROM commission_wallets WHERE user_id = ? AND currency = ?').get(Number(req.user.id), curr);
     const bal = Number(row?.amount || 0);
@@ -5158,7 +5945,7 @@ app.get('/api/me/invite/stats', requireAuth, (req, res) => {
     const invitedCount = db.prepare('SELECT COUNT(1) AS c FROM users WHERE invited_by_user_id = ?').get(uid)?.c || 0;
     const activeCount = db.prepare('SELECT COUNT(DISTINCT invitee_id) AS c FROM commission_records WHERE inviter_id = ?').get(uid)?.c || 0;
     const totalsRows = db.prepare('SELECT currency, status, SUM(amount) AS total FROM commission_records WHERE inviter_id = ? GROUP BY currency, status').all(uid);
-    const totals = { PLN: { released: 0, frozen: 0 }, USD: { released: 0, frozen: 0 }, USDT: { released: 0, frozen: 0 } };
+    const totals = { PLN: { released: 0, frozen: 0 }, USD: { released: 0, frozen: 0 }, USDT: { released: 0, frozen: 0 }, EUR: { released: 0, frozen: 0 } };
     for (const r of totalsRows) {
       const curr = String(r.currency || '').toUpperCase();
       if (!totals[curr]) totals[curr] = { released: 0, frozen: 0 };
@@ -5890,16 +6677,34 @@ app.get('/api/eodhd/crypto/intraday', async (req, res) => {
 
 // ---- EODHD: 日终历史数据 ----
 // 示例: GET /api/eodhd/eod?symbol=AAPL&from=2024-01-01&to=2024-12-31
+// 或者: GET /api/eodhd/eod?symbol=AAPL&period=3mo (最近3个月)
 app.get('/api/eodhd/eod', async (req, res) => {
   try {
     const symbolRaw = String(req.query.symbol || '').trim();
     const market = String(req.query.market || 'us').toLowerCase();
-    const from = req.query.from;
-    const to = req.query.to;
-    const period = req.query.period || 'd'; // d=daily, w=weekly, m=monthly
+    let from = req.query.from;
+    let to = req.query.to;
+    const period = req.query.period || ''; // 支持 3mo, 6mo, 1y 等
     
     if (!symbolRaw) {
       return res.status(400).json({ ok: false, error: 'symbol required' });
+    }
+    
+    // 根据 period 计算日期范围
+    if (period && !from) {
+      const now = new Date();
+      to = now.toISOString().split('T')[0];
+      const periodMatch = period.match(/^(\d+)(d|w|mo|m|y)$/i);
+      if (periodMatch) {
+        const num = parseInt(periodMatch[1]);
+        const unit = periodMatch[2].toLowerCase();
+        const fromDate = new Date(now);
+        if (unit === 'd') fromDate.setDate(fromDate.getDate() - num);
+        else if (unit === 'w') fromDate.setDate(fromDate.getDate() - num * 7);
+        else if (unit === 'mo' || unit === 'm') fromDate.setMonth(fromDate.getMonth() - num);
+        else if (unit === 'y') fromDate.setFullYear(fromDate.getFullYear() - num);
+        from = fromDate.toISOString().split('T')[0];
+      }
     }
     
     const formatSymbol = (sym) => {
@@ -5919,7 +6724,7 @@ app.get('/api/eodhd/eod', async (req, res) => {
     };
     
     const eodhdSymbol = formatSymbol(symbolRaw);
-    const params = { period };
+    const params = { period: 'd' }; // 日线数据
     if (from) params.from = from;
     if (to) params.to = to;
     

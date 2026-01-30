@@ -40,7 +40,7 @@ export default function Settings() {
   const [confirmPwd, setConfirmPwd] = useState("");
   const [pwdSaving, setPwdSaving] = useState(false);
 
-  // 交易密码（PIN）修改：通过登录密码校验
+  // 提现密码（PIN）修改：通过登录密码校验
   const [loginPwdForTrade, setLoginPwdForTrade] = useState("");
   const [newTradePwd, setNewTradePwd] = useState("");
   const [tradeSaving, setTradeSaving] = useState(false);
@@ -379,7 +379,7 @@ export default function Settings() {
         </div>
       )}
 
-      {/* 弹窗：交易密码 */}
+      {/* 弹窗：提现密码 */}
       {modal.type === 'tradePwd' && (
         <div className="modal">
           <div className="modal-card">

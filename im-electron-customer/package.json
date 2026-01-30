@@ -1,0 +1,35 @@
+{
+    "name": "gq-customer-desktop",
+    "version": "1.0.0",
+    "description": "GQ Trade 客户端",
+    "main": "main.js",
+    "author": "GQ Trade",
+    "scripts": {
+        "start": "electron .",
+        "pack": "electron-builder --dir",
+        "dist": "electron-builder -w"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.1"
+    },
+    "build": {
+        "appId": "com.gqtrade.customer",
+        "productName": "GQ Trade",
+        "mac": {
+            "target": null
+        },
+        "linux": {
+            "target": null
+        },
+        "win": {
+            "target": "nsis",
+            "icon": "icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true
+        }
+    }
+}

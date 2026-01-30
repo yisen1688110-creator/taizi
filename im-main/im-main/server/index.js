@@ -134,17 +134,25 @@ app.get('/api/csrf', (req, res) => {
 const PROD = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 const ADMIN_OTP_REQUIRED = String(process.env.ADMIN_OTP_REQUIRED || (PROD ? '1' : '0')).trim() === '1';
 
-const debugLogPath = '/app/data/debug.log';
+const debugLogPath = process.env.IM_DEBUG_LOG || '/tmp/im-debug.log';
 function logToFile(msg) {
   try {
     const ts = new Date().toISOString();
-    fs.appendFileSync(debugLogPath, `[${ts}] ${msg}\n`);
+    const line = `[${ts}] ${msg}\n`;
+    console.log(line.trim());  // 同时输出到控制台
+    fs.appendFileSync(debugLogPath, line);
   } catch (_) { }
 }
 
 const IM_TOKEN = process.env.IM_TOKEN ? String(process.env.IM_TOKEN) : ''
 const server = http.createServer(app)
-const io = new Server(server, { cors: { origin: allowAllCors ? '*' : allowOrigins, credentials: true } })
+const io = new Server(server, { 
+  cors: { origin: allowAllCors ? '*' : allowOrigins, credentials: true },
+  pingTimeout: 60000,      // 60秒无响应才断开
+  pingInterval: 25000,     // 每25秒发送心跳
+  transports: ['websocket', 'polling'],  // 优先使用 WebSocket
+  allowEIO3: true          // 兼容旧版本客户端
+})
 if (PROD && !IM_TOKEN) { try { console.error('[im-main] IM_TOKEN is required in production') } catch (_) { }; process.exit(1) }
 
 if (IM_TOKEN) {
@@ -216,6 +224,25 @@ if (IM_TOKEN) {
         return next()
       })
       return
+    } catch (_) { return next() }
+  })
+} else {
+  // 如果没有设置 IM_TOKEN，使用简单的 agent 识别逻辑
+  io.use((socket, next) => {
+    try {
+      const a = socket.handshake && socket.handshake.auth && socket.handshake.auth.token
+      const q = socket.handshake && socket.handshake.query && (socket.handshake.query.token || socket.handshake.query['x-im-token'])
+      const t = String(a || q || '').trim()
+      logToFile(`[socket middleware no-token] token=${t}`)
+      
+      // 在开发模式下，如果有任何 token，都认为是 agent
+      if (t) {
+        logToFile(`[socket middleware no-token] Setting role=agent for token=${t}`)
+        try { socket.data = { role: 'agent' } } catch (_) { }
+      } else {
+        try { socket.data = { role: 'customer' } } catch (_) { }
+      }
+      return next()
     } catch (_) { return next() }
   })
 }
@@ -716,6 +743,10 @@ io.on('connection', socket => {
         if (isCustomer && country) db.run('INSERT INTO users (phone, country) VALUES (?, ?) ON CONFLICT(phone) DO UPDATE SET country=excluded.country', [phone, country])
         const payload = { id: this.lastID, phone, sender: sender || 'customer', content, ts, type: type || null, reply_to: reply_to || null }
         io.to(phone).emit('message', payload)
+        // 获取 agents 房间的 socket 数量
+        const agentsRoom = io.sockets.adapter.rooms.get('agents')
+        const agentCount = agentsRoom ? agentsRoom.size : 0
+        logToFile(`[message] Emitting message_feed to ${agentCount} agents, sender=${sender}, phone=${phone}, content=${content?.substring(0,20)}`)
         io.to('agents').emit('message_feed', payload)
       })
     })

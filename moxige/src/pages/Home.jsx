@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import "../styles/market-tabs.css";
 import { useNavigate } from "react-router-dom";
 import BottomNav from "../components/BottomNav.jsx";
-import { IconLightning } from "../assets/icons.jsx";
 import { useI18n } from "../i18n.jsx";
 import { getQuotes, getCryptoQuotes, getCryptoSpark, getStockSpark, getUsdPlnRate } from "../services/marketData.js";
 import { formatMoney, formatPLN, formatUSDT } from "../utils/money.js";
@@ -120,7 +119,12 @@ export default function Home() {
   const [swapLoading, setSwapLoading] = useState(false);
   const [swapError, setSwapError] = useState("");
   const [swapSuccess, setSwapSuccess] = useState("");
-  const [swapRates, setSwapRates] = useState({ PLN_USD: 0.25, USD_PLN: 4.0, PLN_USDT: 0.25, USDT_PLN: 4.0, USD_USDT: 1.0, USDT_USD: 1.0 });
+  const [swapRates, setSwapRates] = useState({ 
+    PLN_USD: 0.25, USD_PLN: 4.0, PLN_USDT: 0.25, USDT_PLN: 4.0, 
+    USD_USDT: 1.0, USDT_USD: 1.0,
+    PLN_EUR: 0.23, EUR_PLN: 4.35, USD_EUR: 0.92, EUR_USD: 1.09,
+    EUR_USDT: 1.09, USDT_EUR: 0.92
+  });
   // 实时汇率缓存（用于 WebSocket 推送的价格换算）
   const [usdToPlnRate, setUsdToPlnRate] = useState(18.0);
   const binanceWsRef = useRef(null);
@@ -188,8 +192,24 @@ export default function Home() {
   const [balancePLN, setBalancePLN] = useState(0);
   const [balanceUSD, setBalanceUSD] = useState(0);
   const [balanceUSDT, setBalanceUSDT] = useState(0);
+  const [balanceEUR, setBalanceEUR] = useState(0);
   const balance = balancePLN || 0;
   const BALANCE_TEXT = formatPLN(balance, lang);
+
+  // 充值任务进度状态
+  const [rechargeTasks, setRechargeTasks] = useState([]);
+  const [rechargeTotal, setRechargeTotal] = useState(0);
+  const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [claimingTier, setClaimingTier] = useState(null);
+
+  // 信用金模态框状态
+  const [creditModal, setCreditModal] = useState(false);
+  const [creditScore, setCreditScore] = useState(100);
+  const [creditSubmitting, setCreditSubmitting] = useState(false);
+  const [creditForm, setCreditForm] = useState({ name: '', phone: '', address: '', zip: '', city: '', state: '', amount: '', periodValue: '', periodUnit: 'month', images: [] });
+  const [creditHistoryOpen, setCreditHistoryOpen] = useState(false);
+  const [creditHistory, setCreditHistory] = useState([]);
+  const creditFileInputRef = useRef(null);
 
   // 从后端获取余额；失败时保持为 0，避免使用本地镜像
   const fetchBalances = useCallback(async () => {
@@ -221,12 +241,55 @@ export default function Home() {
       setBalancePLN(Number.isFinite(map.PLN) ? map.PLN : 0);
       setBalanceUSD(Number.isFinite(map.USD) ? map.USD : 0);
       setBalanceUSDT(Number.isFinite(map.USDT) ? map.USDT : 0);
+      setBalanceEUR(Number.isFinite(map.EUR) ? map.EUR : 0);
     } catch (_) {
       setBalancePLN(0);
       setBalanceUSD(0);
       setBalanceUSDT(0);
+      setBalanceEUR(0);
     }
   }, [me, session]);
+
+  // 充值任务相关函数（必须在 fetchBalances 之后定义）
+  const fetchRechargeTasks = useCallback(async () => {
+    try {
+      const data = await api.get('/me/recharge-tasks');
+      if (data?.ok) {
+        setRechargeTasks(data.tasks || []);
+        setRechargeTotal(data.totalEur || 0);
+      }
+    } catch {}
+  }, []);
+  
+  const claimReward = useCallback(async (tier) => {
+    if (claimingTier) return;
+    setClaimingTier(tier);
+    try {
+      const res = await api.post('/me/recharge-tasks/claim', { tier });
+      if (res?.ok) {
+        alert(res.message || `成功领取奖励！`);
+        fetchRechargeTasks();
+        fetchBalances();
+      } else {
+        alert(res?.error || '领取失败');
+      }
+    } catch (e) {
+      alert(e?.message || '领取失败');
+    } finally {
+      setClaimingTier(null);
+    }
+  }, [claimingTier, fetchRechargeTasks, fetchBalances]);
+
+  // 获取信用积分
+  const fetchCreditScore = useCallback(async () => {
+    try {
+      const r = await api.get('/me/credit/score');
+      const s = Number(r?.score || r?.value || 100);
+      setCreditScore(Number.isFinite(s) ? s : 100);
+    } catch {
+      try { const v = Number(localStorage.getItem('credit:score') || 100); setCreditScore(Number.isFinite(v) ? v : 100); } catch { setCreditScore(100); }
+    }
+  }, []);
 
   // 获取闪兑汇率
   const fetchSwapRates = useCallback(async () => {
@@ -249,7 +312,7 @@ export default function Home() {
     }
     
     // 检查余额是否充足
-    const fromBalance = swapFrom === 'PLN' ? balancePLN : (swapFrom === 'USD' ? balanceUSD : balanceUSDT);
+    const fromBalance = swapFrom === 'PLN' ? balancePLN : (swapFrom === 'USD' ? balanceUSD : (swapFrom === 'EUR' ? balanceEUR : balanceUSDT));
     if (amount > fromBalance) {
       setSwapError(t('insufficientBalance') || 'Insufficient balance');
       return;
@@ -283,7 +346,7 @@ export default function Home() {
     } finally {
       setSwapLoading(false);
     }
-  }, [swapFrom, swapTo, swapAmount, balancePLN, balanceUSD, balanceUSDT, fetchBalances, t]);
+  }, [swapFrom, swapTo, swapAmount, balancePLN, balanceUSD, balanceUSDT, balanceEUR, fetchBalances, t]);
 
   // 计算预估接收金额
   const estimatedReceive = useMemo(() => {
@@ -304,8 +367,8 @@ export default function Home() {
   }, [swapFrom, swapTo]);
 
   // 当登录用户变化或页面首次进入时拉取余额和汇率
-  useEffect(() => { fetchBalances(); fetchSwapRates();
-    const onHoldChanged = () => { fetchBalances(); };
+  useEffect(() => { fetchBalances(); fetchSwapRates(); fetchRechargeTasks(); fetchCreditScore();
+    const onHoldChanged = () => { fetchBalances(); fetchRechargeTasks(); };
     try { window.addEventListener('withdraw_hold_changed', onHoldChanged); } catch {}
     try { window.addEventListener('credit_debt_changed', onHoldChanged); } catch {}
     const onStorage = (e) => { try { const k = String(e?.key||''); if (!k) { fetchBalances(); return; } if (k.startsWith('withdraw:holds') || k === 'credit:debts') fetchBalances(); } catch {} };
@@ -1111,22 +1174,27 @@ export default function Home() {
               </div>
               <div className="user-name" style={{ fontSize: 14, color: '#e6f1ff' }}>{displayName}</div>
             </div>
-            {/* 多币种余额显示 */}
-            <div className="wallet-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 12 }}>
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px' }}>
-                <div className="label" style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>🇵🇱 PLN</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#e6f1ff' }}>{formatPLN(balancePLN, lang)}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forPLStocks') || 'PL Stocks'}</div>
+            {/* 多币种余额显示 - 2x2 布局适配小屏幕 */}
+            <div className="wallet-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 12 }}>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 10px' }}>
+                <div className="label" style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>🇵🇱 PLN</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e6f1ff' }}>{formatPLN(balancePLN, lang)}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forPLStocks') || 'PL Stocks'}</div>
               </div>
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px' }}>
-                <div className="label" style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>🇺🇸 USD</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#e6f1ff' }}>{formatMoney(balanceUSD, 'USD', lang)}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forUSStocks') || 'US Stocks'}</div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 10px' }}>
+                <div className="label" style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>🇺🇸 USD</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e6f1ff' }}>{formatMoney(balanceUSD, 'USD', lang)}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forUSStocks') || 'US Stocks'}</div>
               </div>
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px' }}>
-                <div className="label" style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>₮ USDT</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#e6f1ff' }}>{formatUSDT(balanceUSDT, lang)}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forCrypto') || 'Crypto'}</div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 10px' }}>
+                <div className="label" style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>🇪🇺 EUR</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e6f1ff' }}>€{balanceEUR.toFixed(2)}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-secondary)', marginTop: 2 }}>{lang === 'zh' ? '欧元' : 'Euro'}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '8px 10px' }}>
+                <div className="label" style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>₮ USDT</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#e6f1ff' }}>{formatUSDT(balanceUSDT, lang)}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-secondary)', marginTop: 2 }}>{t('forCrypto') || 'Crypto'}</div>
               </div>
             </div>
           </div>
@@ -1139,9 +1207,207 @@ export default function Home() {
             {t("recharge")}
           </button>
           <button className="btn" style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none' }} onClick={() => setSwapModalOpen(true)}>
-            <IconLightning style={{ width: 16, height: 16, marginRight: 6 }} />
             {t("flashSwap") || "Flash Swap"}
           </button>
+        </div>
+        
+        {/* 功能入口：基金、日内交易、IPO/RWA、信用金 */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(4, 1fr)', 
+          gap: 12, 
+          marginTop: 16,
+          padding: '12px 0'
+        }}>
+          <div 
+            onClick={() => navigate('/institution/funds')}
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: 6, 
+              cursor: 'pointer',
+              padding: '10px 4px',
+              borderRadius: 12,
+              transition: 'background 0.2s',
+            }}
+          >
+            <div style={{ 
+              width: 44, 
+              height: 44, 
+              borderRadius: '50%', 
+              background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: 20
+            }}>💼</div>
+            <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>
+              {lang === 'zh' ? '基金' : (lang === 'pl' ? 'Funds' : 'Funds')}
+            </span>
+          </div>
+          <div 
+            onClick={() => navigate('/institution/blocks')}
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: 6, 
+              cursor: 'pointer',
+              padding: '10px 4px',
+              borderRadius: 12,
+              transition: 'background 0.2s',
+            }}
+          >
+            <div style={{ 
+              width: 44, 
+              height: 44, 
+              borderRadius: '50%', 
+              background: 'linear-gradient(135deg, #f59e0b, #d97706)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: 20
+            }}>📦</div>
+            <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>
+              {lang === 'zh' ? '日内交易' : (lang === 'pl' ? 'Day Trade' : 'Day Trade')}
+            </span>
+          </div>
+          <div 
+            onClick={() => navigate('/institution/dividend')}
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: 6, 
+              cursor: 'pointer',
+              padding: '10px 4px',
+              borderRadius: 12,
+              transition: 'background 0.2s',
+            }}
+          >
+            <div style={{ 
+              width: 44, 
+              height: 44, 
+              borderRadius: '50%', 
+              background: 'linear-gradient(135deg, #ec4899, #db2777)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: 20
+            }}>🎁</div>
+            <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>
+              {lang === 'zh' ? '红利股' : (lang === 'pl' ? 'Dividend' : 'Dividend')}
+            </span>
+          </div>
+          <div 
+            onClick={() => navigate('/institution/ipo-rwa')}
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: 6, 
+              cursor: 'pointer',
+              padding: '10px 4px',
+              borderRadius: 12,
+              transition: 'background 0.2s',
+            }}
+          >
+            <div style={{ 
+              width: 44, 
+              height: 44, 
+              borderRadius: '50%', 
+              background: 'linear-gradient(135deg, #10b981, #059669)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: 20
+            }}>🏛️</div>
+            <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>
+              {lang === 'zh' ? 'IPO/RWA' : 'IPO/RWA'}
+            </span>
+          </div>
+          <div 
+            onClick={() => setCreditModal(true)}
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center', 
+              gap: 6, 
+              cursor: 'pointer',
+              padding: '10px 4px',
+              borderRadius: 12,
+              transition: 'background 0.2s',
+            }}
+          >
+            <div style={{ 
+              width: 44, 
+              height: 44, 
+              borderRadius: '50%', 
+              background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              fontSize: 20
+            }}>💳</div>
+            <span style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500 }}>
+              {lang === 'zh' ? '信用金' : (lang === 'pl' ? 'Credit' : 'Credit')}
+            </span>
+          </div>
+        </div>
+
+        {/* 充值任务进度条 */}
+        <div 
+          onClick={() => setTaskModalOpen(true)}
+          style={{
+            background: 'linear-gradient(135deg, rgba(245,158,11,0.15), rgba(234,88,12,0.1))',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 12,
+            padding: '12px 16px',
+            marginTop: 16,
+            cursor: 'pointer',
+            transition: 'transform 0.2s, box-shadow 0.2s',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18 }}>🎁</span>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#f59e0b' }}>
+                {lang === 'zh' ? '贡献累计奖励' : (lang === 'pl' ? 'Nagroda za wkład' : 'Contribution Bonus')}
+              </span>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              €{rechargeTotal.toLocaleString()} {lang === 'zh' ? '已贡献' : 'contributed'}
+            </span>
+          </div>
+          {/* 简化进度条 - 显示当前进度 */}
+          {(() => {
+            const nextTask = rechargeTasks.find(t => !t.completed) || rechargeTasks[rechargeTasks.length - 1];
+            const completedCount = rechargeTasks.filter(t => t.completed).length;
+            const claimedCount = rechargeTasks.filter(t => t.claimed).length;
+            const canClaim = rechargeTasks.some(t => t.completed && !t.claimed);
+            return (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {lang === 'zh' ? `下一目标: €${(nextTask?.threshold || 100000).toLocaleString()}` : `Next: €${(nextTask?.threshold || 100000).toLocaleString()}`}
+                  </span>
+                  <span style={{ fontSize: 11, color: canClaim ? '#22c55e' : 'var(--text-secondary)' }}>
+                    {canClaim ? (lang === 'zh' ? '🔔 有奖励可领取' : '🔔 Claim available') : `${claimedCount}/${rechargeTasks.length}`}
+                  </span>
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${nextTask?.progress || 0}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #f59e0b, #ea580c)',
+                    borderRadius: 4,
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -1414,7 +1680,6 @@ export default function Home() {
           <div className="modal-card" style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#e6f1ff' }}>
-                <IconLightning style={{ width: 20, height: 20, marginRight: 8, verticalAlign: 'middle' }} />
                 {t('flashSwap') || 'Flash Swap'}
               </h2>
               <button onClick={() => { setSwapModalOpen(false); setSwapError(""); setSwapSuccess(""); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>×</button>
@@ -1431,6 +1696,7 @@ export default function Home() {
                 >
                   <option value="PLN" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇵🇱 PLN</option>
                   <option value="USD" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇺🇸 USD</option>
+                  <option value="EUR" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇪🇺 EUR</option>
                   <option value="USDT" style={{ background: '#1e293b', color: '#e6f1ff' }}>₮ USDT</option>
                 </select>
                 <input 
@@ -1442,7 +1708,7 @@ export default function Home() {
                 />
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                {t('available') || 'Available'}: {swapFrom === 'PLN' ? formatPLN(balancePLN, lang) : (swapFrom === 'USD' ? formatMoney(balanceUSD, 'USD', lang) : formatUSDT(balanceUSDT, lang))}
+                {t('available') || 'Available'}: {swapFrom === 'PLN' ? formatPLN(balancePLN, lang) : (swapFrom === 'USD' ? formatMoney(balanceUSD, 'USD', lang) : (swapFrom === 'EUR' ? `€${balanceEUR.toFixed(2)}` : formatUSDT(balanceUSDT, lang)))}
               </div>
             </div>
             
@@ -1467,6 +1733,7 @@ export default function Home() {
                 >
                   <option value="PLN" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇵🇱 PLN</option>
                   <option value="USD" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇺🇸 USD</option>
+                  <option value="EUR" style={{ background: '#1e293b', color: '#e6f1ff' }}>🇪🇺 EUR</option>
                   <option value="USDT" style={{ background: '#1e293b', color: '#e6f1ff' }}>₮ USDT</option>
                 </select>
                 <div style={{ flex: 1, padding: '12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)', color: '#5cff9b', fontSize: 16, fontWeight: 600 }}>
@@ -1518,6 +1785,220 @@ export default function Home() {
             {/* 说明 */}
             <div style={{ marginTop: 12, fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>
               {t('swapNote') || 'Swap instantly between currencies for trading different markets'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 充值任务模态框 */}
+      {taskModalOpen && (
+        <div className="modal" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="modal-card" style={{ background: 'var(--card-bg)', borderRadius: 16, padding: 24, width: '90%', maxWidth: 420, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#e6f1ff' }}>
+                <span style={{ marginRight: 8 }}>🎁</span>
+                {lang === 'zh' ? '贡献累计奖励' : (lang === 'pl' ? 'Nagroda za wkład' : 'Contribution Bonus')}
+              </h2>
+              <button onClick={() => setTaskModalOpen(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            
+            {/* 当前充值总额 */}
+            <div style={{ background: 'linear-gradient(135deg, rgba(245,158,11,0.2), rgba(234,88,12,0.15))', borderRadius: 12, padding: 16, marginBottom: 20, textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                {lang === 'zh' ? '累计贡献欧元' : (lang === 'pl' ? 'Łączny wkład EUR' : 'Total EUR Contributed')}
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#f59e0b' }}>
+                €{rechargeTotal.toLocaleString()}
+              </div>
+            </div>
+            
+            {/* 任务列表 */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {rechargeTasks.map((task) => (
+                <div 
+                  key={task.tier}
+                  style={{
+                    background: task.claimed ? 'rgba(34,197,94,0.1)' : (task.completed ? 'rgba(245,158,11,0.1)' : 'rgba(255,255,255,0.05)'),
+                    border: `1px solid ${task.claimed ? 'rgba(34,197,94,0.3)' : (task.completed ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.1)')}`,
+                    borderRadius: 12,
+                    padding: 14,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#e6f1ff' }}>
+                        {lang === 'zh' ? `贡献 €${task.threshold.toLocaleString()}` : `Contribute €${task.threshold.toLocaleString()}`}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>
+                        🏆 {lang === 'zh' ? `奖励 ${task.reward} PLN` : `Reward ${task.reward} PLN`}
+                      </div>
+                    </div>
+                    {task.claimed ? (
+                      <span style={{ 
+                        background: 'rgba(34,197,94,0.2)', 
+                        color: '#22c55e', 
+                        padding: '6px 12px', 
+                        borderRadius: 20, 
+                        fontSize: 12, 
+                        fontWeight: 500 
+                      }}>
+                        {lang === 'zh' ? '已领取' : 'Claimed'} ✓
+                      </span>
+                    ) : task.completed ? (
+                      <button
+                        onClick={() => claimReward(task.tier)}
+                        disabled={claimingTier === task.tier}
+                        style={{
+                          background: 'linear-gradient(135deg, #f59e0b, #ea580c)',
+                          color: '#fff',
+                          border: 'none',
+                          padding: '8px 16px',
+                          borderRadius: 20,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: claimingTier === task.tier ? 'not-allowed' : 'pointer',
+                          opacity: claimingTier === task.tier ? 0.7 : 1,
+                        }}
+                      >
+                        {claimingTier === task.tier ? '...' : (lang === 'zh' ? '领取' : 'Claim')}
+                      </button>
+                    ) : (
+                      <span style={{ 
+                        background: 'rgba(255,255,255,0.1)', 
+                        color: 'var(--text-secondary)', 
+                        padding: '6px 12px', 
+                        borderRadius: 20, 
+                        fontSize: 12 
+                      }}>
+                        {task.progress.toFixed(0)}%
+                      </span>
+                    )}
+                  </div>
+                  {/* 进度条 */}
+                  {!task.claimed && (
+                    <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+                      <div style={{
+                        width: `${task.progress}%`,
+                        height: '100%',
+                        background: task.completed ? 'linear-gradient(90deg, #22c55e, #16a34a)' : 'linear-gradient(90deg, #f59e0b, #ea580c)',
+                        borderRadius: 4,
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            {/* 说明 */}
+            <div style={{ marginTop: 16, padding: 12, background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                {lang === 'zh' 
+                  ? '💡 提示：充值欧元达到相应档位后，可领取对应的兹罗提(PLN)奖励。每个档位奖励仅可领取一次。'
+                  : (lang === 'pl' 
+                    ? '💡 Wskazówka: Po osiągnięciu odpowiedniego progu doładowania EUR, możesz odebrać nagrodę w PLN. Każda nagroda może być odebrana tylko raz.'
+                    : '💡 Tip: After reaching each EUR deposit threshold, you can claim the corresponding PLN reward. Each tier reward can only be claimed once.'
+                  )
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 信用金申请模态框 */}
+      {creditModal && (
+        <div className="modal" role="dialog" aria-modal="true" onClick={() => setCreditModal(false)}>
+          <div className="modal-card" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'zh' ? '信用贷款申请' : (lang === 'pl' ? 'Wniosek kredytowy' : 'Credit Application')}</h2>
+            <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? `你当前的信用积分为：${creditScore}` : (lang === 'pl' ? `Twój wynik kredytowy: ${creditScore}` : `Your credit score: ${creditScore}`)}</div>
+            <div style={{ position: 'absolute', right: 12, top: 12 }}>
+              <button className="pill" onClick={async () => { try { const r = await api.get('/me/credit/apps'); const arr = Array.isArray(r?.items) ? r.items : (Array.isArray(r) ? r : []); const list = arr.length ? arr : JSON.parse(localStorage.getItem('credit:apps') || '[]'); setCreditHistory(Array.isArray(list) ? list : []); } catch { try { const list = JSON.parse(localStorage.getItem('credit:apps') || '[]'); setCreditHistory(Array.isArray(list) ? list : []); } catch { setCreditHistory([]); } } setCreditHistoryOpen(true); }}>
+                {lang === 'zh' ? '申请记录' : (lang === 'pl' ? 'Historia' : 'Records')}
+              </button>
+            </div>
+            <div className="form" style={{ marginTop: 10 }}>
+              <label className="label">{lang === 'zh' ? '居住地址' : (lang === 'pl' ? 'Adres zamieszkania' : 'Residential Address')}</label>
+              <input className="input" value={creditForm.name} onChange={e => setCreditForm(p => ({ ...p, name: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '户籍登记地址' : (lang === 'pl' ? 'Adres zameldowania' : 'Registered Address')}</label>
+              <input className="input" value={creditForm.phone} onChange={e => setCreditForm(p => ({ ...p, phone: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '街道' : (lang === 'pl' ? 'Ulica' : 'Street')}</label>
+              <input className="input" value={creditForm.address} onChange={e => setCreditForm(p => ({ ...p, address: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '门牌号' : (lang === 'pl' ? 'Numer domu' : 'House No.')}</label>
+              <input className="input" value={creditForm.zip} onChange={e => setCreditForm(p => ({ ...p, zip: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '房号' : (lang === 'pl' ? 'Numer mieszkania' : 'Apartment No.')}</label>
+              <input className="input" value={creditForm.city} onChange={e => setCreditForm(p => ({ ...p, city: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '邮编' : (lang === 'pl' ? 'Kod pocztowy' : 'ZIP Code')}</label>
+              <input className="input" value={creditForm.state} onChange={e => setCreditForm(p => ({ ...p, state: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '城市' : (lang === 'pl' ? 'Miasto' : 'City')}</label>
+              <input className="input" value={creditForm.extra1 || ''} onChange={e => setCreditForm(p => ({ ...p, extra1: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '借款金额（欧元）' : (lang === 'pl' ? 'Kwota (EUR)' : 'Amount (EUR)')}</label>
+              <input className="input" type="number" value={creditForm.amount} onChange={e => setCreditForm(p => ({ ...p, amount: e.target.value }))} />
+              <label className="label">{lang === 'zh' ? '借款周期（天）' : (lang === 'pl' ? 'Okres (dni)' : 'Period (days)')}</label>
+              <input className="input" type="number" min={1} step={1} placeholder={lang === 'zh' ? '天数' : (lang === 'pl' ? 'Dni' : 'Days')} value={creditForm.periodValue} onChange={e => setCreditForm(p => ({ ...p, periodValue: e.target.value, periodUnit: 'day' }))} onBlur={e => { const v = Math.max(1, Number(e.target.value || 1)); setCreditForm(p => ({ ...p, periodValue: String(v), periodUnit: 'day' })); }} />
+              <div className="desc" style={{ marginTop: 8 }}>{lang === 'zh' ? '可以提供你的资产证明，有助于提升你的实际审批金额' : (lang === 'pl' ? 'Podaj dowód aktywów, aby poprawić zatwierdzenie' : 'Provide asset proof to improve approval')}</div>
+              <input ref={creditFileInputRef} style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} type="file" accept="image/*" multiple onChange={async (e) => {
+                try {
+                  const files = Array.from(e.target.files || []);
+                  const encoded = await Promise.all(files.map(f => new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve({ name: f.name, data: String(r.result) }); r.readAsDataURL(f); })));
+                  setCreditForm(p => ({ ...p, images: [...(Array.isArray(p.images) ? p.images : []), ...encoded].slice(0, 5) }));
+                } catch { }
+                try { e.target.value = ''; } catch { }
+              }} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginTop: 8 }}>
+                {Array.isArray(creditForm.images) && creditForm.images.map((im, idx) => (
+                  <div key={`im-${idx}`} style={{ position: 'relative', height: 80, border: '1px dashed var(--card-border)', borderRadius: 8, overflow: 'hidden', background: 'var(--card-bg)' }}>
+                    <img src={im.data || im} alt={im.name || `img-${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onClick={() => { const w = window.open('', '_blank', 'noopener'); if (w) { w.document.write(`<img src='${im.data || im}' style='max-width:100%' />`); } }} />
+                    <button className="pill" style={{ position: 'absolute', top: 4, right: 4 }} onClick={() => { setCreditForm(p => ({ ...p, images: p.images.filter((_, i) => i !== idx) })); }}>×</button>
+                  </div>
+                ))}
+                {Array.isArray(creditForm.images) && creditForm.images.length < 5 && (
+                  <div onClick={() => creditFileInputRef.current?.click?.()} style={{ display: 'grid', placeItems: 'center', height: 80, border: '1px dashed var(--card-border)', borderRadius: 8, cursor: 'pointer', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 24, lineHeight: 1 }}>+
+                  </div>
+                )}
+              </div>
+              <div className="desc" style={{ marginTop: 6 }}>{lang === 'zh' ? '最多5张' : (lang === 'pl' ? 'Do 5 zdjęć' : 'Up to 5 images')}</div>
+              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+                <button className="btn" onClick={() => setCreditModal(false)}>{lang === 'zh' ? '取消' : (lang === 'pl' ? 'Anuluj' : 'Cancel')}</button>
+                <button className="btn primary" disabled={creditSubmitting} onClick={async () => {
+                  try {
+                    setCreditSubmitting(true);
+                    const payload = { score: creditScore, ...creditForm };
+                    await api.post('/me/credit/apply', payload);
+                    setCreditModal(false);
+                    setCreditForm({ name: '', phone: '', address: '', zip: '', city: '', state: '', amount: '', periodValue: '', periodUnit: 'month', images: [] });
+                    alert(lang === 'zh' ? '提交成功，请等待审核' : (lang === 'pl' ? 'Przesłano, oczekuj na zatwierdzenie' : 'Submitted, wait for approval'));
+                  } catch (e) {
+                    const msg = String(e?.message || e);
+                    alert((lang === 'zh' ? '提交失败: ' : (lang === 'pl' ? 'Nie powiodło się: ' : 'Failed: ')) + msg);
+                  } finally {
+                    setCreditSubmitting(false);
+                  }
+                }}>{creditSubmitting ? (lang === 'zh' ? '提交中...' : (lang === 'pl' ? 'Przesyłanie...' : 'Submitting...')) : (lang === 'zh' ? '提交' : (lang === 'pl' ? 'Prześlij' : 'Submit'))}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 信用金申请记录模态框 */}
+      {creditHistoryOpen && (
+        <div className="modal" role="dialog" aria-modal="true" onClick={() => setCreditHistoryOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: 680 }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'zh' ? '申请记录' : (lang === 'pl' ? 'Historia kredytowa' : 'Credit records')}</h2>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {(creditHistory || []).map((it) => (
+                <div key={it.id} className="card flat" style={{ padding: '8px 10px' }}>
+                  <div className="desc">{lang === 'zh' ? '姓名' : (lang === 'pl' ? 'Imię' : 'Name')}: {it.name}</div>
+                  <div className="desc">{lang === 'zh' ? '金额' : (lang === 'pl' ? 'Kwota' : 'Amount')}: {Number(it.amount || 0)}</div>
+                  <div className="desc">{lang === 'zh' ? '状态' : (lang === 'pl' ? 'Status' : 'Status')}: {String(it.status || 'pending')}</div>
+                  <div className="desc">{lang === 'zh' ? '时间' : (lang === 'pl' ? 'Czas' : 'Time')}: {new Date(it.ts || Date.now()).toLocaleString(lang === 'pl' ? 'pl-PL' : (lang === 'zh' ? 'zh-CN' : 'en-US'))}</div>
+                </div>
+              ))}
+              {(creditHistory || []).length === 0 && (<div className="desc">{lang === 'zh' ? '暂无记录' : (lang === 'pl' ? 'Brak rekordów' : 'No records')}</div>)}
+            </div>
+            <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+              <button className="btn" onClick={() => setCreditHistoryOpen(false)}>{lang === 'zh' ? '关闭' : (lang === 'pl' ? 'Zamknij' : 'Close')}</button>
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useI18n } from "../i18n.jsx";
-import { registerPhone } from "../services/auth.js";
+import { registerPhone, sendEmailCode } from "../services/auth.js";
 import AuthShell, { authInputStyles as S } from "../components/auth/AuthShell.jsx";
 
 export default function Register() {
@@ -11,11 +11,23 @@ export default function Register() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [emailCode, setEmailCode] = useState("");
+  const [countdown, setCountdown] = useState(0);
+  const [sendingCode, setSendingCode] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState(null);
   const [toast, setToast] = useState({ show: false, type: 'ok', text: '' });
   const navigate = useNavigate();
+
+  // 倒计时
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
 
   // 多语言文本
   const texts = {
@@ -31,13 +43,63 @@ export default function Register() {
     inviteCode: lang === "zh" ? "邀请码" : lang === "en" ? "Invite Code" : "Kod zaproszenia",
     inviteCodePlaceholder: lang === "zh" ? "请输入邀请码" : lang === "en" ? "Enter invite code" : "Wprowadź kod zaproszenia",
     inviteCodeRequired: lang === "zh" ? "请输入邀请码" : lang === "en" ? "Invite code is required" : "Kod zaproszenia jest wymagany",
+    email: lang === "zh" ? "邮箱" : lang === "en" ? "Email" : "E-mail",
+    emailPlaceholder: lang === "zh" ? "请输入邮箱地址" : lang === "en" ? "Enter your email" : "Wpisz swój e-mail",
+    emailCode: lang === "zh" ? "验证码" : lang === "en" ? "Verification Code" : "Kod weryfikacyjny",
+    emailCodePlaceholder: lang === "zh" ? "请输入验证码" : lang === "en" ? "Enter verification code" : "Wpisz kod",
+    sendCode: lang === "zh" ? "发送验证码" : lang === "en" ? "Send Code" : "Wyślij kod",
+    resend: lang === "zh" ? "重新发送" : lang === "en" ? "Resend" : "Wyślij ponownie",
+    codeSent: lang === "zh" ? "验证码已发送" : lang === "en" ? "Code sent" : "Kod wysłany",
+    invalidEmail: lang === "zh" ? "请输入有效的邮箱地址" : lang === "en" ? "Please enter a valid email" : "Wprowadź prawidłowy e-mail",
+    emailRequired: lang === "zh" ? "请输入邮箱" : lang === "en" ? "Email is required" : "E-mail jest wymagany",
+    codeRequired: lang === "zh" ? "请输入验证码" : lang === "en" ? "Verification code is required" : "Kod weryfikacyjny jest wymagany",
+    emailExists: lang === "zh" ? "该邮箱已被注册" : lang === "en" ? "Email already exists" : "E-mail już istnieje",
+    invalidCode: lang === "zh" ? "验证码错误" : lang === "en" ? "Invalid verification code" : "Nieprawidłowy kod",
+    codeExpired: lang === "zh" ? "验证码已过期" : lang === "en" ? "Code expired" : "Kod wygasł",
+  };
+
+  // 发送验证码
+  const handleSendCode = async () => {
+    setError("");
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError(texts.invalidEmail);
+      return;
+    }
+    setSendingCode(true);
+    try {
+      await sendEmailCode(email);
+      setCountdown(60);
+      setToast({ show: true, type: 'ok', text: texts.codeSent });
+      setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 2000);
+    } catch (err) {
+      const errMsg = err?.message || '';
+      if (errMsg.includes('email_exists')) {
+        setError(texts.emailExists);
+      } else if (errMsg.includes('too_frequent')) {
+        setError(lang === "zh" ? "发送太频繁，请稍后再试" : "Too frequent, please try later");
+      } else {
+        setError(lang === "zh" ? "发送失败，请重试" : "Failed to send, please retry");
+      }
+    } finally {
+      setSendingCode(false);
+    }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (!/^\d{10}$/.test(phone)) { setError(t("errorPhone")); return; }
+    // 验证邮箱和验证码
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { 
+      setError(texts.invalidEmail); 
+      return; 
+    }
+    if (!emailCode.trim()) { 
+      setError(texts.codeRequired); 
+      return; 
+    }
+    
+    if (!/^\d{9}$/.test(phone)) { setError(t("errorPhone")); return; }
     if (!name.trim()) { setError(t("placeholderName")); return; }
     if (!password || password.length < 6) { setError(t("errorPassword")); return; }
     if (password !== confirm) { setError(t("errorConfirmMismatch")); return; }
@@ -45,9 +107,25 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await registerPhone({ phone, password, name, inviteCode: inviteCode.trim() || undefined });
+      await registerPhone({ 
+        phone, 
+        password, 
+        name, 
+        inviteCode: inviteCode.trim() || undefined,
+        email: email.trim(),
+        emailCode: emailCode.trim()
+      });
     } catch (err) {
-      setError(String(err?.message || t("errorRegistered")));
+      const errMsg = String(err?.message || '');
+      if (errMsg.includes('invalid_code') || errMsg.includes('code_not_found')) {
+        setError(texts.invalidCode);
+      } else if (errMsg.includes('code_expired')) {
+        setError(texts.codeExpired);
+      } else if (errMsg.includes('email_exists')) {
+        setError(texts.emailExists);
+      } else {
+        setError(errMsg || t("errorRegistered"));
+      }
       setLoading(false);
       return;
     }
@@ -80,6 +158,56 @@ export default function Register() {
       )}
 
       <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column" }}>
+        {/* 邮箱 */}
+        <div style={S.inputGroup}>
+          <label style={S.label}>{texts.email} <span style={{ color: '#ef4444' }}>*</span></label>
+          <input
+            type="email"
+            style={getInputStyle("email")}
+            placeholder={texts.emailPlaceholder}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            onFocus={() => setFocusedField("email")}
+            onBlur={() => setFocusedField(null)}
+          />
+        </div>
+
+        {/* 验证码 */}
+        <div style={S.inputGroup}>
+          <label style={S.label}>{texts.emailCode} <span style={{ color: '#ef4444' }}>*</span></label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="text"
+              inputMode="numeric"
+              style={{ ...getInputStyle("emailCode"), flex: 1 }}
+              placeholder={texts.emailCodePlaceholder}
+              value={emailCode}
+              onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              onFocus={() => setFocusedField("emailCode")}
+              onBlur={() => setFocusedField(null)}
+            />
+            <button
+              type="button"
+              disabled={countdown > 0 || sendingCode}
+              onClick={handleSendCode}
+              style={{
+                padding: "0 16px",
+                borderRadius: 8,
+                border: "none",
+                background: countdown > 0 ? "rgba(100,116,139,0.3)" : "linear-gradient(135deg, #3b82f6, #2563eb)",
+                color: "#fff",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: countdown > 0 || sendingCode ? "not-allowed" : "pointer",
+                whiteSpace: "nowrap",
+                minWidth: 100,
+              }}
+            >
+              {sendingCode ? "..." : countdown > 0 ? `${countdown}s` : texts.sendCode}
+            </button>
+          </div>
+        </div>
+
         {/* 手机号 */}
         <div style={S.inputGroup}>
           <label style={S.label}>{t("phone")}</label>
@@ -92,7 +220,7 @@ export default function Register() {
             value={phone}
             onChange={(e) => {
               const v = e.target.value.replace(/\D/g, "");
-              setPhone(v.slice(0, 11));
+              setPhone(v.slice(0, 9));
             }}
             onFocus={() => setFocusedField("phone")}
             onBlur={() => setFocusedField(null)}

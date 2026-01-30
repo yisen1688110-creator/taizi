@@ -5,6 +5,7 @@ import { useI18n } from "../i18n.jsx";
 import { api } from "../services/api.js";
 import "../styles/profile.css";
 import { formatMoney, formatPLN, formatUSDT } from "../utils/money.js";
+import { loginPhone } from "../services/auth.js";
 
 function readSession() {
   try { return JSON.parse(localStorage.getItem("sessionUser") || "null"); } catch { return null; }
@@ -28,14 +29,44 @@ const validators = {
   imageSize: (file) => (file?.size || 0) <= 2 * 1024 * 1024,
 };
 
+function saveUsers(list) {
+  try { localStorage.setItem("users", JSON.stringify(list)); } catch { }
+}
+
 export default function Profile() {
   const nav = useNavigate();
-  const { lang, t } = useI18n();
+  const { lang, setLang, t } = useI18n();
   const [session, setSession] = useState(() => readSession());
   const [users, setUsers] = useState(() => readUsers());
   const [, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // 设置相关状态
+  const [modal, setModal] = useState({ type: null });
+  const [name, setName] = useState("");
+  const [oldPwd, setOldPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [loginPwdForTrade, setLoginPwdForTrade] = useState("");
+  const [newTradePwd, setNewTradePwd] = useState("");
+  const [tradeSaving, setTradeSaving] = useState(false);
+  const [toast, setToast] = useState({ show: false, type: "info", text: "" });
+  const [kycStatus, setKycStatus] = useState(() => { try { return localStorage.getItem('kyc:status') || 'unverified'; } catch { return 'unverified'; } });
+  
+  // KYC 相关状态
+  const [kycName, setKycName] = useState("");
+  const [kycDocType, setKycDocType] = useState('passport');
+  const [kycDocNo, setKycDocNo] = useState('');
+  const [kycImages, setKycImages] = useState([]);
+  const [kycSubmitting, setKycSubmitting] = useState(false);
+  const kycFileRefs = [useRef(null), useRef(null)];
+  
+  const showToast = (text, type = "info") => {
+    setToast({ show: true, type, text });
+    setTimeout(() => setToast({ show: false, type, text: "" }), 1500);
+  };
 
   useEffect(() => {
     const updateUnread = () => {
@@ -49,9 +80,37 @@ export default function Profile() {
     window.addEventListener('storage', (e) => { if (e.key === 'im:unread_count') updateUnread(); });
     return () => {
       window.removeEventListener('im:unread', updateUnread);
-      window.removeEventListener('storage', updateUnread); // Note: storage event listener needs exact function reference or careful handling, simplified here
+      window.removeEventListener('storage', updateUnread);
     };
   }, []);
+
+  // 获取 KYC 状态
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.get('/me/kyc/status');
+        let s = String((data?.status || '')).toLowerCase();
+        if (!s) s = 'none';
+        if (s === 'none') s = 'unverified';
+        setKycStatus(s);
+        try { localStorage.setItem('kyc:status', s); } catch { }
+      } catch { }
+    })();
+  }, []);
+
+  // 若存在会话但缺少后端令牌，自动用本地凭据静默获取令牌
+  useEffect(() => {
+    const hasSession = !!session?.phone;
+    const hasToken = !!localStorage.getItem('token');
+    if (hasSession && !hasToken) {
+      try {
+        const mirror = readUsers().find(u => u.phone === session.phone);
+        if (mirror?.password && /^\d{10}$/.test(String(session.phone))) {
+          loginPhone({ phone: session.phone, password: mirror.password }).catch(() => { });
+        }
+      } catch { }
+    }
+  }, [session]);
 
   // 用户信息
   const user = useMemo(() => {
@@ -74,8 +133,8 @@ export default function Profile() {
   const [avatarUrl, setAvatarUrl] = useState(() => normalizeAvatar(session?.avatar || session?.avatarUrl || (user?.avatar || user?.avatarUrl) || (JSON.parse(localStorage.getItem('avatarUrl') || 'null') || '')));
   const fileInputRef = useRef(null);
 
-  // 资金（PLN / USD / USDT），从后端余额接口匹配真实数据（与 Home/Swap 同源逻辑）
-  const [funds, setFunds] = useState({ pln: 0, usd: 0, usdt: 0 });
+  // 资金（PLN / USD / EUR / USDT），从后端余额接口匹配真实数据（与 Home/Swap 同源逻辑）
+  const [funds, setFunds] = useState({ pln: 0, usd: 0, eur: 0, usdt: 0 });
   const [selectedCurrency, setSelectedCurrency] = useState('PLN'); // 当前选择的货币
   const [currencyDropdownOpen, setCurrencyDropdownOpen] = useState(false);
   useEffect(() => {
@@ -110,18 +169,20 @@ export default function Profile() {
           setFunds({
             pln: (Number.isFinite(map.PLN) ? map.PLN : 0) - sumHold('PLN'),
             usd: (Number.isFinite(map.USD) ? map.USD : 0),
+            eur: (Number.isFinite(map.EUR) ? map.EUR : 0),
             usdt: (Number.isFinite(map.USDT) ? map.USDT : 0),
           });
         } catch {
           setFunds({
             pln: Number.isFinite(map.PLN) ? map.PLN : 0,
             usd: Number.isFinite(map.USD) ? map.USD : 0,
+            eur: Number.isFinite(map.EUR) ? map.EUR : 0,
             usdt: Number.isFinite(map.USDT) ? map.USDT : 0,
           });
         }
       } catch (_) {
         if (stopped) return;
-        setFunds({ pln: 0, usd: 0, usdt: 0 });
+        setFunds({ pln: 0, usd: 0, eur: 0, usdt: 0 });
       } finally { if (!stopped) setLoading(false); }
     }
     fetchBalances();
@@ -199,17 +260,173 @@ export default function Profile() {
     })();
   }, []);
 
-  // 姓名编辑入口已移除，顶部仅展示用户名称/电话
+  // 设置名称同步
+  useEffect(() => { setName(user?.name || ""); }, [user?.name]);
 
+  // 保存姓名
+  const onSaveName = async () => {
+    const v = String(name || '').trim();
+    if (v.length < 2 || v.length > 20) { showToast(t('errorNameLength'), 'error'); return false; }
+    try {
+      await api.post('/me/name', { name: v });
+      const next = readUsers().map(u => u.id === user?.id ? { ...u, name: v } : u);
+      saveUsers(next); setUsers(next);
+      const s = { ...session, name: v };
+      try { localStorage.setItem('sessionUser', JSON.stringify(s)); } catch { }
+      setSession(s);
+      showToast(t('successNameUpdated'), 'ok');
+      return true;
+    } catch (_e) {
+      showToast(t('errorNameSaveFailed'), 'error');
+      return false;
+    }
+  };
 
+  // 修改登录密码
+  const onChangeLoginPassword = async () => {
+    if (!oldPwd) { showToast(t('errorOldPasswordWrong'), 'error'); return false; }
+    if (!newPwd || newPwd.length < 6) { showToast(t('errorNewPasswordLength'), 'error'); return false; }
+    if (newPwd !== confirmPwd) { showToast(t('errorConfirmMismatch'), 'error'); return false; }
+    try {
+      setPwdSaving(true);
+      await api.post(`/me/password`, { old: oldPwd, password: newPwd });
+      const next = readUsers().map(u => u.id === user?.id ? { ...u, password: newPwd } : u);
+      saveUsers(next); setUsers(next);
+      const s = { ...session, password: newPwd };
+      try { localStorage.setItem('sessionUser', JSON.stringify(s)); } catch { }
+      setSession(s);
+      showToast(t('successLoginPasswordUpdated'), 'ok');
+      setOldPwd(''); setNewPwd(''); setConfirmPwd('');
+      return true;
+    } catch (_e) {
+      showToast(_e?.message || t('errorLoginPasswordUpdate'), 'error');
+      return false;
+    } finally { setPwdSaving(false); }
+  };
 
-  // 功能菜单项 - 6个保持两行3列对称
+  // 修改交易密码
+  const onChangeTradePassword = async () => {
+    if (!loginPwdForTrade) { showToast(t('errorLoginVerifyFailed'), 'error'); return false; }
+    const pin = String(newTradePwd || '').replace(/\D/g, '');
+    if (pin.length !== 6) { showToast(t('errorTradePinLength'), 'error'); return false; }
+    try {
+      setTradeSaving(true);
+      await api.post('/me/trade-password', { password: newTradePwd, login: loginPwdForTrade });
+      const next = readUsers().map(u => u.id === user?.id ? { ...u, tradePassword: pin } : u);
+      saveUsers(next); setUsers(next);
+      setLoginPwdForTrade(''); setNewTradePwd('');
+      showToast(t('successTradePinUpdated'), 'ok');
+      return true;
+    } catch (_e) {
+      showToast(_e?.message || t('errorTradePinUpdate'), 'error');
+      return false;
+    } finally { setTradeSaving(false); }
+  };
+
+  const openModal = (type) => {
+    if (type === 'loginPwd') { setOldPwd(''); setNewPwd(''); setConfirmPwd(''); }
+    if (type === 'tradePwd') { setLoginPwdForTrade(''); setNewTradePwd(''); setConfirmPwd(''); }
+    setModal({ type });
+  };
+  const closeModal = () => {
+    if (modal.type === 'loginPwd') { setOldPwd(''); setNewPwd(''); setConfirmPwd(''); }
+    if (modal.type === 'tradePwd') { setLoginPwdForTrade(''); setNewTradePwd(''); setConfirmPwd(''); }
+    if (modal.type === 'kyc') { setKycName(''); setKycDocType('passport'); setKycDocNo(''); setKycImages([]); }
+    setModal({ type: null });
+  };
+
+  // KYC 相关函数
+  const openKycModal = () => {
+    if (String(kycStatus).toLowerCase() === 'submitted') {
+      showToast(lang === 'zh' ? '正在审核中' : (lang === 'pl' ? 'W trakcie przeglądu' : 'Under review'), 'info');
+      return;
+    }
+    if (String(kycStatus).toLowerCase() === 'approved') {
+      showToast(lang === 'zh' ? '已通过验证' : (lang === 'pl' ? 'Już zweryfikowany' : 'Already verified'), 'ok');
+      return;
+    }
+    setKycName(me?.name || ''); setKycDocType('passport'); setKycDocNo(''); setKycImages([]);
+    setModal({ type: 'kyc' });
+  };
+
+  async function compressImageFile(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const maxW = 1200, maxH = 1200;
+          let w = img.width, h = img.height;
+          if (w > maxW || h > maxH) {
+            const ratio = Math.min(maxW / w, maxH / h);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  const onKycFileAt = async (idx, e) => {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!validators.imageType(file)) { showToast(lang === 'zh' ? '仅支持 JPG/PNG' : 'Only JPG/PNG', 'error'); return; }
+      const dataUrl = await compressImageFile(file);
+      setKycImages(prev => { const arr = [...prev]; arr[idx] = dataUrl; return arr; });
+    } catch { showToast(lang === 'zh' ? '图片处理失败' : 'Image processing failed', 'error'); }
+  };
+
+  const submitKyc = async () => {
+    const nm = String(kycName || '').trim();
+    const dt = String(kycDocType || '').trim();
+    const dn = String(kycDocNo || '').trim();
+    if (nm.length < 2) { showToast(t('errorNameLength'), 'error'); return; }
+    if (!dt) { showToast(lang === 'zh' ? '请选择证件类型' : 'Please select document type', 'error'); return; }
+    if (!dn) { showToast(lang === 'zh' ? '请输入证件号码' : 'Please enter document number', 'error'); return; }
+    const photos = (Array.isArray(kycImages) ? kycImages.filter(Boolean).slice(0, 2) : []).map(u => ({ url: u, thumbUrl: u }));
+    if (photos.length === 0) { showToast(lang === 'zh' ? '请上传证件照片' : 'Please upload document photo', 'error'); return; }
+    try {
+      setKycSubmitting(true);
+      await api.post('/me/kyc/submit', { fields: { name: nm, idType: dt, idNumber: dn }, photos });
+      setKycStatus('submitted');
+      try { localStorage.setItem('kyc:status', 'submitted'); } catch { }
+      showToast(lang === 'zh' ? '已提交审核' : 'Submitted for review', 'ok');
+      setModal({ type: null });
+    } catch (e) {
+      const raw = String(e?.message || '');
+      if (/pending\s*review|submitted/i.test(raw)) {
+        setKycStatus('submitted');
+        try { localStorage.setItem('kyc:status', 'submitted'); } catch { }
+        showToast(lang === 'zh' ? '已提交审核，请等待' : 'Already submitted, pending review', 'warn');
+        setModal({ type: null });
+        return;
+      }
+      if (/already\s*approved/i.test(raw)) {
+        setKycStatus('approved');
+        try { localStorage.setItem('kyc:status', 'approved'); } catch { }
+        showToast(lang === 'zh' ? '已通过，无需重复提交' : 'Already approved', 'ok');
+        setModal({ type: null });
+        return;
+      }
+      showToast(raw || (lang === 'zh' ? '提交失败' : 'Submit failed'), 'error');
+    } finally { setKycSubmitting(false); }
+  };
+
+  // 功能菜单项 - 移除设置，保留其他功能
   const menuItems = [
-    { icon: '✏️', label: t('profileSettings'), path: '/me/settings' },
     { icon: '💳', label: t('profileBankCards'), path: '/me/cards' },
     { icon: '📜', label: t('profileHistory'), path: '/trades' },
     { icon: '🛟', label: t('profileSupport'), path: '/me/support', badge: unreadCount },
-    { icon: '🏢', label: t('profileInstitution'), path: '/me/institution' },
     { icon: '💼', label: t('profileWallets') || (lang === 'zh' ? '钱包' : 'Wallets'), path: '/me/wallets' },
   ];
 
@@ -281,7 +498,7 @@ export default function Profile() {
               borderRadius: 10, overflow: 'hidden', zIndex: 100, minWidth: 120,
               boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
             }}>
-              {['PLN', 'USD', 'USDT'].map(cur => (
+              {['PLN', 'USD', 'EUR', 'USDT'].map(cur => (
                 <div 
                   key={cur}
                   onClick={() => { setSelectedCurrency(cur); setCurrencyDropdownOpen(false); }}
@@ -294,10 +511,11 @@ export default function Profile() {
                     borderBottom: '1px solid rgba(255,255,255,0.06)'
                   }}
                 >
-                  <span>{cur === 'PLN' ? '🇵🇱' : cur === 'USD' ? '🇺🇸' : '💰'}</span>
+                  <span>{cur === 'PLN' ? '🇵🇱' : cur === 'USD' ? '🇺🇸' : cur === 'EUR' ? '🇪🇺' : '💰'}</span>
                   <span>{cur}</span>
                   {cur === 'PLN' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '波兰股' : 'PL'}</span>}
                   {cur === 'USD' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '美股' : 'US'}</span>}
+                  {cur === 'EUR' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '欧元' : 'Euro'}</span>}
                   {cur === 'USDT' && <span style={{ fontSize: 10, color: '#6b7280' }}>{lang === 'zh' ? '加密' : 'Crypto'}</span>}
                 </div>
               ))}
@@ -311,6 +529,7 @@ export default function Profile() {
           <span style={{ fontSize: 24, fontWeight: 700, color: '#e5e7eb' }}>
             {selectedCurrency === 'PLN' && formatPLN(funds.pln, lang)}
             {selectedCurrency === 'USD' && formatMoney(funds.usd, 'USD', lang)}
+            {selectedCurrency === 'EUR' && `€${(funds.eur || 0).toFixed(2)}`}
             {selectedCurrency === 'USDT' && formatUSDT(funds.usdt, lang)}
           </span>
         </div>
@@ -324,12 +543,12 @@ export default function Profile() {
         >{t('profileWithdraw')}</button>
       </div>
 
-      {/* 功能菜单 - 铺满宽度 */}
+      {/* 功能菜单 - 横向排列 */}
       <div style={{ 
         background: 'rgba(17,24,39,0.6)', borderRadius: 0, padding: '16px',
         borderBottom: '1px solid rgba(255,255,255,0.06)', width: '100%', boxSizing: 'border-box'
       }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
           {menuItems.map((item, idx) => (
             <div 
               key={idx} 
@@ -340,15 +559,15 @@ export default function Profile() {
                 nav(item.path);
               }}
               style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                padding: '16px 8px', borderRadius: 10, cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                padding: '12px 4px', borderRadius: 10, cursor: 'pointer',
                 background: 'rgba(30, 41, 59, 0.5)', border: '1px solid rgba(255,255,255,0.06)'
               }}
             >
               <div style={{ 
-                width: 44, height: 44, borderRadius: 12, 
+                width: 40, height: 40, borderRadius: 10, 
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 22, background: 'rgba(59,130,246,0.12)', 
+                fontSize: 20, background: 'rgba(59,130,246,0.12)', 
                 border: '1px solid rgba(59,130,246,0.2)', position: 'relative'
               }}>
                 {item.icon}
@@ -362,9 +581,70 @@ export default function Profile() {
                   }}>{item.badge > 99 ? '99+' : item.badge}</div>
                 )}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: '#e5e7eb', textAlign: 'center' }}>{item.label}</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: '#e5e7eb', textAlign: 'center' }}>{item.label}</div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* 账户设置 - 直接显示 */}
+      <div style={{ 
+        background: 'rgba(17,24,39,0.6)', borderRadius: 0, padding: '16px',
+        borderBottom: '1px solid rgba(255,255,255,0.06)', width: '100%', boxSizing: 'border-box'
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#9ca3af', marginBottom: 12 }}>
+          {lang === 'zh' ? '账户设置' : (lang === 'pl' ? 'Ustawienia konta' : 'Account Settings')}
+        </div>
+        
+        {/* 姓名 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('nameLabel')}</span>
+          <span onClick={() => openModal('name')} style={{ color: '#3b82f6', fontSize: 14, cursor: 'pointer' }}>
+            {user?.name || (lang === 'zh' ? '未设置' : 'Not set')}
+          </span>
+        </div>
+        
+        {/* 手机号 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('phoneLabel')}</span>
+          <span style={{ color: '#e5e7eb', fontSize: 14 }}>{user?.phone || '—'}</span>
+        </div>
+        
+        {/* 登录密码 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('loginPwdLabel')}</span>
+          <span onClick={() => openModal('loginPwd')} style={{ color: '#3b82f6', fontSize: 14, cursor: 'pointer' }}>{t('changeLabel')}</span>
+        </div>
+        
+        {/* 交易密码 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('tradePwdLabel')}</span>
+          <span onClick={() => openModal('tradePwd')} style={{ color: '#3b82f6', fontSize: 14, cursor: 'pointer' }}>{t('changeLabel')}</span>
+        </div>
+        
+        {/* 身份验证 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('kycTitle')}</span>
+          <span 
+            onClick={openKycModal}
+            style={{ 
+              color: kycStatus === 'approved' ? '#10b981' : (kycStatus === 'submitted' ? '#f59e0b' : '#ef4444'), 
+              fontSize: 14, 
+              cursor: 'pointer' 
+            }}
+          >
+            {kycStatus === 'approved' ? (lang === 'zh' ? '已验证' : 'Verified') : 
+             kycStatus === 'submitted' ? (lang === 'zh' ? '审核中' : 'Under review') : 
+             (lang === 'zh' ? '未验证' : 'Not verified')}
+          </span>
+        </div>
+        
+        {/* 语言 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0' }}>
+          <span style={{ color: '#9ca3af', fontSize: 14 }}>{t('languageLabel')}</span>
+          <span onClick={() => openModal('lang')} style={{ color: '#3b82f6', fontSize: 14, cursor: 'pointer' }}>
+            {lang === 'zh' ? '中文' : (lang === 'en' ? 'English' : 'Polski')} ▾
+          </span>
         </div>
       </div>
 
@@ -389,6 +669,163 @@ export default function Profile() {
         {error && <div style={{ color: '#ef4444', marginTop: 8 }}>{error}</div>}
       </div>
       </div>
+
+      {/* Toast 提示 */}
+      {toast.show && (
+        <div style={{
+          position: 'fixed', top: 60, left: '50%', transform: 'translateX(-50%)',
+          background: toast.type === 'ok' ? 'rgba(16,185,129,0.95)' : toast.type === 'error' ? 'rgba(239,68,68,0.95)' : 'rgba(59,130,246,0.95)',
+          color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 500, zIndex: 9999
+        }}>{toast.text}</div>
+      )}
+
+      {/* 弹窗：姓名修改 */}
+      {modal.type === 'name' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, width: '100%', maxWidth: 340 }}>
+            <h3 style={{ margin: '0 0 16px', color: '#e5e7eb', fontSize: 16 }}>{t('changeNameTitle')}</h3>
+            <input 
+              value={name} onChange={e => setName(e.target.value)} 
+              placeholder={t('placeholderName')}
+              style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 16 }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={closeModal} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#9ca3af', cursor: 'pointer' }}>{t('cancel')}</button>
+              <button onClick={async () => { const ok = await onSaveName(); if (ok) closeModal(); }} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', cursor: 'pointer' }}>{t('confirm')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 弹窗：登录密码 */}
+      {modal.type === 'loginPwd' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, width: '100%', maxWidth: 340 }}>
+            <h3 style={{ margin: '0 0 16px', color: '#e5e7eb', fontSize: 16 }}>{t('changePassword')}</h3>
+            <input type="password" value={oldPwd} onChange={e => setOldPwd(e.target.value)} placeholder={t('currentPassword')} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 10 }} />
+            <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} placeholder={t('placeholderNewPassword')} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 10 }} />
+            <input type="password" value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder={t('placeholderConfirm')} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 16 }} />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={closeModal} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#9ca3af', cursor: 'pointer' }}>{t('cancel')}</button>
+              <button disabled={pwdSaving} onClick={async () => { const ok = await onChangeLoginPassword(); if (ok) closeModal(); }} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', cursor: 'pointer', opacity: pwdSaving ? 0.6 : 1 }}>{pwdSaving ? '...' : t('confirm')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 弹窗：交易密码 */}
+      {modal.type === 'tradePwd' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, width: '100%', maxWidth: 340 }}>
+            <h3 style={{ margin: '0 0 16px', color: '#e5e7eb', fontSize: 16 }}>{t('changeTradePinTitle')}</h3>
+            <input type="password" value={loginPwdForTrade} onChange={e => setLoginPwdForTrade(e.target.value)} placeholder={t('verifyWithLoginPassword')} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 10 }} />
+            <input type="password" inputMode="numeric" maxLength={6} value={newTradePwd} onChange={e => setNewTradePwd(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('placeholderNewPin')} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 10 }} />
+            <input type="password" inputMode="numeric" maxLength={6} value={confirmPwd} onChange={e => setConfirmPwd(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder={t('placeholderConfirm')} style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box', marginBottom: 16 }} />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={closeModal} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#9ca3af', cursor: 'pointer' }}>{t('cancel')}</button>
+              <button disabled={tradeSaving} onClick={async () => { if (newTradePwd.replace(/\D/g, '') !== confirmPwd.replace(/\D/g, '')) { showToast(t('errorConfirmMismatch'), 'error'); return; } const ok = await onChangeTradePassword(); if (ok) closeModal(); }} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', cursor: 'pointer', opacity: tradeSaving ? 0.6 : 1 }}>{tradeSaving ? '...' : t('confirm')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 弹窗：语言选择 */}
+      {modal.type === 'lang' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, width: '100%', maxWidth: 340 }}>
+            <h3 style={{ margin: '0 0 16px', color: '#e5e7eb', fontSize: 16 }}>{t('chooseLanguage')}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { code: 'en', label: '🇬🇧 English' },
+                { code: 'zh', label: '🇨🇳 简体中文' },
+                { code: 'pl', label: '🇵🇱 Polski' }
+              ].map(item => (
+                <button 
+                  key={item.code}
+                  onClick={async () => { try { await api.post('/me/lang', { lang: item.code }); } catch { } setLang(item.code); closeModal(); }}
+                  style={{
+                    padding: '14px 20px', fontSize: 16, fontWeight: 600, borderRadius: 10, cursor: 'pointer',
+                    border: lang === item.code ? '2px solid #3b82f6' : '2px solid rgba(255,255,255,0.2)',
+                    background: lang === item.code ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)',
+                    color: lang === item.code ? '#60a5fa' : '#e5e7eb'
+                  }}
+                >{item.label}</button>
+              ))}
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 12, color: '#6b7280', fontSize: 12 }}>{t('langSwitchInstant')}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 弹窗：KYC 身份验证 */}
+      {modal.type === 'kyc' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+          <div style={{ background: '#1e293b', borderRadius: 12, padding: 20, width: '100%', maxWidth: 360, maxHeight: '80vh', overflow: 'auto' }}>
+            <h3 style={{ margin: '0 0 16px', color: '#e5e7eb', fontSize: 16 }}>{t('kycTitle')}</h3>
+            
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: '#9ca3af', fontSize: 13 }}>{t('nameLabel')}</label>
+              <input 
+                type="text" value={kycName} onChange={e => setKycName(e.target.value)}
+                placeholder={t('placeholderName')}
+                style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: '#9ca3af', fontSize: 13 }}>{lang === 'zh' ? '证件类型' : (lang === 'pl' ? 'Typ dokumentu' : 'Document Type')}</label>
+              <select 
+                value={kycDocType} onChange={e => setKycDocType(e.target.value)}
+                style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: '#1e293b', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+              >
+                <option value="passport">{lang === 'zh' ? '护照' : (lang === 'pl' ? 'Paszport' : 'Passport')}</option>
+                <option value="dni">{lang === 'zh' ? '身份证' : (lang === 'pl' ? 'Dowód osobisty' : 'ID Card')}</option>
+                <option value="dl">{lang === 'zh' ? '驾驶证' : (lang === 'pl' ? 'Prawo jazdy' : 'Driver License')}</option>
+              </select>
+            </div>
+            
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: '#9ca3af', fontSize: 13 }}>{lang === 'zh' ? '证件号码' : (lang === 'pl' ? 'Numer dokumentu' : 'Document Number')}</label>
+              <input 
+                type="text" value={kycDocNo} onChange={e => setKycDocNo(e.target.value)}
+                placeholder={lang === 'zh' ? '请输入证件号码' : 'Enter document number'}
+                style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 6, color: '#9ca3af', fontSize: 13 }}>{lang === 'zh' ? '上传证件照片' : (lang === 'pl' ? 'Prześlij zdjęcie dokumentu' : 'Upload Document Photos')}</label>
+              <div style={{ display: 'flex', gap: 12 }}>
+                {[0, 1].map((i) => (
+                  <div 
+                    key={i}
+                    onClick={() => kycFileRefs[i].current?.click()}
+                    style={{ 
+                      width: 80, height: 80, border: '2px dashed rgba(255,255,255,0.2)', borderRadius: 10, 
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                      background: 'rgba(255,255,255,0.03)', overflow: 'hidden'
+                    }}
+                  >
+                    {kycImages[i] ? (
+                      <img src={kycImages[i]} alt="doc" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ color: '#6b7280', fontSize: 24 }}>+</span>
+                    )}
+                    <input ref={kycFileRefs[i]} type="file" accept="image/*" onChange={(e) => onKycFileAt(i, e)} style={{ display: 'none' }} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>{lang === 'zh' ? '正面 + 反面（或个人信息页）' : 'Front + Back (or info page)'}</div>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={closeModal} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: '#9ca3af', cursor: 'pointer' }}>{t('cancel')}</button>
+              <button disabled={kycSubmitting} onClick={submitKyc} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#3b82f6', color: '#fff', cursor: 'pointer', opacity: kycSubmitting ? 0.6 : 1 }}>{kycSubmitting ? '...' : t('confirm')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <BottomNav />
     </div>
   );

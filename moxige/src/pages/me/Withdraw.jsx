@@ -96,7 +96,7 @@ export default function Withdraw() {
       }
       
       const payload = methodType === 'crypto' 
-        ? { currency: 'USDT', amount: amt, method_type: 'crypto', crypto_address: cryptoAddress, crypto_network: cryptoNetwork }
+        ? { currency: 'USDT', amount: amt, method_type: 'crypto', usdt_address: cryptoAddress, usdt_network: cryptoNetwork }
         : { currency: 'PLN', amount: amt, method_type: 'bank', bank_account: bankAccount };
       
       const res = await meWithdrawCreate(payload);

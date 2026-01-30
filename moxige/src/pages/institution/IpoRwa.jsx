@@ -20,13 +20,12 @@ export default function IpoRwaPage() {
   const [orders, setOrders] = useState([]);
   const [ordersUnsupported, setOrdersUnsupported] = useState(false);
   const [submittingId, setSubmittingId] = useState(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalItem, setModalItem] = useState(null);
-  const [modalQty, setModalQty] = useState('');
   const [toast, setToast] = useState({ show: false, type: 'info', text: '' });
+  const [ipoQtyMap, setIpoQtyMap] = useState({}); // 每个IPO/RWA的购买数量
   const [orderDetails, setOrderDetails] = useState({}); // code -> { name, listAt, canSellOnListingDay }
   const [orderPrices, setOrderPrices] = useState({}); // code -> current price
   const [hasNegativeFunds, setHasNegativeFunds] = useState(false);
+  const [showHoldings, setShowHoldings] = useState(false);
   function fixSymbol(s) {
     const u = String(s || '').toUpperCase().trim();
     if (!u) return '';
@@ -182,14 +181,14 @@ export default function IpoRwaPage() {
   const submitSubscribe = async (code, price, it) => {
     try {
       const qty = Number(qtyMap[code] || 0);
-      if (!Number.isFinite(qty) || qty <= 0) { alert(lang === 'pl' ? 'Ingrese cantidad' : 'Enter quantity'); return; }
+      if (!Number.isFinite(qty) || qty <= 0) { alert(lang === 'zh' ? '请输入数量' : (lang === 'pl' ? 'Wprowadź ilość' : 'Enter quantity')); return; }
       const now = Date.now();
       const sAt = getPolandTimestamp(it?.subscribeAt);
       const eAt = getPolandTimestamp(it?.subscribeEndAt);
-      if (sAt && eAt && (now < sAt || now > eAt)) { alert(lang === 'pl' ? 'Fuera de ventana de suscripción' : 'Out of subscription window'); return; }
+      if (sAt && eAt && (now < sAt || now > eAt)) { alert(lang === 'zh' ? '不在申购时间窗内' : (lang === 'pl' ? 'Poza oknem subskrypcji' : 'Out of subscription window')); return; }
       setSubmittingId(code);
       await api.post('/me/ipo/subscribe', { code, qty });
-      setToast({ show: true, type: 'ok', text: lang === 'pl' ? 'Solicitud enviada' : 'Submitted' });
+      setToast({ show: true, type: 'ok', text: lang === 'zh' ? '已提交' : (lang === 'pl' ? 'Wysłano' : 'Submitted') });
       setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
       setQtyMap(p => ({ ...p, [code]: '' }));
     } catch (e) {
@@ -199,25 +198,26 @@ export default function IpoRwaPage() {
     } finally { setSubmittingId(null); }
   };
 
-  const openModal = (it) => { setModalItem(it); setModalQty(''); setModalOpen(true); };
-  const closeModal = () => { setModalOpen(false); setModalItem(null); setModalQty(''); };
-  const submitModal = async () => {
-    if (!modalItem) return;
-    const qv = Number(modalQty || 0);
-    if (!Number.isFinite(qv) || qv <= 0) { setToast({ show: true, type: 'error', text: lang === 'pl' ? 'Ingrese cantidad' : 'Enter quantity' }); setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000); return; }
+  const submitIpoSubscribe = async (item, qty) => {
+    const qv = Number(qty || 0);
+    if (!Number.isFinite(qv) || qv <= 0) { 
+      setToast({ show: true, type: 'error', text: lang === 'zh' ? '请输入数量' : (lang === 'pl' ? 'Wprowadź ilość' : 'Enter quantity') }); 
+      setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 2000); 
+      return; 
+    }
     try {
-      setSubmittingId(modalItem.code);
-      await api.post('/me/ipo/subscribe', { code: modalItem.code, qty: qv, currentPrice: Number(modalItem.current || 0) });
-      setToast({ show: true, type: 'ok', text: lang === 'pl' ? 'Solicitud enviada' : 'Submitted' });
-      setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
-      closeModal();
-      try { const od = await api.get('/me/ipo/orders'); const arr = Array.isArray(od?.items) ? od.items : []; setOrders(arr); } catch { }
+      setSubmittingId(item.code);
+      await api.post('/me/ipo/subscribe', { code: item.code, qty: qv, currentPrice: Number(item.current || 0) });
+      setToast({ show: true, type: 'ok', text: lang === 'zh' ? '已提交' : (lang === 'pl' ? 'Wysłano' : 'Submitted') });
+      setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 2000);
+      setIpoQtyMap(prev => ({ ...prev, [item.code]: 1 }));
+      try { const od = await api.get('/me/ipo/orders'); const arr = Array.isArray(od?.items) ? od.items : []; const active = arr.filter(o => { const s = String(o.status || '').toLowerCase(); return !['done', 'sold', 'filled', 'completed'].includes(s); }); setOrders(active); } catch { }
     } catch (e) {
       const raw = String(e?.message || e);
       const ended = /ended|window\s*closed/i.test(raw);
       const txt = ended ? (lang === 'pl' ? 'Suscripción finalizada' : 'Subscribe ended') : raw;
       setToast({ show: true, type: 'error', text: txt });
-      setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 1000);
+      setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 2000);
     } finally { setSubmittingId(null); }
   };
 
@@ -229,7 +229,12 @@ export default function IpoRwaPage() {
         if (!tok) { if (!stopped) setOrders([]); return; }
         const od = await api.get('/me/ipo/orders');
         const arr = Array.isArray(od?.items) ? od.items : [];
-        if (!stopped) setOrders(arr);
+        // 过滤掉已完成的订单（done/sold/filled/completed）
+        const active = arr.filter(o => {
+          const status = String(o.status || '').toLowerCase();
+          return !['done', 'sold', 'filled', 'completed'].includes(status);
+        });
+        if (!stopped) setOrders(active);
       } catch (e) {
         const msg = String(e?.message || e);
         if (/404|Not\s*Found/i.test(msg)) { setOrdersUnsupported(true); }
@@ -250,7 +255,8 @@ export default function IpoRwaPage() {
         // 优先按 lookup 获取单个详情
         for (const code of codes) {
           try {
-            const d = await api.get(`/trade/ipo/lookup?code=${encodeURIComponent(code)}`);
+            const res = await api.get(`/trade/ipo/lookup?code=${encodeURIComponent(code)}`);
+            const d = res?.item || res; // API 返回 { item: {...} }
             map[code] = {
               name: String(d?.name || ''),
               listAt: d?.listAt || d?.list_at || null,
@@ -417,8 +423,15 @@ export default function IpoRwaPage() {
   }
   function orderCurrentPrice(o) {
     const code = fixSymbol(o.code);
-    if (String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') {
-      const fp = Number(o.finalPrice || o.sellPrice || o.filledPrice || o.closePrice || 0);
+    const status = String(o.status || '').toLowerCase();
+    if (status === 'done' || status === 'sold' || status === 'filled' || status === 'completed') {
+      // 尝试从多个字段获取卖出价格
+      let fp = Number(o.finalPrice || o.sellPrice || o.filledPrice || o.closePrice || 0);
+      // 解析 notes 字段 (格式: sold@256.44)
+      if ((!Number.isFinite(fp) || fp <= 0) && o.notes) {
+        const match = String(o.notes).match(/sold@([\d.]+)/);
+        if (match) fp = Number(match[1]);
+      }
       return Number.isFinite(fp) && fp > 0 ? fp : 0;
     }
     // First try external price from API
@@ -470,10 +483,38 @@ export default function IpoRwaPage() {
     const timeout = new Promise((resolve) => setTimeout(() => resolve(NaN), 1400));
     let cp = await Promise.race([tryTD, tryPrevClose, timeout]);
     if (!Number.isFinite(cp) || cp <= 0) cp = orderCurrentPrice(o);
-    setToast({ show: true, type: 'ok', text: lang === 'zh' ? '卖出成功' : (lang === 'pl' ? 'Venta exitosa' : 'Sold') }); setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
-    // Freeze locally
-    setOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: 'done', finalPrice: Number(cp || 0) } : x));
+    // 调用后端 API 卖出
+    try {
+      const res = await api.post(`/me/ipo/orders/${o.id}/sell`, { currentPrice: cp });
+      if (res?.error) {
+        setToast({ show: true, type: 'error', text: lang === 'zh' ? `卖出失败: ${res.error}` : `Sell failed: ${res.error}` });
+        setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 2000);
+        return;
+      }
+      setToast({ show: true, type: 'ok', text: lang === 'zh' ? '卖出成功' : (lang === 'pl' ? 'Venta exitosa' : 'Sold') });
+      setTimeout(() => setToast({ show: false, type: 'ok', text: '' }), 1000);
+      // 卖出后从列表中移除该订单
+      setOrders(prev => prev.filter(x => x.id !== o.id));
+    } catch (e) {
+      setToast({ show: true, type: 'error', text: lang === 'zh' ? `卖出失败: ${e?.message || e}` : `Sell failed: ${e?.message || e}` });
+      setTimeout(() => setToast({ show: false, type: 'error', text: '' }), 2000);
+    }
   }
+
+  // 获取订单状态显示信息
+  const getOrderStatusInfo = (o) => {
+    const status = String(o.status || '').toLowerCase();
+    if (status === 'done' || status === 'sold' || status === 'filled' || status === 'completed') {
+      return { text: lang === 'zh' ? '已完成' : 'Completed', color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
+    }
+    if (status === 'approved') {
+      return { text: lang === 'zh' ? '已通过' : 'Approved', color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
+    }
+    if (status === 'rejected') {
+      return { text: lang === 'zh' ? '已拒绝' : 'Rejected', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' };
+    }
+    return { text: lang === 'zh' ? '待审核' : 'Pending', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' };
+  };
 
   return (
     <div className="screen top-align inst-screen" style={{ padding: 0 }}>
@@ -482,21 +523,160 @@ export default function IpoRwaPage() {
           <div style={{ padding: '8px 12px', borderRadius: 10, background: toast.type === 'error' ? '#7a2a2a' : '#274a36', color: '#fff', boxShadow: '0 4px 14px rgba(0,0,0,.2)' }}>{toast.text}</div>
         </div>
       )}
-      {/* 返回按钮 */}
-      <div className="inst-back-bar" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      
+      {/* 我的持仓弹窗 */}
+      {showHoldings && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999,
+          background: 'rgba(0,0,0,0.95)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16
+        }} onClick={() => setShowHoldings(false)}>
+          <div style={{
+            background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+            borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: '80vh',
+            overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)'
+          }} onClick={e => e.stopPropagation()}>
+            {/* 弹窗标题 */}
+            <div style={{
+              padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: '#f1f5f9' }}>
+                📊 {lang === 'zh' ? '我的IPO/RWA持仓' : (lang === 'pl' ? 'Moje IPO/RWA' : 'My IPO/RWA Holdings')}
+              </h3>
+              <button
+                onClick={() => setShowHoldings(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8,
+                  padding: '6px 12px', cursor: 'pointer', color: '#94a3b8', fontSize: 13
+                }}
+              >{lang === 'zh' ? '关闭' : 'Close'}</button>
+            </div>
+            
+            {/* 持仓列表 */}
+            <div style={{ padding: 16, overflowY: 'auto', maxHeight: 'calc(80vh - 70px)' }}>
+              {orders.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>
+                  {lang === 'zh' ? '暂无持仓记录' : 'No holdings'}
+                </div>
+              )}
+              {orders.length > 0 && (
+                <div style={{ display: 'grid', gap: 12 }}>
+                  {orders.map(o => {
+                    const code = String(o.code || '').toUpperCase();
+                    const det = orderDetails[code] || {};
+                    const cur = orderCurrentPrice(o);
+                    const price = Number(o.price || 0);
+                    const qty = Number(o.qty || 0);
+                    const { amount, pct } = orderProfit(o);
+                    const statusInfo = getOrderStatusInfo(o);
+                    const kind = String(o.kind || '').toLowerCase();
+                    const status = String(o.status || '').toLowerCase();
+                    const isDone = ['done', 'sold', 'filled', 'completed'].includes(status);
+                    const isRejected = status === 'rejected';
+                    const { listed, listingDay, allowedToday } = canSellOrder(o);
+                    const canSell = listed && !(listingDay && !allowedToday) && !isDone && !isRejected && !hasNegativeFunds;
+                    
+                    return (
+                      <div key={o.id} style={{
+                        background: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 14,
+                        border: '1px solid rgba(255,255,255,0.06)'
+                      }}>
+                        {/* 头部：代码 + 状态 */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 16, fontWeight: 600, color: '#f1f5f9' }}>{det.name || code}</span>
+                            <span style={{
+                              fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                              background: kind === 'rwa' ? '#3b2a56' : '#2a5640', color: '#e5e7eb'
+                            }}>{kind === 'rwa' ? 'RWA' : 'IPO'}</span>
+                          </div>
+                          <span style={{
+                            fontSize: 12, padding: '3px 10px', borderRadius: 10,
+                            background: statusInfo.bg, color: statusInfo.color
+                          }}>{statusInfo.text}</span>
+                        </div>
+                        
+                        {/* 详细信息 */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '数量' : 'Qty'}: <span style={{ color: '#e5e7eb' }}>{qty}</span>
+                          </div>
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '申购价' : 'Sub Price'}: <span style={{ color: '#e5e7eb' }}>
+                              {formatRwaPrice(price, lang)}
+                            </span>
+                          </div>
+                          {!isDone && (
+                            <div style={{ color: '#94a3b8' }}>
+                              {lang === 'zh' ? '现价' : 'Current'}: <span style={{ color: '#e5e7eb' }}>
+                                {formatRwaPrice(cur, lang)}
+                              </span>
+                            </div>
+                          )}
+                          <div style={{ color: '#94a3b8' }}>
+                            {lang === 'zh' ? '收益' : 'Profit'}: <span style={{ color: amount >= 0 ? '#10b981' : '#ef4444' }}>
+                              {amount >= 0 ? '+' : ''}{formatRwaPrice(amount, lang).replace('US$', '$')} ({pct >= 0 ? '+' : ''}{pct}%)
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* 上市日期 */}
+                        {det.listAt && (
+                          <div style={{ marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                            {lang === 'zh' ? '上市日期' : 'Listing'}: {formatYMD(det.listAt)}
+                          </div>
+                        )}
+                        
+                        {/* 操作按钮 */}
+                        {canSell && (
+                          <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                            <button 
+                              className="btn primary" 
+                              style={{ width: '100%', padding: '8px 0', fontSize: 13, borderRadius: 8 }}
+                              onClick={() => { onSell(o); setShowHoldings(false); }}
+                            >
+                              {lang === 'zh' ? '卖出' : 'Sell'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 返回按钮 + 标签切换 + 我的持仓 */}
+      <div className="inst-back-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => navigate(-1)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 20, padding: '8px 14px', cursor: 'pointer', color: '#e5e7eb', fontSize: 13
+            }}
+          >
+            <span style={{ fontSize: 16 }}>←</span>
+            <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+          </button>
+          <button className={`pill ${tab === 'ipo' ? 'active' : ''}`} onClick={() => setTab('ipo')}>IPO</button>
+          <button className={`pill ${tab === 'rwa' ? 'active' : ''}`} onClick={() => setTab('rwa')}>RWA</button>
+        </div>
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => setShowHoldings(true)}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
-            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 20, padding: '8px 14px', cursor: 'pointer', color: '#e5e7eb', fontSize: 13
+            background: 'linear-gradient(135deg, #3b82f6, #2563eb)', border: 'none',
+            borderRadius: 20, padding: '8px 16px', cursor: 'pointer', color: '#fff', fontSize: 13, fontWeight: 500,
+            boxShadow: '0 2px 8px rgba(59, 130, 246, 0.3)'
           }}
         >
-          <span style={{ fontSize: 16 }}>←</span>
-          <span>{lang === 'zh' ? '返回' : (lang === 'pl' ? 'Wstecz' : 'Back')}</span>
+          <span style={{ fontSize: 14 }}>📊</span>
+          <span>{lang === 'zh' ? '我的持仓' : (lang === 'pl' ? 'Moje pozycje' : 'My Holdings')}</span>
         </button>
-        <button className={`pill ${tab === 'ipo' ? 'active' : ''}`} onClick={() => setTab('ipo')}>IPO</button>
-        <button className={`pill ${tab === 'rwa' ? 'active' : ''}`} onClick={() => setTab('rwa')}>RWA</button>
       </div>
       <div className="inst-container">
         <div style={{ width: '100%' }}>
@@ -505,7 +685,11 @@ export default function IpoRwaPage() {
         {!loading && list.length === 0 && <div className="desc">--</div>}
         {!loading && list.length > 0 && (
           <div style={{ display: 'grid', gap: 12 }}>
-            {list.map(it => {
+            {list.filter(it => {
+              const eAt = getPolandTimestamp(it?.subscribeEndAt);
+              const nowTs = Date.now();
+              return !(eAt && nowTs > eAt); // 过滤掉已截止的
+            }).map(it => {
               const code = fixSymbol(it.code);
               const ncode = code;
               const current = (() => { const p = priceMap[ncode]; const sp = Number(it.subscribePrice || 0); return Number.isFinite(p) && p > 0 ? p : (Number.isFinite(sp) ? sp : 0); })();
@@ -513,6 +697,13 @@ export default function IpoRwaPage() {
               const subPrice = Number(it.subscribePrice || 0);
               const unitProfit = Number((current - subPrice).toFixed(6));
               const unitPct = Number(subPrice > 0 ? (((current - subPrice) / subPrice) * 100).toFixed(2) : 0);
+              // 检查申购时间窗口
+              const nowTs = Date.now();
+              const sAt = getPolandTimestamp(it?.subscribeAt);
+              const eAt = getPolandTimestamp(it?.subscribeEndAt);
+              const notStarted = sAt && nowTs < sAt;
+              const expired = eAt && nowTs > eAt;
+              const canSubscribe = !notStarted && !expired;
               return (
                 <div key={it.id || code} className="inst-card" style={{ padding: '12px', marginBottom: 8 }}>
                   <div style={{ padding: 0 }}>
@@ -522,13 +713,61 @@ export default function IpoRwaPage() {
                         <div className="desc">{lang === 'zh' ? '当前价格' : (lang === 'pl' ? 'Precio actual' : 'Current Price')}: {formatRwaPrice((displayCurrent > 0 ? displayCurrent : Number(it.subscribePrice || 0)) || 0, lang)}</div>
                         <div className="desc">{lang === 'zh' ? '申购价格' : (lang === 'pl' ? 'Precio institucional' : 'Institutional Price')}: {formatRwaPrice(subPrice, lang)}</div>
                         <div className="desc">{lang === 'zh' ? '上市日期' : (lang === 'pl' ? 'Fecha de listado' : 'Listing Date')}: {it.listAt ? formatYMD(it.listAt) : '-'}</div>
-                        <div className="desc">{lang === 'zh' ? '申购截止' : (lang === 'pl' ? 'Fin de suscripción' : 'Subscribe End')}: {it.subscribeEndAt ? formatMinute(it.subscribeEndAt) : '-'}</div>
+                        <div className="desc" style={{ color: expired ? '#ef4444' : undefined }}>{lang === 'zh' ? '申购截止' : (lang === 'pl' ? 'Fin de suscripción' : 'Subscribe End')}: {it.subscribeEndAt ? formatMinute(it.subscribeEndAt) : '-'}{expired ? (lang === 'zh' ? ' (已截止)' : ' (Ended)') : ''}</div>
                       </div>
                       <div style={{ display: 'grid', justifyItems: 'end', gap: 6 }}>
                         <div style={{ fontSize: 18, fontWeight: 700, color: unitProfit > 0 ? '#5cff9b' : (unitProfit < 0 ? '#ff5c7a' : '#9aa3ad') }}>{unitPct}%</div>
                         <div style={{ fontSize: 14, color: unitProfit > 0 ? '#5cff9b' : (unitProfit < 0 ? '#ff5c7a' : '#9aa3ad') }}>{unitProfit.toFixed(4)}</div>
-                        <button className="btn primary" onClick={() => openModal({ ...it, code, current, subPrice })}>{lang === 'pl' ? 'Suscribir' : 'Subscribe'}</button>
                       </div>
+                    </div>
+                    {/* 数量和订阅 */}
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{lang==='zh'?'数量':'Qty'}</div>
+                        <input 
+                          type="number" 
+                          min="1" 
+                          value={ipoQtyMap[code] || 1}
+                          onChange={e => setIpoQtyMap(prev => ({ ...prev, [code]: Math.max(1, parseInt(e.target.value) || 1) }))}
+                          disabled={!canSubscribe}
+                          style={{ 
+                            width: '100%', padding: '8px 10px', borderRadius: 8, 
+                            background: canSubscribe ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)', 
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            color: canSubscribe ? '#fff' : '#666', fontSize: 14, textAlign: 'center',
+                            opacity: canSubscribe ? 1 : 0.5
+                          }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{lang==='zh'?'总价':'Total'}</div>
+                        {(() => {
+                          const total = subPrice * (ipoQtyMap[code] || 1);
+                          const fee = Number((total * 0.001).toFixed(6));
+                          const totalWithFee = total + fee;
+                          return (
+                            <>
+                              <div style={{ padding: '8px 10px', borderRadius: 8, background: canSubscribe ? 'rgba(59,130,246,0.2)' : 'rgba(59,130,246,0.1)', textAlign: 'center', fontSize: 14, fontWeight: 600, color: canSubscribe ? '#3b82f6' : '#666', opacity: canSubscribe ? 1 : 0.5 }}>
+                                {formatRwaPrice(totalWithFee, lang)}
+                              </div>
+                              {fee > 0 && <div style={{ fontSize: 10, color: '#f59e0b', textAlign: 'center', marginTop: 2 }}>{lang==='zh'?'含手续费':'Fee'}: {formatRwaPrice(fee, lang)}</div>}
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <button 
+                        className="btn primary" 
+                        disabled={!canSubscribe || submittingId === code}
+                        onClick={() => submitIpoSubscribe({ ...it, code, current, subPrice }, ipoQtyMap[code] || 1)}
+                        style={{ 
+                          padding: '8px 16px', height: 'auto', alignSelf: 'flex-end',
+                          opacity: canSubscribe ? 1 : 0.4,
+                          cursor: canSubscribe ? 'pointer' : 'not-allowed',
+                          background: canSubscribe ? undefined : '#555'
+                        }}
+                      >
+                        {submittingId === code ? '...' : (expired ? (lang === 'zh' ? '已截止' : 'Ended') : (notStarted ? (lang === 'zh' ? '未开始' : 'Not Started') : (lang === 'zh' ? '申购' : (lang === 'pl' ? 'Subskrybuj' : 'Subscribe'))))}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -537,65 +776,6 @@ export default function IpoRwaPage() {
           </div>
         )}
       </div>
-
-      {modalOpen && modalItem && (
-        <div className="modal">
-          <div className="modal-card">
-            <h2 className="title" style={{ marginTop: 0 }}>{lang === 'pl' ? 'Solicitud de suscripción' : 'Subscribe Request'}</h2>
-            <div className="form" style={{ display: 'grid', gap: 8 }}>
-              <div className="desc">{lang === 'pl' ? 'Mercado' : 'Market'}: US Stocks</div>
-              <div className="desc">{lang === 'pl' ? 'Código' : 'Code'}: {modalItem.code}</div>
-              <div className="desc">{lang === 'pl' ? 'Precio actual' : 'Current Price'}: {modalItem.current ? formatRwaPrice(modalItem.current, lang) : '-'}</div>
-              <div className="desc">{lang === 'pl' ? 'Precio institucional' : 'Institutional Price'}: {formatRwaPrice(modalItem.subPrice, lang)}</div>
-              <input className="input" type="number" min="1" placeholder={lang === 'pl' ? 'Cantidad' : 'Quantity'} value={modalQty} onChange={e => setModalQty(e.target.value)} />
-              <div className="sub-actions" style={{ justifyContent: 'flex-end', gap: 10 }}>
-                <button className="btn" onClick={closeModal}>{lang === 'pl' ? 'Cancelar' : 'Cancel'}</button>
-                <button className="btn primary" disabled={submittingId === modalItem.code} onClick={submitModal}>{lang === 'pl' ? 'Enviar' : 'Submit'}</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-        <div style={{ marginTop: 16, width: '100%' }}>
-          <h2 className="title" style={{ marginTop: 0 }}>{lang === 'pl' ? 'Órdenes IPO' : 'IPO Orders'}</h2>
-        {ordersUnsupported && (<div className="desc" style={{ marginTop: 6 }}>{lang === 'pl' ? 'Órdenes no disponibles' : 'Orders API unavailable'}</div>)}
-        <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-          {(orders || []).map(o => {
-            const code = String(o.code || '').toUpperCase();
-            const det = orderDetails[code] || {};
-            const cur = orderCurrentPrice(o);
-            const price = Number(o.price || 0);
-            const qty = Number(o.qty || 0);
-            const { amount, pct } = orderProfit(o);
-            const color = profitColorBy(o);
-            return (
-              <div key={o.id} className="inst-card" style={{ padding: '12px' }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                  <div style={{ display: 'grid', gap: 6 }}>
-                    <div style={{ fontWeight: 700 }}>{String(o.kind || '').toLowerCase() === 'rwa' ? 'RWA' : (String(o.kind || '').toLowerCase() === 'ipo' ? 'IPO' : 'Global Stocks')} · {det.name || code}</div>
-                    <div className="desc">{lang === 'pl' ? 'Fecha de listado' : 'Listing Date'}: {det.listAt ? formatYMD(det.listAt) : '-'}</div>
-                    {!(String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') && (
-                      <div className="desc">{lang === 'pl' ? 'Precio actual' : 'Current Price'}: {formatRwaPrice(Number(cur || 0), lang)}</div>
-                    )}
-                    <div className="desc">{lang === 'pl' ? 'Precio de subscripción' : 'Subscribe Price'}: {formatRwaPrice(price, lang)}</div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color }}>{pct}%</div>
-                    <div style={{ fontSize: 13, color }}>{formatRwaPrice(amount, lang).replace('US$', '$')}</div>
-                    {!(String(o.status || '').toLowerCase() === 'done' || String(o.status || '').toLowerCase() === 'sold' || String(o.status || '').toLowerCase() === 'filled' || String(o.status || '').toLowerCase() === 'completed') ? (
-                      <button className="btn primary" style={{ fontSize: 12, padding: '6px 12px', height: 'auto' }} onClick={() => onSell(o)}>{lang === 'pl' ? 'Vender' : 'Sell'}</button>
-                    ) : (
-                      <span className="tag" style={{ background: '#16a34a', color: '#fff', padding: '4px 8px', borderRadius: 6, fontSize: 11 }}>{lang === 'pl' ? 'Completado' : 'Completed'}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-          {(orders || []).length === 0 && (<div className="desc">--</div>)}
-        </div>
-        </div>
       </div>
       <BottomNav />
     </div>

@@ -29,8 +29,8 @@ export default function Notifications() {
         { patterns: [/Identity verification approved/i, /Weryfikacja tożsamości zatwierdzona/i, /你的实名审核已通过/i], zh: '身份验证已通过', en: 'Identity verification approved', pl: 'Weryfikacja tożsamości zatwierdzona' },
         // 交易相关
         { patterns: [/Trade\s*Executed/i, /Transakcja wykonana/i, /交易已执行/i], zh: '交易已执行', en: 'Trade Executed', pl: 'Transakcja wykonana' },
-        { patterns: [/Block\s*Trade\s*Purchased/i, /Transakcja blokowa zakupiona/i, /大宗交易已购买/i], zh: '大宗交易已购买', en: 'Block Trade Purchased', pl: 'Transakcja blokowa zakupiona' },
-        { patterns: [/Block\s*Trade\s*Sold/i, /Transakcja blokowa sprzedana/i, /大宗交易已卖出/i], zh: '大宗交易已卖出', en: 'Block Trade Sold', pl: 'Transakcja blokowa sprzedana' },
+        { patterns: [/Block\s*Trade\s*Purchased/i, /Day\s*Trade\s*Purchased/i, /Transakcja blokowa zakupiona/i, /日内交易已购买/i, /大宗交易已购买/i], zh: '日内交易已购买', en: 'Day Trade Purchased', pl: 'Day Trade Purchased' },
+        { patterns: [/Block\s*Trade\s*Sold/i, /Day\s*Trade\s*Sold/i, /Transakcja blokowa sprzedana/i, /日内交易已卖出/i, /大宗交易已卖出/i], zh: '日内交易已卖出', en: 'Day Trade Sold', pl: 'Day Trade Sold' },
         // IPO/认购相关
         { patterns: [/Suscripci[oó]n\s*Aprobada/i, /Subscription\s*Approved/i, /认购.*?(?:通过|批准)/i], zh: 'IPO认购已批准', en: 'Subscription Approved', pl: 'Subskrypcja zatwierdzona' },
         // 充值/提现

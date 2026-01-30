@@ -1,11 +1,11 @@
 const { app, BrowserWindow, shell, Notification, powerSaveBlocker, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 
-// Prevent display from sleeping to ensure 'always online' status
+// Prevent display from sleeping
 const id = powerSaveBlocker.start('prevent-display-sleep');
 
 if (process.platform === 'win32') {
-    app.setAppUserModelId('com.gqtrade.agent');
+    app.setAppUserModelId('com.gqtrade.customer');
 }
 
 let mainWindow = null;
@@ -13,11 +13,9 @@ let tray = null;
 let isQuitting = false;
 
 function createTray() {
-    // 创建托盘图标
     const iconPath = path.join(__dirname, 'icon.png');
     let trayIcon = nativeImage.createFromPath(iconPath);
     
-    // Windows 需要调整图标大小
     if (process.platform === 'win32') {
         trayIcon = trayIcon.resize({ width: 16, height: 16 });
     }
@@ -52,10 +50,9 @@ function createTray() {
         }
     ]);
     
-    tray.setToolTip('GQ Trade 客服');
+    tray.setToolTip('GQ Trade');
     tray.setContextMenu(contextMenu);
     
-    // 点击托盘图标显示窗口
     tray.on('click', () => {
         if (mainWindow) {
             if (mainWindow.isVisible()) {
@@ -67,7 +64,6 @@ function createTray() {
         }
     });
     
-    // 双击托盘图标显示窗口
     tray.on('double-click', () => {
         if (mainWindow) {
             mainWindow.show();
@@ -78,23 +74,21 @@ function createTray() {
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1280,
-        height: 900,
+        width: 420,
+        height: 700,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            backgroundThrottling: false, // Critical: prevent sleep when minimized/hidden
+            backgroundThrottling: false,
             preload: path.join(__dirname, 'preload.js')
         },
         autoHideMenuBar: true,
         icon: path.join(__dirname, 'icon.png'),
     });
 
-    // Load the agent interface
-    // NOTE: User should update this URL if deploying to a different domain
-    mainWindow.loadURL('https://gqtrade.app/agent.html?force_desktop=1');
+    // 加载客户端页面 - 用户需要更新此URL
+    mainWindow.loadURL('https://gqtrade.app/customer.html?force_desktop=1');
 
-    // Handle external links (open in default browser)
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('https://gqtrade.app')) {
             return { action: 'allow' };
@@ -103,7 +97,6 @@ function createWindow() {
         return { action: 'deny' };
     });
 
-    // Permission handler for notifications
     mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
         if (permission === 'notifications' || permission === 'media') {
             return true;
@@ -118,17 +111,16 @@ function createWindow() {
         return callback(false);
     });
 
-    // 最小化到托盘而不是关闭
+    // 最小化到托盘
     mainWindow.on('close', (event) => {
         if (!isQuitting) {
             event.preventDefault();
             mainWindow.hide();
             
-            // 显示气泡提示（仅首次）
             if (tray && !app.isHidden) {
                 tray.displayBalloon({
                     iconType: 'info',
-                    title: 'GQ Trade 客服',
+                    title: 'GQ Trade',
                     content: '程序已最小化到系统托盘，继续在后台运行接收消息。'
                 });
                 app.isHidden = true;
@@ -137,19 +129,17 @@ function createWindow() {
         }
     });
 
-    // 处理未读消息计数
     ipcMain.on('update-badge', (event, count) => {
         if (process.platform === 'win32') {
             if (count > 0) {
                 mainWindow.flashFrame(true);
-                // 更新托盘图标提示
                 if (tray) {
-                    tray.setToolTip(`GQ Trade 客服 (${count} 条新消息)`);
+                    tray.setToolTip(`GQ Trade (${count} 条新消息)`);
                 }
             } else {
                 mainWindow.flashFrame(false);
                 if (tray) {
-                    tray.setToolTip('GQ Trade 客服');
+                    tray.setToolTip('GQ Trade');
                 }
             }
         } else {
@@ -171,7 +161,7 @@ function createWindow() {
             title, 
             body, 
             icon: path.join(__dirname, 'icon.png'),
-            silent: false  // 播放系统通知声音
+            silent: false
         });
         n.on('click', () => {
             if (mainWindow) {
@@ -185,14 +175,13 @@ function createWindow() {
     });
 }
 
-// 单实例锁定 - 防止打开多个窗口
+// 单实例锁定
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
     app.quit();
 } else {
     app.on('second-instance', (event, commandLine, workingDirectory) => {
-        // 如果用户尝试打开第二个实例，聚焦到已有窗口
         if (mainWindow) {
             mainWindow.show();
             if (mainWindow.isMinimized()) mainWindow.restore();
@@ -216,9 +205,6 @@ if (!gotTheLock) {
 
 app.on('window-all-closed', () => {
     // 不退出，保持托盘运行
-    // if (process.platform !== 'darwin') {
-    //     app.quit();
-    // }
 });
 
 app.on('before-quit', () => {
